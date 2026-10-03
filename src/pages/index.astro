@@ -965,8 +965,8 @@ newRow.hidden = true;
       re.addEventListener('click', () => {
         hidePdfMenu();
         const scope = currentScope();
-        if (!scope) return;
-        window.open(`/pdf?path=${encodeURIComponent(scope)}&preset=${presetId}&recompile=1`, '_blank');
+        if (!scope || pdfBusy()) return;
+        void fetchPdf(scope, true);
       });
       items.push(re);
     }
@@ -975,7 +975,7 @@ newRow.hidden = true;
 
   pdfBtn.addEventListener('click', async () => {
     const scope = currentScope();
-    if (!scope) return;
+    if (!scope || pdfBusy()) return;
     // the compiled pdf comes from the server files: flush + push first so it
     // sees the newest text
     flushDraft();
@@ -984,10 +984,40 @@ newRow.hidden = true;
         await sync.pushNow();
       } catch {}
     }
-    const url = `/pdf?path=${encodeURIComponent(scope)}&preset=${presetId}`;
-    const w = window.open(url, '_blank');
-    if (!w) location.assign(url); // popup blocked: same tab is fine
+    await fetchPdf(scope, false);
   });
+
+  // compile on the server, open only when the pdf is fully there; the button
+  // carries a worker animation while LaTeX runs
+  let pdfObjectUrl: string | null = null;
+
+  function pdfBusy(): boolean {
+    return pdfBtn.classList.contains('busy');
+  }
+
+  async function fetchPdf(scope: string, force: boolean): Promise<void> {
+    if (pdfObjectUrl) {
+      URL.revokeObjectURL(pdfObjectUrl);
+      pdfObjectUrl = null;
+    }
+    pdfBtn.classList.add('busy');
+    const label = pdfBtn.textContent;
+    pdfBtn.textContent = '…';
+    try {
+      const url = `/pdf?path=${encodeURIComponent(scope)}&preset=${presetId}${force ? '&recompile=1' : ''}`;
+      const res = await fetch(url, { cache: 'no-store' });
+      if (!res.ok) throw new Error((await res.text()) || res.statusText);
+      pdfObjectUrl = URL.createObjectURL(await res.blob());
+      const w = window.open(pdfObjectUrl, '_blank');
+      if (!w) location.assign(pdfObjectUrl); // popup blocked: same tab is fine
+    } catch (err) {
+      alert(`pdf: ${(err as Error).message}`);
+    } finally {
+      pdfBtn.classList.remove('busy');
+      pdfBtn.textContent = label ?? 'pdf';
+      syncPdfBtnTitle();
+    }
+  }
 
   function syncPdfMenu(): void {
     for (const b of pdfMenu.querySelectorAll<HTMLButtonElement>('.ctx-item'))

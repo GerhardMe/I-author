@@ -992,6 +992,23 @@ input:-webkit-autofill {
   z-index: 40;
 }
 
+/* worker animation while LaTeX compiles: pulsing, no clicks */
+.pdf-dock.busy {
+  pointer-events: none;
+  animation: pdf-busy 1.1s ease-in-out infinite;
+}
+
+@keyframes pdf-busy {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+
+  50% {
+    opacity: 1;
+  }
+}
+
 @media (max-width: 900px) {
   .app {
     grid-template-columns: 1fr;

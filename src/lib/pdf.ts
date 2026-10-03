@@ -9,6 +9,7 @@ import { promisify } from 'node:util';
 import fs from 'node:fs';
 import path from 'node:path';
 import { WORKS_DIR } from './config.ts';
+import { parseName } from './naming.ts';
 import { NOTES, type Node, listWorks, safePath } from './works.ts';
 import { ensureRepo } from './git.ts';
 
@@ -246,6 +247,18 @@ export async function ensurePdf(
   return { abs: targetAbs, name };
 }
 
+// display title of a single chapter. Looked up in the UNCLENED tree: a
+// directly requested draft chapter compiles intentionally — the no-drafts
+// rule only governs folder aggregates. Fallback for a tree-stale path:
+// synthesize the chapter title from the filename grammar.
+function chapterTitle(rel: string): string {
+  const node = findNode(listWorks(), rel);
+  if (node) return node.title;
+  const parsed = parseName(path.basename(rel).replace(MD, ''));
+  const label = parsed.prefix !== null ? String(parsed.prefix) : '?';
+  return rel.includes('/') ? `Chapter ${label}: ${parsed.raw}` : parsed.raw;
+}
+
 async function buildTex(
   rel: string,
   isFile: boolean,
@@ -256,13 +269,11 @@ async function buildTex(
   // chapter/folder titles lead the hierarchy
   const setup = '\\markdownSetup{shiftHeadings=1}';
   if (isFile) {
-    const node = findNode(clean(listWorks()), rel);
-    if (!node) throw new Error('not found');
     return [
       preamble,
       setup,
       '\\begin{document}',
-      `\\section*{${texEsc(node.title)}}`,
+      `\\section*{${texEsc(chapterTitle(rel))}}`,
       `\\markdownInput{${abs}}`,
       '\\end{document}',
       '',

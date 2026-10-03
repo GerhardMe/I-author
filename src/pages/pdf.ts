@@ -21,9 +21,18 @@ export const GET: APIRoute = async (ctx) => {
       },
     });
   } catch (e) {
-    if ((e as Error).message === 'not found') {
-      return new Response('not found', { status: 404 });
-    }
-    return new Response(`pdf failed: ${(e as Error).message}`, { status: 500 });
+    const msg = (e as Error).message;
+    const status = msg === 'not found' ? 404 : 500;
+    // direct visits need a readable page; the client's fetch flow alerts on
+    // this same text
+    return new Response(
+      `<!doctype html><meta charset="utf-8"><title>pdf</title>` +
+        `<body style="font: 15px/1.6 Georgia,serif; max-width: 42em; margin: 3rem auto; padding: 0 1rem">` +
+        `<h1 style="font-size:1.2em">pdf failed (${status})</h1><pre style="white-space:pre-wrap">${msg.replace(
+          /[&<>]/g,
+          (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]!,
+        )}</pre></body>`,
+      { status, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } },
+    );
   }
 };
