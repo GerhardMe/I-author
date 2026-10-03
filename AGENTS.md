@@ -229,21 +229,28 @@ migrations won't be undone by deploys.
 
 ## Deployment (VPS)
 
+- Repo: `github.com:GerhardMe/I-author` (origin `main`). The server is a plain
+  git clone — the repo plus its flake is the whole install.
 - SSH aliases: `server` (user `server`) and `serverRoot` (root). Debian 13, Nix
   (multi-user) provides the runtime — node, git, and lualatex all come from this
-  repo's flake via `scripts/serve`; nothing hand-installed.
-- App: `/home/server/iauthor`. Works: `/home/server/writing/works` (owner `server`).
+  repo's flake via `scripts/serve`; nothing hand-installed. Flakes are enabled in
+  `/etc/nix/nix.conf` (`extra-experimental-features = nix-command flakes`).
+- App: `/home/server/iauthor` (git clone). Works: `/home/server/writing/works`
+  (owner `server`, lives outside the repo — never cloned/pushed; its `.gitignore`
+  ignores `*.pdf`).
 - systemd unit `/etc/systemd/system/iauthor.service` (user `server`, `HOST=127.0.0.1
   PORT=4322`, env `IAUTHOR_WORKS_DIR`, `ExecStart=/home/server/iauthor/scripts/serve`).
   Caddy site: `write.gerhard.page → localhost:4322`
   (auto-TLS; A record → 158.220.109.206).
-- **Always deploy with `scripts/deploy`** — it tests and builds locally (the node
-  adapter is standalone: dist needs no node_modules), rsyncs source + dist (secrets
-  survive), warms the nix runtime (`.gcroot` pins the closure so `nix store gc`
-  can't break the service), restarts, and health-checks. Do not hand-roll SSH
-  deploy steps; that's how things broke before. One-time server setup: install
-  Nix (multi-user daemon), run deploy once to build the gcroot, point the unit
-  at `scripts/serve`.
+- **Always deploy with `scripts/deploy`** — it tests locally, pushes `main` to
+  GitHub (dirty tree = error), then the server pulls, runs `pnpm install
+  --frozen-lockfile` and builds inside `nix develop` (keeping `dist.old` and
+  restoring it if the build fails), restarts, and health-checks. Do not hand-roll
+  SSH deploy steps; that's how things broke before. One-time server setup:
+  install Nix (multi-user daemon) + enable flakes, clone the repo (deploy key
+  `GerhardMe/gerhard.page`), restore `secrets/` into the clone, run deploy once
+  to build the `.gcroot` (pins the closure so `nix store gc` can't break the
+  service), point the unit at `scripts/serve`.
 
 ## Environment variables
 
