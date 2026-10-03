@@ -5,6 +5,9 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 if ! command -v nix >/dev/null 2>&1; then
+  export PATH="/nix/var/nix/profiles/default/bin:$PATH"
+fi
+if ! command -v nix >/dev/null 2>&1; then
   echo 'nix not found — one-time setup: install Nix (multi-user) on the server' >&2
   exit 1
 fi
