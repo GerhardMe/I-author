@@ -399,3 +399,57 @@ function chapterTitle(rel: string): string {
   const label = parsed.prefix !== null ? String(parsed.prefix) : '?';
   return rel.includes('/') ? `Chapter ${label}: ${parsed.raw}` : parsed.raw;
 }
+
+// ---------- plan ----------
+// What a compile would do right now: the fragment list with a cached flag on
+// each, from exactly the cache rule ensurePdf uses. The client's "compiling…"
+// placeholder polls this, so the split between ready and pending comes from
+// the server instead of being guessed in the browser. Hashing only — no
+// LaTeX, so it is cheap enough to poll.
+export type PlanItem = { kind: 'part' | 'chapter'; title: string; cached: boolean };
+export type PdfPlan = {
+  scope: string;
+  style: string;
+  fragments: boolean;
+  items: PlanItem[];
+};
+
+export function pdfPlan(
+  rel: string,
+  styleId: string | null,
+  includeDrafts = false,
+): PdfPlan {
+  const style = resolveStyle(styleId);
+  const styleHash = sha(style.preamble);
+  const isFile = MD.test(rel);
+  const abs = safePath(rel);
+  if (!abs || !fs.existsSync(abs)) throw new Error('not found');
+
+  if (isFile) {
+    const store = readStore();
+    const art = store.chapters[rel];
+    const cached =
+      !!art &&
+      art.style === style.id &&
+      art.src === fs.statSync(abs).mtimeMs &&
+      fs.existsSync(abs.replace(MD, '.pdf'));
+    return {
+      scope: path.basename(rel, path.extname(rel)),
+      style: style.id,
+      fragments: false,
+      items: [{ kind: 'chapter', title: chapterTitle(rel), cached }],
+    };
+  }
+
+  const node = findNode(clean(listWorks(), includeDrafts), rel);
+  if (!node) throw new Error('not found');
+  const items: FragItem[] = [];
+  collectItems(node, styleHash, items);
+  if (!items.length) throw new Error('not found');
+  return {
+    scope: path.basename(rel),
+    style: style.id,
+    fragments: true,
+    items: items.map((i) => ({ kind: i.kind, title: i.title, cached: fs.existsSync(i.file) })),
+  };
+}

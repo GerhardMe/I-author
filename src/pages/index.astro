@@ -57,6 +57,7 @@ import Base from '../layouts/base.astro';
   import { EditorView } from '@codemirror/view';
 
   import { editorExtensions } from '../lib/editor.ts';
+  import { pdfWaitPage } from '../lib/pdf-wait.ts';
   import {
     extendUnsynced,
     markUnsynced,
@@ -1002,22 +1003,27 @@ newRow.hidden = true;
       pdfObjectUrl = null;
     }
     pdfBtn.classList.add('busy');
+    const base =
+      `path=${encodeURIComponent(scope)}&preset=${presetId}` +
+      `&drafts=${hideDrafts ? '0' : '1'}`;
     // a compiles-longer-than-activation fetch loses the popup privilege, so
     // the tab opens NOW (inside the click gesture) — in the background, with
-    // focus handed straight back so the user stays in the app. It fills with
-    // the pdf once the compile is done and never steals focus.
+    // focus handed straight back so the user stays in the app. It shows the
+    // server's fragment plan while LaTeX runs, then becomes the pdf.
     const tab = window.open('about:blank', '_blank');
     if (tab) {
-      tab.document.write(
-        '<meta charset="utf-8"><body style="font:14px Georgia,serif;color:#777;display:grid;place-items:center;height:100vh;margin:0">compiling…</body>',
-      );
+      tab.document.write(pdfWaitPage(`/api/pdfstatus?${base}`, force));
+      // hand focus straight back to the app. Blurring the new tab alone is
+      // ignored by some browsers and window.focus() is often a no-op, so
+      // also focus a real element here — the strongest signal there is. All
+      // of it must stay synchronous, inside the click gesture, or the tab
+      // comes back to the front once the compile finishes.
       tab.blur?.();
       window.focus();
+      pdfBtn.focus({ preventScroll: true });
     }
     try {
-      const url =
-        `/pdf?path=${encodeURIComponent(scope)}&preset=${presetId}` +
-        `&drafts=${hideDrafts ? '0' : '1'}${force ? '&recompile=1' : ''}`;
+      const url = `/pdf?${base}${force ? '&recompile=1' : ''}`;
       const res = await fetch(url, { cache: 'no-store' });
       if (!res.ok) {
         throw new Error(
