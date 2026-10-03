@@ -47,7 +47,8 @@ the roadmap below. If a change adds complexity, it needs a good reason.
 - Plain PostCSS (import, nesting, autoprefixer) in `src/styles/global.css` + scoped
   styles only for static markup. **Styles for JS-created DOM must be global** (Astro
   scoping won't match dynamically created elements).
-- Client deps: `marked` (markdown → HTML), `@fontsource-variable/literata`, CodeMirror 6
+- Client deps: `marked` (markdown → HTML), `katex` (math in the preview),
+  `@fontsource-variable/literata`, CodeMirror 6
   (`@codemirror/state`/`view`/`commands`/`language` + `@lezer/highlight`) for the editor,
   `@codemirror/lang-markdown` + `language-data` for markdown parsing and fenced-code
   grammars (grammars load lazily as separate chunks per language).
@@ -73,13 +74,19 @@ src/lib/works.ts     works tree: listWorks/readChapter/writeChapter/createEntry/
                      word counts (Node.words: per-md count, folders sum all descendant mds)
 src/lib/words.ts     countWords() — pure, used client- and server-side
 src/lib/preview.ts   live-preview engine: widgets, buildDeco, focus field, ctrl+click
-                     link routing (createPreview(onOpenLink)); table HTML memoized
+                     link routing (createPreview(onOpenLink)); table HTML memoized;
+                     KaTeX math ($…$ inline, $$…$$ display) via MathWidget
 src/lib/sync.ts      chunked-sync engine: unsynced marks, draft store (sessionStorage),
                      push machine (createSync) — dirty-word accumulator + idle push
 src/lib/git.ts       ensureRepo + commit(msg) in WORKS_DIR (server-local, never pushed)
+src/lib/pdf.ts       PDF compiler: LuaLaTeX + `markdown` package; ensurePdf(rel, style,
+                     force) compiles beside the source in the works dir; styles from
+                     pdfstyles/ (first line `% label: L — note` = menu metadata)
 src/pages/api/       setup, login, session, logout, lock, tree, file (GET/PUT), new, delete,
-                     rename
-src/pages/           index.astro (app shell), login.astro, setup.astro
+                     rename, pdfstyles
+src/pages/           index.astro (app shell), login.astro, setup.astro, pdf.ts (stream)
+pdfstyles/           LaTeX preamble "stylesheets" (a4, a5, bicameral) — single source
+                     of truth for the pdf style menu
 src/layouts/         base.astro (theme pre-paint script, Literata import)
 src/styles/global.css  design tokens + shared components + app shell + markdown styles
 ```
@@ -111,7 +118,7 @@ nix develop          # everything below assumes this shell
 run                  # astro dev on :4321
 test-auth            # pnpm test (node --experimental-strip-types, node:test)
 build                # production build
-deploy               # test + build locally, sync to VPS, install/build/restart, health check
+deploy               # test + build locally, sync source + dist to VPS, restart, health check
 ```
 
 - **Test on the deployed server, not locally.** The user tests UI changes against the
@@ -222,15 +229,21 @@ migrations won't be undone by deploys.
 
 ## Deployment (VPS)
 
-- SSH aliases: `server` (user `server`) and `serverRoot` (root). Debian 13, node 24 + pnpm.
+- SSH aliases: `server` (user `server`) and `serverRoot` (root). Debian 13, Nix
+  (multi-user) provides the runtime — node, git, and lualatex all come from this
+  repo's flake via `scripts/serve`; nothing hand-installed.
 - App: `/home/server/iauthor`. Works: `/home/server/writing/works` (owner `server`).
 - systemd unit `/etc/systemd/system/iauthor.service` (user `server`, `HOST=127.0.0.1
-  PORT=4322`, env `IAUTHOR_WORKS_DIR`). Caddy site: `write.gerhard.page → localhost:4322`
+  PORT=4322`, env `IAUTHOR_WORKS_DIR`, `ExecStart=/home/server/iauthor/scripts/serve`).
+  Caddy site: `write.gerhard.page → localhost:4322`
   (auto-TLS; A record → 158.220.109.206).
-- **Always deploy with `scripts/deploy`** — it tests, builds locally, rsyncs (secrets
-  survive), installs with `--frozen-lockfile`, builds on the server (keeping `dist.old`
-  and restoring it if the build fails), restarts, and health-checks. Do not hand-roll
-  SSH deploy steps; that's how things broke before.
+- **Always deploy with `scripts/deploy`** — it tests and builds locally (the node
+  adapter is standalone: dist needs no node_modules), rsyncs source + dist (secrets
+  survive), warms the nix runtime (`.gcroot` pins the closure so `nix store gc`
+  can't break the service), restarts, and health-checks. Do not hand-roll SSH
+  deploy steps; that's how things broke before. One-time server setup: install
+  Nix (multi-user daemon), run deploy once to build the gcroot, point the unit
+  at `scripts/serve`.
 
 ## Environment variables
 
@@ -241,6 +254,7 @@ migrations won't be undone by deploys.
 | `IAUTHOR_IDLE_LOCK` | `12h` | idle lock timeout (`30m`/`12h` style) |
 | `IAUTHOR_SECURE` | unset | force Secure cookies (normally auto via `x-forwarded-proto`) |
 | `IAUTHOR_DOMAINS` | `localhost` | build-time `security.allowedDomains` (deploy sets it) |
+| `IAUTHOR_LUALATEX` | `lualatex` | pdf compiler binary (flake puts it on PATH) |
 | `HOST`/`PORT` | localhost/4321 | node adapter bind |
 
 ## Gotchas learned the hard way
@@ -277,23 +291,24 @@ empty space for `new`/`delete` (hover previews: green blinking insertion line, r
 pulsing subtree); create dialog with md/dir toggle + auto `NN_` prefix prefill;
 sidebar toolbar reduced to the drafts toggle (eye glyph); expand/collapse state
 persisted in localStorage (`iauthor.expanded`), caret clicks toggle without
-selecting.
+selecting · 5) PDF compiler via LaTeX (replaced an in-editor paged view that
+fought screen text sizes — deleted) — the `pdf` dock button opens
+`/pdf?path=&preset=` which compiles (or just streams, if fresh) a real PDF
+beside its source in the works dir (`01_flight.md` → `01_flight.pdf`,
+folder `01_work/` → `01_work.pdf`); LuaLaTeX + the `markdown` package,
+preamble "stylesheets" live in `pdfstyles/` (first line `% label: ...`,
+menu from `GET /api/pdfstyles`, default `bicameral` = 6.1″×9″ academic;
+recompile item + stale-mtime auto-recompile; preset in
+`iauthor.pdf-preset`); folder scopes get title page + `\tableofcontents`
+(real page numbers, two-pass compile), chapters get ruled unnumbered section
+headings, markdown content headings shift down one level; drafts/notes never
+leak into PDFs; works dir `.gitignore` gets `*.pdf` seeded by `ensureRepo`;
+KaTeX renders `$…$`/`$$…$$` math in the editor preview (`preview.ts`).
 
-Next: 5b) Paged view phase 2 — running page numbers across the whole work:
-paginate preceding chapters of the same top-level work (hidden measure views,
-cached per path+preset) to get each chapter's first page number. 5a done:
-paged view phase 1 — `src/lib/paged.ts` paginates the editor with page-gap +
-page-number block decorations (breaks measured from the real DOM via posAtDOM,
-recomputed debounced 300ms; the editor already grows with content so the whole
-doc is measurable); presets A4/A5/Bicameral (6.1″ × 9″ — the Mariner trim of
-Jaynes's *Breakdown of the Bicameral Mind*) behind a fixed bottom-right `pages`
-toggle (left-click = on/off, right-click = preset menu, preset in
-`iauthor.pages-preset`); pageless default; dock hidden ≤900px (laptop-first).
-Editor extension assembly lives in `src/lib/editor.ts` (`editorExtensions`) so
-hidden measure views can reuse the exact rendering pipeline. 6) Encrypted GitHub
+Next: 6) Encrypted GitHub
 backup: tar+gzip whole tree → AES-256-GCM with master key → one ciphertext blob per
 snapshot to a private repo via deploy key; `scripts/restore` to decrypt+untar; prune
 option (keep last N); optional rclone crypt → ProtonDrive timer. 7) Mobile pass.
 
-Deferred todo list: print/PDF export via print stylesheet; project-wide search;
+Deferred todo list: project-wide search;
 client-side LLM word-prediction (flag unlikely tokens as possible typos, suggest fixes).

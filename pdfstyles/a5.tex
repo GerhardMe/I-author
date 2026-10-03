@@ -1,0 +1,53 @@
+% label: A5 — 148 × 210 mm
+\documentclass[10pt]{article}
+
+\usepackage[a5paper, margin=1.8cm]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath}
+\usepackage[hashEnumerators, smartEllipses, hybrid, pipeTables, taskLists, texMathDollars, notes, inlineNotes]{markdown}
+\usepackage{palatino}
+\usepackage{microtype}
+
+% No numbered headings — the compiler emits starred sectioning
+\setcounter{secnumdepth}{-2}
+
+% Blockquotes as indented italic
+\renewenvironment{quote}{%
+  \list{}{\leftmargin=1.5em\rightmargin=1.5em}%
+  \item\relax\itshape
+}{%
+  \endlist
+}
+
+\setlength{\parskip}{0.6em}
+\setlength{\parindent}{0pt}
+\linespread{1.2}
+
+% Section formatting — ruled block heading (house style)
+\usepackage{titlesec}
+\titleformat{\section}[block]
+  {\large\bfseries}
+  {}
+  {0pt}
+  {}
+  [\vspace{2pt}\rule{\textwidth}{0.4pt}]
+
+\titleformat{\subsection}[block]
+  {\normalsize\bfseries}
+  {}
+  {0pt}
+  {}
+
+% Parts (folders) — modest centered block, no rule
+\titleformat{\part}[block]
+  {\centering\large\bfseries\itshape}
+  {}
+  {0pt}
+  {}
+
+\titlespacing*{\section}{0pt}{1.5em}{0.6em}
+\titlespacing*{\subsection}{0pt}{1em}{0.3em}
+\titlespacing*{\part}{0pt}{2em}{1em}
+
+\usepackage{hyperref}
+\hypersetup{hidelinks}

@@ -1,6 +1,4 @@
-// Shared editor extension assembly: the live editor and the hidden measurement
-// views (paged.ts) must render with the same pipeline so pagination math and
-// on-screen layout stay identical.
+// Shared editor extension assembly for the live editor.
 import { EditorState, type Extension, type Transaction } from '@codemirror/state';
 import { EditorView, keymap } from '@codemirror/view';
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
@@ -14,7 +12,7 @@ export type EditorHooks = {
   getView: () => EditorView | null; // for focus/blur; null while constructing
 };
 
-export function editorExtensions(hooks: EditorHooks, extra: Extension[] = []): Extension[] {
+export function editorExtensions(hooks: EditorHooks): Extension[] {
   return [
     keymap.of([...defaultKeymap, ...historyKeymap]),
     history(),
@@ -33,6 +31,5 @@ export function editorExtensions(hooks: EditorHooks, extra: Extension[] = []): E
         return false;
       },
     }),
-    ...extra,
   ];
 }

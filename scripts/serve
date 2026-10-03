@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Production server entrypoint: the flake provides node + git + lualatex, so
+# the service needs nothing installed on the host. systemd runs this script.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+if ! command -v nix >/dev/null 2>&1; then
+  echo 'nix not found — one-time setup: install Nix (multi-user) on the server' >&2
+  exit 1
+fi
+
+exec nix develop -c node dist/server/entry.mjs

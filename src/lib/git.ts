@@ -13,6 +13,13 @@ export async function ensureRepo(): Promise<void> {
     await run('git', ['config', 'user.name', 'iauthor'], { cwd: WORKS_DIR });
     await run('git', ['config', 'user.email', 'iauthor@local'], { cwd: WORKS_DIR });
   }
+  // compiled pdfs are build artifacts, not writing: keep them out of history
+  const gi = path.join(WORKS_DIR, '.gitignore');
+  if (!fs.existsSync(gi)) {
+    fs.writeFileSync(gi, '*.pdf\n');
+  } else if (!fs.readFileSync(gi, 'utf8').includes('*.pdf')) {
+    fs.appendFileSync(gi, '*.pdf\n');
+  }
 }
 
 export async function commit(msg: string): Promise<boolean> {

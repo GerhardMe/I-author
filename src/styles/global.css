@@ -956,43 +956,40 @@ input:-webkit-autofill {
   font-weight: 600;
 }
 
-/* ---------- paged view (milestone 5) — JS-created DOM, so global ---------- */
-.page-dock {
+/* ---------- math preview (katex — JS-created DOM, so global styles) ---------- */
+
+/* focused raw math ($...$ / $$...$$): subtle hint that this is a math span */
+#editor-host .cm-math {
+  color: var(--accent);
+  font-style: italic;
+}
+
+/* bad LaTeX: the raw source stays visible, flagged with the error color */
+#editor-host .cm-math-err {
+  color: var(--danger);
+  font-style: italic;
+}
+
+/* rendered display math: centered block with breathing room */
+#editor-host .cm-math-block {
+  text-align: center;
+  margin: 0.75rem 0;
+  overflow-x: auto;
+}
+
+/* katex inherits the surrounding text color; ~1.05em instead of katex's
+   1.21em default so equations fit the line */
+#editor-host .katex {
+  font-size: 1.05em;
+  max-width: 100%;
+}
+
+/* ---------- pdf dock — JS-driven button, global styles ---------- */
+.pdf-dock {
   position: fixed;
   right: 1rem;
   bottom: 1rem;
   z-index: 40;
-}
-
-/* geometry numbers are set from src/lib/paged.ts (single source of truth) */
-#editor-host.paged {
-  max-width: calc(var(--page-w) - 2 * var(--page-mx));
-}
-
-#editor-host.paged .cm-content {
-  padding: 0.25rem 0 0; /* the page flow supplies the space below */
-}
-
-/* the gap between two pages: foot margin of the ended page (number centered
-   in it), then the head margin of the next one; hairlines mark the sheet
-   edges at both ends */
-#editor-host .cm-page-gap {
-  height: calc(var(--page-my) * 2);
-  position: relative;
-  border-top: 1px solid var(--line);
-  border-bottom: 1px solid var(--line);
-}
-
-#editor-host .cm-page-num {
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: calc(var(--page-my) / 2);
-  transform: translateY(-50%);
-  text-align: center;
-  font-size: 0.75rem;
-  color: var(--muted);
-  user-select: none;
 }
 
 @media (max-width: 900px) {
@@ -1031,7 +1028,7 @@ input:-webkit-autofill {
     padding: 3.5rem 1.25rem 2rem;
   }
 
-  .page-dock {
-    display: none; /* laptop-first: no paged view on small screens */
+  .pdf-dock {
+    display: none; /* laptop-first: no pdf export on small screens */
   }
 }

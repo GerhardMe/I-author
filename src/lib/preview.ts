@@ -22,6 +22,8 @@ import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
 import { tags as t } from '@lezer/highlight';
 import { markdown } from '@codemirror/lang-markdown';
 import { languages } from '@codemirror/language-data';
+import { renderToString as renderKatex } from 'katex';
+import 'katex/dist/katex.min.css';
 
 // ---------- focus tracking ----------
 export const focusToggle = StateEffect.define<null>();
@@ -139,15 +141,61 @@ class TableWidget extends WidgetType {
   }
 }
 
+class MathWidget extends WidgetType {
+  constructor(
+    readonly src: string,
+    readonly html: string, // pre-rendered by renderMath — never a ParseError here
+    readonly display: boolean,
+    readonly pos: number,
+  ) {
+    super();
+  }
+  eq(o: MathWidget): boolean {
+    return o.src === this.src && o.display === this.display && o.pos === this.pos;
+  }
+  ignoreEvent(): boolean {
+    return false; // clicking places the cursor and reveals the raw math
+  }
+  toDOM(): HTMLElement {
+    const el = document.createElement(this.display ? 'div' : 'span');
+    el.className = this.display ? 'cm-math-block' : 'cm-math-inline';
+    el.innerHTML = this.html;
+    return el;
+  }
+}
+
 // ---------- decoration build ----------
 export type OpenLink = (href: string) => boolean;
 
 // table HTML memo: raw block text → compiled html; cleared whenever the doc changes
 let tableMemo = new Map<string, string>();
 
+// katex HTML memo: math source → compiled html (null = render error); same lifecycle
+let mathMemo = new Map<string, string | null>();
+
 export function invalidatePreviewMemo(): void {
   tableMemo = new Map();
+  mathMemo = new Map();
 }
+
+function renderMath(src: string, display: boolean): string | null {
+  const key = (display ? 'd:' : 'i:') + src;
+  let html = mathMemo.get(key);
+  if (html === undefined) {
+    try {
+      html = renderKatex(src, { displayMode: display, throwOnError: true });
+    } catch {
+      html = null; // bad LaTeX — callers fall back to the raw source
+    }
+    mathMemo.set(key, html);
+  }
+  return html;
+}
+
+// inline math: single dollars (not $$), not after an escape or another dollar;
+// requires a non-space after the opening and before the closing dollar so
+// currency text ("costs $5 and $10") stays prose
+const INLINE_MATH = /(?<![$\\])\$(?!\s)((?:\\.|[^$\n])+?)(?<!\s)\$(?!\$)/g;
 
 function buildDeco(state: EditorState, onOpenLink: OpenLink): {
   deco: DecorationSet;
@@ -212,6 +260,22 @@ function buildDeco(state: EditorState, onOpenLink: OpenLink): {
       hide(base + a, base + a + 1);
       hide(base + b - 1, base + b);
       mark(base + a + 1, base + b - 1, 'cm-code');
+    }
+    for (const m of text.matchAll(INLINE_MATH)) {
+      const a = m.index;
+      const b = a + m[0].length;
+      if (!free(a, b)) continue; // inside code spans/links/images: leave alone
+      take(a, b);
+      const html = renderMath(m[1], false);
+      if (html === null) {
+        mark(base + a, base + b, 'cm-math-err'); // bad LaTeX: raw source, error styling
+        continue;
+      }
+      hideWidget(
+        base + a,
+        base + b,
+        Decoration.replace({ widget: new MathWidget(m[1], html, false, base + a) }),
+      );
     }
     for (const m of text.matchAll(/\*\*([^*\n]+)\*\*/g)) {
       const a = m.index;
@@ -299,6 +363,70 @@ function buildDeco(state: EditorState, onOpenLink: OpenLink): {
     ti++;
   }
 
+  // display math $$...$$ blocks — a paragraph on its own, may span lines;
+  // skipped inside fenced code and on lines already claimed by a table
+  let di = 0;
+  while (di < lines.length) {
+    const l = lines[di];
+    if (l.fenced || skip.has(di)) {
+      di++;
+      continue;
+    }
+    const openM = /^(\s*)\$\$/.exec(l.text);
+    if (!openM) {
+      di++;
+      continue;
+    }
+    let closeLine = -1;
+    let closeAt = -1; // doc position of the closing '$$'
+    const same = l.text.indexOf('$$', openM[1].length + 2);
+    if (same !== -1 && /^\s*$/.test(l.text.slice(same + 2))) {
+      closeLine = di;
+      closeAt = l.from + same;
+    } else {
+      for (let j = di + 1; j < lines.length; j++) {
+        if (lines[j].fenced) break;
+        const k = lines[j].text.indexOf('$$');
+        if (k === -1) continue;
+        if (!/^\s*$/.test(lines[j].text.slice(k + 2))) break; // stray text: not a block
+        closeLine = j;
+        closeAt = lines[j].from + k;
+        break;
+      }
+    }
+    if (closeLine !== -1) {
+      const blockFrom = l.from;
+      const blockTo = lines[closeLine].to;
+      if (active(blockFrom, blockTo)) {
+        deco.push({
+          from: blockFrom,
+          to: blockTo,
+          value: Decoration.mark({ class: 'cm-math' }),
+        });
+      } else {
+        const src = doc.sliceString(l.from + openM[1].length + 2, closeAt);
+        const html = renderMath(src, true);
+        if (html === null) {
+          deco.push({
+            from: blockFrom,
+            to: blockTo,
+            value: Decoration.mark({ class: 'cm-math-err' }),
+          });
+        } else {
+          hideWidget(
+            blockFrom,
+            blockTo,
+            Decoration.replace({ widget: new MathWidget(src, html, true, blockFrom), block: true }),
+          );
+        }
+      }
+      for (let k = di; k <= closeLine; k++) skip.add(k);
+      di = closeLine + 1;
+      continue;
+    }
+    di++;
+  }
+
   // per-line block syntax
   lines.forEach((l, idx) => {
     if (skip.has(idx)) return;
@@ -310,7 +438,17 @@ function buildDeco(state: EditorState, onOpenLink: OpenLink): {
       }
       return;
     }
-    if (active(l.from, l.to)) return; // cursor's line: raw markdown
+    if (active(l.from, l.to)) {
+      // cursor's line: raw markdown — still tag inline math so it reads as math
+      for (const m of l.text.matchAll(INLINE_MATH)) {
+        deco.push({
+          from: l.from + m.index,
+          to: l.from + m.index + m[0].length,
+          value: Decoration.mark({ class: 'cm-math' }),
+        });
+      }
+      return;
+    }
 
     const text = l.text;
     let m: RegExpExecArray | null;

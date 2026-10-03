@@ -227,6 +227,14 @@ export function deleteEntry(rel: string): void {
   const abs = safePath(rel);
   if (!abs || abs === fs.realpathSync(WORKS_DIR)) throw new Error('invalid path');
   fs.rmSync(abs, { recursive: true });
+  // the compiled pdf is a sibling artifact, not tracked data: remove it too
+  const pdf = pdfSibling(rel, abs);
+  if (fs.existsSync(pdf)) fs.rmSync(pdf);
+}
+
+// compiled pdfs live beside their source (chapter or folder)
+function pdfSibling(rel: string, abs: string): string {
+  return MD.test(rel) ? abs.replace(MD, '.pdf') : `${abs}.pdf`;
 }
 
 export function renameEntry(rel: string, name: string): { path: string } {
@@ -243,6 +251,12 @@ export function renameEntry(rel: string, name: string): { path: string } {
   if (targetAbs === abs) return { path: rel };
   if (fs.existsSync(targetAbs)) throw new Error('already exists');
   fs.renameSync(abs, targetAbs);
+  // carry the compiled pdf to the new name, if one was built
   const parentRel = rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/') + 1) : '';
-  return { path: parentRel + target };
+  const newRel = `${parentRel}${target}`;
+  const oldPdf = pdfSibling(rel, abs);
+  if (fs.existsSync(oldPdf)) {
+    fs.renameSync(oldPdf, pdfSibling(newRel, targetAbs));
+  }
+  return { path: newRel };
 }

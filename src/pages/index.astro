@@ -44,9 +44,9 @@ import Base from '../layouts/base.astro';
       </article>
     </main>
   </div>
-  <button class="btn-tiny page-dock" id="pages-toggle" hidden
-          title="pages — click to toggle, right-click for page sizes">pages</button>
-  <div id="pages-menu" hidden></div>
+  <button class="btn-tiny pdf-dock" id="pdf-toggle" hidden
+          title="pdf — compile this scope, right-click for page sizes">pdf</button>
+  <div id="pdf-menu" hidden></div>
 </Base>
 <script>
 
@@ -55,7 +55,7 @@ import Base from '../layouts/base.astro';
   import { marked } from 'marked';
   import { EditorState, type Transaction } from '@codemirror/state';
   import { EditorView } from '@codemirror/view';
-  import { DEFAULT_PRESET_ID, createPagedExt, setPaged, pagePresets, type PagePresetId } from '../lib/paged.ts';
+
   import { editorExtensions } from '../lib/editor.ts';
   import {
     extendUnsynced,
@@ -101,7 +101,7 @@ import Base from '../layouts/base.astro';
   const EXP_KEY = 'iauthor.expanded';
   let selected: string | null = null;
   let pendingKind: 'folder' | 'file' = 'file';
-  let pagesOn = false;
+  let currentGroup: string | null = null; // folder index currently shown, if any
 
   function saveExpanded(): void {
     try {
@@ -218,7 +218,7 @@ import Base from '../layouts/base.astro';
     const view = new EditorView({
       state: EditorState.create({
         doc: content,
-        extensions: editorExtensions(hooks, createPagedExt()),
+        extensions: editorExtensions(hooks),
       }),
       parent: editorHost,
     });
@@ -237,10 +237,6 @@ import Base from '../layouts/base.astro';
       editor = null;
     }
     editorHost.replaceChildren();
-    editorHost.classList.remove('paged');
-    pagesOn = false;
-    pagesBtn.classList.remove('is-on');
-    hidePagesMenu();
   }
 
   function dirty(): boolean {
@@ -254,6 +250,7 @@ import Base from '../layouts/base.astro';
     sync.cancel();
     destroyEditor();
     currentFile = null;
+    currentGroup = null;
   }
 
   function openLink(href: string): boolean {
@@ -412,7 +409,8 @@ async function showGroup(node: Node): Promise<void> {
     docDel.hidden = false;
     editorHost.hidden = true;
     docBody.hidden = false;
-    pagesBtn.hidden = true; // no editor -> no pages toggle
+    currentGroup = node.path;
+    pdfBtn.hidden = false; // folder scope: pdf compiles the folder
 
     const frag = document.createDocumentFragment();
     const kids = visible(cur.children!);
@@ -475,7 +473,7 @@ async function showGroup(node: Node): Promise<void> {
       docWords.hidden = false;
       docWords.textContent = `${countWords(content)} words`;
       docDel.hidden = false;
-      pagesBtn.hidden = false;
+      pdfBtn.hidden = false;
       currentFile = p;
       sync.setBaseline(content, content.length);
       destroyEditor();
@@ -500,7 +498,7 @@ async function showGroup(node: Node): Promise<void> {
       docTitle.classList.remove('draft');
       editorHost.hidden = true;
       docBody.hidden = false;
-      pagesBtn.hidden = true;
+      pdfBtn.hidden = true;
       docBody.innerHTML = `<p class="error">${esc((err as Error).message)}</p>`;
     }
   }
@@ -788,6 +786,7 @@ newRow.hidden = true;
         selected = null;
         doc.hidden = true;
         empty.hidden = false;
+        pdfBtn.hidden = true;
       }
       for (const p of [...expanded]) {
         if (p === target.path || p.startsWith(target.path + '/')) expanded.delete(p);
@@ -898,76 +897,123 @@ newRow.hidden = true;
         selected = null;
         doc.hidden = true;
         empty.hidden = false;
+        pdfBtn.hidden = true;
       } else if (node.children !== undefined) {
         void showGroup(node);
       }
     }
   });
 
-  // ---------- paged view (milestone 5, phase 1) ----------
-  const pagesBtn = document.getElementById('pages-toggle') as HTMLButtonElement;
-  const pagesMenu = document.getElementById('pages-menu')!;
-  const smallScreen = (): boolean => matchMedia('(max-width: 900px)').matches;
+  // ---------- pdf compiler ----------
+  // the server compiles via LaTeX (pdfstyles/ folder); the menu mirrors it
+  const pdfBtn = document.getElementById('pdf-toggle') as HTMLButtonElement;
+  const pdfMenu = document.getElementById('pdf-menu')!;
 
-  const storedPreset = localStorage.getItem('iauthor.pages-preset') as PagePresetId | null;
-  let presetId: PagePresetId =
-    storedPreset && pagePresets.some((p) => p.id === storedPreset)
-      ? storedPreset
-      : DEFAULT_PRESET_ID;
+  type PdfStyle = { id: string; label: string; note: string };
+  let pdfStyles: PdfStyle[] = [];
+  let presetId: string = localStorage.getItem('iauthor.pdf-preset') ?? '';
 
-  function setPages(on: boolean): void {
-    if (on && smallScreen()) on = false; // laptop-first: no pages on phones
-    pagesOn = on;
-    if (editor) setPaged(editor, on, presetId);
-    pagesBtn.classList.toggle('is-on', on);
-    pagesBtn.title = on
-      ? 'paged view — click to go pageless, right-click for page sizes'
-      : 'pages — click to toggle, right-click for page sizes';
-    hidePagesMenu();
+  // the pdf compiles whatever is open: a chapter, or the folder index's scope
+  function currentScope(): string | null {
+    return currentFile ?? currentGroup;
   }
 
-  function syncPagesMenu(): void {
-    for (const b of pagesMenu.querySelectorAll<HTMLButtonElement>('.ctx-item'))
+  function syncPdfBtnTitle(): void {
+    const s = pdfStyles.find((x) => x.id === presetId);
+    pdfBtn.title = s
+      ? `pdf (${s.label}) — read or compile this scope, right-click for sizes`
+      : 'pdf — read or compile this scope, right-click for sizes';
+  }
+
+  async function loadPdfStyles(): Promise<void> {
+    try {
+      const data = await api('/api/pdfstyles');
+      pdfStyles = data.styles as PdfStyle[];
+    } catch {
+      pdfStyles = [];
+    }
+    if (pdfStyles.length && !pdfStyles.some((s) => s.id === presetId)) {
+      presetId = pdfStyles[0]!.id;
+    }
+    buildPdfMenu();
+    syncPdfBtnTitle();
+  }
+
+  function buildPdfMenu(): void {
+    const items: HTMLButtonElement[] = [];
+    for (const s of pdfStyles) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'ctx-item';
+      b.textContent = s.note ? `${s.label} — ${s.note}` : s.label;
+      b.dataset.preset = s.id;
+      b.addEventListener('click', () => {
+        presetId = s.id;
+        try {
+          localStorage.setItem('iauthor.pdf-preset', s.id);
+        } catch {}
+        syncPdfBtnTitle();
+        hidePdfMenu();
+      });
+      items.push(b);
+    }
+    if (pdfStyles.length) {
+      const re = document.createElement('button');
+      re.type = 'button';
+      re.className = 'ctx-item';
+      re.textContent = 'recompile';
+      re.addEventListener('click', () => {
+        hidePdfMenu();
+        const scope = currentScope();
+        if (!scope) return;
+        window.open(`/pdf?path=${encodeURIComponent(scope)}&preset=${presetId}&recompile=1`, '_blank');
+      });
+      items.push(re);
+    }
+    pdfMenu.replaceChildren(...items);
+  }
+
+  pdfBtn.addEventListener('click', async () => {
+    const scope = currentScope();
+    if (!scope) return;
+    // the compiled pdf comes from the server files: flush + push first so it
+    // sees the newest text
+    flushDraft();
+    if (editor && currentFile && dirty()) {
+      try {
+        await sync.pushNow();
+      } catch {}
+    }
+    const url = `/pdf?path=${encodeURIComponent(scope)}&preset=${presetId}`;
+    const w = window.open(url, '_blank');
+    if (!w) location.assign(url); // popup blocked: same tab is fine
+  });
+
+  function syncPdfMenu(): void {
+    for (const b of pdfMenu.querySelectorAll<HTMLButtonElement>('.ctx-item'))
       b.classList.toggle('is-on', b.dataset.preset === presetId);
   }
 
-  function hidePagesMenu(): void {
-    pagesMenu.hidden = true;
+  function hidePdfMenu(): void {
+    pdfMenu.hidden = true;
   }
 
-  for (const p of pagePresets) {
-    const b = document.createElement('button');
-    b.type = 'button';
-    b.className = 'ctx-item';
-    b.textContent = `${p.label} — ${p.note}`;
-    b.dataset.preset = p.id;
-    b.addEventListener('click', () => {
-      presetId = p.id;
-      try {
-        localStorage.setItem('iauthor.pages-preset', p.id);
-      } catch {}
-      setPages(true); // picking a size means wanting pages
-    });
-    pagesMenu.append(b);
-  }
-
-  pagesBtn.addEventListener('click', () => setPages(!pagesOn));
-  pagesBtn.addEventListener('contextmenu', (e) => {
+  pdfBtn.addEventListener('contextmenu', (e) => {
     e.preventDefault();
-    if (!editor) return;
-    syncPagesMenu();
-    pagesMenu.hidden = false;
-    const r = pagesBtn.getBoundingClientRect();
-    const m = pagesMenu.getBoundingClientRect();
-    pagesMenu.style.left = `${Math.max(8, Math.min(r.right - m.width, window.innerWidth - m.width - 8))}px`;
-    pagesMenu.style.top = `${Math.max(8, r.top - m.height - 6)}px`;
+    syncPdfMenu();
+    pdfMenu.hidden = false;
+    const r = pdfBtn.getBoundingClientRect();
+    const m = pdfMenu.getBoundingClientRect();
+    pdfMenu.style.left = `${Math.max(8, Math.min(r.right - m.width, window.innerWidth - m.width - 8))}px`;
+    pdfMenu.style.top = `${Math.max(8, r.top - m.height - 6)}px`;
   });
   document.addEventListener('click', (e) => {
-    if (!pagesMenu.hidden && !pagesMenu.contains(e.target as Node)) hidePagesMenu();
+    if (!pdfMenu.hidden && !pdfMenu.contains(e.target as Node)) hidePdfMenu();
   });
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && !pagesMenu.hidden) hidePagesMenu();
+    if (e.key === 'Escape' && !pdfMenu.hidden) hidePdfMenu();
   });
+  syncPdfBtnTitle();
 
   const post = (url: string) => {
     flushDraft();
@@ -992,6 +1038,7 @@ newRow.hidden = true;
   });
 
   async function boot(): Promise<void> {
+    void loadPdfStyles(); // the pdf menu fills in whenever the server answers
     syncHideBtn();
     // restore the expanded/collapsed folders from the last session; first
     // visit (no stored state) starts with all top-level works expanded

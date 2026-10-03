@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# Deploy Iauthor to the VPS: test + build locally, sync, install, build,
-# restart, health check. Restores the previous dist if the server build fails.
+# Deploy Iauthor to the VPS: test + build locally (the app is standalone:
+# dist needs no node_modules at runtime), sync source + dist, restart, health
+# check. The server runs everything through the flake (scripts/serve), so it
+# needs no hand-installed node/pnpm/texlive.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -20,8 +22,9 @@ run() {
 say "tests"
 run pnpm test
 
-say "pre-flight local build"
-run pnpm build
+say "pre-flight local build (IAUTHOR_DOMAINS is baked in at build time)"
+rm -rf dist
+IAUTHOR_DOMAINS=$DOMAIN run pnpm build
 
 say "syncing source to $SERVER:$APP_DIR"
 rsync -az --delete \
@@ -29,19 +32,17 @@ rsync -az --delete \
   --exclude .git --exclude .env \
   ./ "$SERVER:$APP_DIR/"
 
-say "install + build on server (previous dist kept as dist.old until success)"
+say "syncing dist"
+rsync -az --delete dist/ "$SERVER:$APP_DIR/dist/"
+
+say "warming the nix runtime on the server (pins node + texlive closures)"
+# downloads the exact store paths from cache.nixos.org; registers a gcroot
+# so `nix store gc` can never break the running service
 ssh "$SERVER" "set -e; cd $APP_DIR
-  pnpm install --frozen-lockfile
-  rm -rf dist.old
-  if [ -d dist ]; then mv dist dist.old; fi
-  if IAUTHOR_DOMAINS=$DOMAIN pnpm build; then
-    rm -rf dist.old
-  else
-    echo 'server build failed; restoring previous dist' >&2
-    if [ -d dist ]; then rm -rf dist; fi
-    if [ -d dist.old ]; then mv dist.old dist; fi
-    exit 1
-  fi"
+  if [ ! -e .gcroot ]; then
+    nix build '.#devShells.x86_64-linux.default' -o .gcroot
+  fi
+  nix develop -c true"
 
 say "restart service"
 ssh "$ROOT" 'systemctl restart iauthor && sleep 1 && systemctl is-active iauthor'

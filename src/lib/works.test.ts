@@ -115,14 +115,15 @@ test('git auto-commit records history', async () => {
 
   const log = await run('git', ['log', '--oneline'], { cwd: TEST_WORKS_DIR });
   const lines = log.stdout.trim().split('\n');
-  assert.equal(lines.length, 1, `expected 1 commit, got: ${log.stdout}`);
+  // the seeded *.pdf .gitignore lands in the very first commit
+  assert.equal(lines.length, 2, `expected 2 commits, got: ${log.stdout}`);
   assert.match(lines[0], /save 01_Git_Test\/01_Chapter\.md/);
 
   // nothing to commit -> no new commit
   const again = await commit('no-change');
   assert.equal(again, false);
   const count = await run('git', ['rev-list', '--count', 'HEAD'], { cwd: TEST_WORKS_DIR });
-  assert.equal(count.stdout.trim(), '1');
+  assert.equal(count.stdout.trim(), '2');
   assert.equal(WORKS_DIR, TEST_WORKS_DIR);
 });
 test('display titles follow nesting depth', () => {
