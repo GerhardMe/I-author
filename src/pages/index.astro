@@ -1003,13 +1003,16 @@ newRow.hidden = true;
     }
     pdfBtn.classList.add('busy');
     // a compiles-longer-than-activation fetch loses the popup privilege, so
-    // the tab opens NOW (inside the click gesture) and gets redirected once
-    // the pdf is fully here
+    // the tab opens NOW (inside the click gesture) — in the background, with
+    // focus handed straight back so the user stays in the app. It fills with
+    // the pdf once the compile is done and never steals focus.
     const tab = window.open('about:blank', '_blank');
     if (tab) {
       tab.document.write(
         '<meta charset="utf-8"><body style="font:14px Georgia,serif;color:#777;display:grid;place-items:center;height:100vh;margin:0">compiling…</body>',
       );
+      tab.blur?.();
+      window.focus();
     }
     try {
       const url =

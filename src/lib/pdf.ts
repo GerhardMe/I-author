@@ -4,18 +4,26 @@
 // the pdfstyles/ folder; the compiled artifact lives in the works dir beside
 // its source, so storage stays readable without the app. Drafts and notes.md
 // never leak into compiled output.
+//
+// Books compile incrementally: every chapter and every Book/Part heading is
+// compiled once into a small "fragment" pdf, cached in a scratch dir keyed by
+// a content hash (style + title + markdown). The book wrapper assembles the
+// fragments with pdfpages and owns the TOC and the continuous page numbering,
+// so editing one chapter of a large work recompiles just that fragment.
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { WORKS_DIR } from './config.ts';
 import { parseName } from './naming.ts';
-import { NOTES, type Node, listWorks, safePath } from './works.ts';
+import { NOTES, type Node, listWorks, readChapter, safePath } from './works.ts';
 import { ensureRepo } from './git.ts';
 
 const run = promisify(execFile);
 const LUALATEX = process.env.IAUTHOR_LUALATEX ?? 'lualatex';
 const TEXBUILD = path.resolve('.texbuild');
+const FRAG_DIR = path.join(TEXBUILD, 'frag');
 const STYLES_DIR = path.resolve('pdfstyles');
 const MD = /\.(md|markdown)$/i;
 
@@ -109,43 +117,110 @@ function titlePage(title: string): string {
   ].join('\n');
 }
 
-// chapters: fresh page, ruled unnumbered section + toc entry; markdown
-// content headings shift down one level so the chapter title leads
-function chapterTex(node: Node): string {
-  const abs = safePath(node.path)!;
-  return [
-    `\\clearpage`,
-    `\\section*{${texEsc(node.title)}}`,
-    `\\addcontentsline{toc}{section}{${texEsc(node.title)}}`,
-    `\\markdownInput{${abs}}`,
-  ].join('\n');
+// ---------- fragments ----------
+function sha(s: string): string {
+  return createHash('sha256').update(s).digest('hex').slice(0, 20);
 }
 
-function folderTex(node: Node): string {
-  // parts start on a fresh page — never mid-page, whatever the style does
-  return [
-    `\\clearpage`,
-    `\\part*{${texEsc(node.title)}}`,
-    `\\addcontentsline{toc}{part}{${texEsc(node.title)}}`,
-  ].join('\n');
+type FragItem = {
+  kind: 'part' | 'chapter';
+  title: string;
+  key: string; // content hash: style + title (+ md content)
+  file: string; // cached fragment pdf path
+  abs?: string; // chapter md path
+};
+
+function fragFile(key: string): string {
+  return path.join(FRAG_DIR, `f${key}.pdf`);
 }
 
-function scopeTex(nodes: Node[]): string {
-  let out = '';
-  for (const n of nodes) {
-    if (n.children !== undefined) {
-      out += `\n${folderTex(n)}\n${scopeTex(n.children!)}`;
-    } else {
-      out += `\n${chapterTex(n)}`;
+// book layout in order: part page for every non-root folder, chapter pages
+// under them; a fragment file that exists is current (the hash covers style,
+// title and content), so freshness needs no state bookkeeping
+function collectItems(node: Node, styleHash: string, out: FragItem[]): void {
+  const walk = (n: Node, root: boolean): void => {
+    if (n.children === undefined) return;
+    if (!root) {
+      const key = sha(`${styleHash}\n${n.title}`);
+      out.push({ kind: 'part', title: n.title, key, file: fragFile(key) });
     }
-  }
-  return out;
+    for (const c of n.children) {
+      if (c.children !== undefined) walk(c, false);
+      else {
+        let content = '';
+        try {
+          content = readChapter(c.path);
+        } catch {}
+        const key = sha(`${styleHash}\n${c.title}\n${content}`);
+        out.push({
+          kind: 'chapter',
+          title: c.title,
+          key,
+          file: fragFile(key),
+          abs: safePath(c.path) ?? undefined,
+        });
+      }
+    }
+  };
+  walk(node, true);
+}
+
+// a chapter fragment is the exact pages the chapter occupies inside a book —
+// same heading, same style — with pagestyle empty so the wrapper's footer
+// numbering is the only one. One pass: fragments carry no TOC.
+function chapterFragTex(title: string, abs: string, preamble: string): string {
+  return [
+    preamble,
+    '\\markdownSetup{shiftHeadings=1}',
+    '\\pagestyle{empty}',
+    '\\begin{document}',
+    `\\section*{${texEsc(title)}}`,
+    `\\markdownInput{${abs}}`,
+    '\\end{document}',
+    '',
+  ].join('\n');
+}
+
+function partFragTex(title: string, preamble: string): string {
+  return [
+    preamble,
+    '\\pagestyle{empty}',
+    '\\begin{document}',
+    `\\part*{${texEsc(title)}}`,
+    '\\end{document}',
+    '',
+  ].join('\n');
+}
+
+// the book wrapper: title page, table of contents, then one \includepdf per
+// fragment. addtotoc puts the TOC entry (and with it the bookmark anchor) on
+// the fragment's first page, so printed numbers and toc links stay correct.
+// Chapter pages carry the wrapper's continuous footer; part pages stay
+// footerless, like LaTeX parts.
+function bookTex(scopeTitle: string, items: FragItem[], preamble: string): string {
+  const includes = items.map((it) => {
+    const sec = it.kind === 'part' ? 'part' : 'section';
+    const pageStyle = it.kind === 'part' ? 'empty' : 'plain';
+    return `\\includepdf[pages=1-,pagecommand={\\thispagestyle{${pageStyle}}},addtotoc={1,${sec},0,${texEsc(it.title)},l${it.key}}]{${it.file}}`;
+  });
+  return [
+    preamble,
+    // pdfpages loads after the preamble (and after hyperref, per its docs)
+    '\\usepackage{pdfpages}',
+    '\\begin{document}',
+    titlePage(scopeTitle),
+    '\\tableofcontents',
+    '\\clearpage',
+    ...includes,
+    '\\end{document}',
+    '',
+  ].join('\n');
 }
 
 // ---------- compile ----------
-async function lualatex(tex: string, jobname: string): Promise<Buffer> {
+async function runLatex(tex: string, jobname: string, passes: number): Promise<Buffer> {
   fs.mkdirSync(TEXBUILD, { recursive: true });
-  const dir = fs.mkdtempSync(path.join(TEXBUILD, `${jobname}-`));
+  const dir = fs.mkdtempSync(path.join(TEXBUILD, 'j-'));
   try {
     fs.writeFileSync(path.join(dir, `${jobname}.tex`), tex);
     const args = [
@@ -154,14 +229,10 @@ async function lualatex(tex: string, jobname: string): Promise<Buffer> {
       `-jobname=${jobname}`,
       `${jobname}.tex`,
     ];
-    // two passes: the first builds the .toc, the second resolves page numbers
-    for (let i = 0; i < 2; i++) {
-      try {
-        await run(LUALATEX, args, { cwd: dir, timeout: 120_000 });
-      } catch {
-        // non-stop mode still exits nonzero on recoverable errors; only a
-        // missing pdf is fatal
-      }
+    // non-stop mode still exits nonzero on recoverable errors; only a missing
+    // pdf is fatal. Multiple passes: the TOC needs the first pass's .toc file.
+    for (let i = 0; i < passes; i++) {
+      await run(LUALATEX, args, { cwd: dir, timeout: 180_000 }).catch(() => {});
     }
     const pdf = path.join(dir, `${jobname}.pdf`);
     if (!fs.existsSync(pdf)) throw latexError(dir, jobname);
@@ -180,46 +251,32 @@ function latexError(dir: string, jobname: string): Error {
   return new Error(`latex compile failed\n${tail}`);
 }
 
-// ---------- staleness ----------
-// newest mtime of everything the compiled pdf depends on: the scope itself
-// (folder mtime moves when children are added/removed) and each chapter file
-function scopeMtime(node: Node): number {
-  const abs = path.join(WORKS_DIR, node.path);
-  let max: number;
-  try {
-    max = fs.statSync(abs).mtimeMs;
-  } catch {
-    return 0;
-  }
-  if (node.children !== undefined) {
-    for (const c of node.children) {
-      const m = scopeMtime(c);
-      if (m > max) max = m;
-    }
-  }
-  return max;
-}
-
 // ---------- compile state ----------
-// the artifact beside the source is one file serving several compile variants
-// (style, drafts toggle), so freshness is keyed in a state file in the app's
-// scratch dir — the works dir stays clean
-type CompileState = Record<string, { style: string; drafts: boolean; src: number }>;
+// two flat maps, nothing more: chapters remember which style+source the
+// artifact beside them was built from (one file serves several style
+// variants, so mtime alone can't tell), books remember the fragment
+// signature of their last assembly. Everything else (fragments) is fresh
+// purely by file existence.
+type Store = {
+  chapters: Record<string, { style: string; src: number }>;
+  books: Record<string, string>;
+};
 
 const STATE_FILE = path.join(TEXBUILD, 'state.json');
 
-function readState(): CompileState {
+function readStore(): Store {
   try {
-    return JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')) as CompileState;
+    const raw = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')) as Partial<Store>;
+    return { chapters: raw.chapters ?? {}, books: raw.books ?? {} };
   } catch {
-    return {};
+    return { chapters: {}, books: {} };
   }
 }
 
-function writeState(state: CompileState): void {
+function writeStore(store: Store): void {
   try {
     fs.mkdirSync(TEXBUILD, { recursive: true });
-    fs.writeFileSync(STATE_FILE, JSON.stringify(state));
+    fs.writeFileSync(STATE_FILE, JSON.stringify(store));
   } catch {}
 }
 
@@ -230,7 +287,8 @@ export type EnsureResult = { abs: string; name: string };
 //   01_work/01_part/01_flight.md -> 01_work/01_part/01_flight.pdf
 //   01_work                      -> 01_work.pdf
 // A directly requested draft chapter always compiles; folder aggregates
-// follow the drafts toggle (includeDrafts).
+// follow the drafts toggle (includeDrafts). Books assemble cached fragments;
+// force = rebuild every fragment first.
 export async function ensurePdf(
   rel: string,
   styleId: string | null,
@@ -249,42 +307,85 @@ export async function ensurePdf(
 
   const targetAbs = isFile ? abs.replace(MD, '.pdf') : `${abs}.pdf`;
   const name = path.basename(targetAbs);
-
-  let srcMtime = fs.statSync(abs).mtimeMs;
-  let node: Node | null = null;
-  if (!isFile) {
-    node = findNode(clean(listWorks(), includeDrafts), rel);
-    if (!node) throw new Error('not found');
-    srcMtime = scopeMtime(node);
-  }
-
   const style = resolveStyle(styleId);
-  const state = readState()[rel];
-  if (
-    !force &&
-    state &&
-    state.style === style.id &&
-    state.drafts === includeDrafts &&
-    state.src === srcMtime &&
-    fs.existsSync(targetAbs)
-  ) {
+  const styleHash = sha(style.preamble);
+
+  if (isFile) {
+    // single chapter artifact: footer numbering starts at 1, one pass
+    const srcMtime = fs.statSync(abs).mtimeMs;
+    const store = readStore();
+    const art = store.chapters[rel];
+    if (
+      !force &&
+      art &&
+      art.style === style.id &&
+      art.src === srcMtime &&
+      fs.existsSync(targetAbs)
+    ) {
+      return { abs: targetAbs, name };
+    }
+    const tex = [
+      style.preamble,
+      '\\markdownSetup{shiftHeadings=1}',
+      '\\begin{document}',
+      `\\section*{${texEsc(chapterTitle(rel))}}`,
+      `\\markdownInput{${abs}}`,
+      '\\end{document}',
+      '',
+    ].join('\n');
+    const data = await runLatex(tex, path.basename(abs, path.extname(abs)), 1);
+    await writeArtifact(targetAbs, data);
+    const fresh = readStore();
+    fresh.chapters[rel] = { style: style.id, src: srcMtime };
+    writeStore(fresh);
     return { abs: targetAbs, name };
   }
 
-  const tex = await buildTex(rel, isFile, node, abs, style.preamble);
-  const jobname = isFile ? path.basename(abs, path.extname(abs)) : path.basename(abs);
-  const data = await lualatex(tex, jobname);
+  // ---- book: fragment assembly ----
+  const node = findNode(clean(listWorks(), includeDrafts), rel);
+  if (!node) throw new Error('not found');
+  const items: FragItem[] = [];
+  collectItems(node, styleHash, items);
+  if (!items.length) throw new Error('not found');
 
+  const keys = items.map((i) => i.key).join('\n');
+  const sig = sha(`${style.id}\n${includeDrafts}\n${keys}`);
+  const store = readStore();
+  if (!force && store.books[rel] === sig && fs.existsSync(targetAbs)) {
+    return { abs: targetAbs, name };
+  }
+
+  // compile only the fragments whose cached pdf is missing (force: all)
+  fs.mkdirSync(FRAG_DIR, { recursive: true });
+  for (const it of items) {
+    if (!force && fs.existsSync(it.file)) continue;
+    const tex =
+      it.kind === 'part'
+        ? partFragTex(it.title, style.preamble)
+        : chapterFragTex(it.title, it.abs!, style.preamble);
+    fs.writeFileSync(it.file, await runLatex(tex, `f${it.key}`, 1));
+  }
+
+  // assemble: 2 passes so the toc settles around the fragments it fronts
+  const data = await runLatex(
+    bookTex(path.basename(rel), items, style.preamble),
+    'book',
+    2,
+  );
+  await writeArtifact(targetAbs, data);
+
+  const fresh = readStore();
+  fresh.books[rel] = sig;
+  writeStore(fresh);
+  return { abs: targetAbs, name };
+}
+
+async function writeArtifact(targetAbs: string, data: Buffer): Promise<void> {
   // the works repo ignores compiled pdfs; seed that before the artifact lands
   await ensureRepo();
   const tmp = `${targetAbs}.tmp-${process.pid}`;
   fs.writeFileSync(tmp, data);
   fs.renameSync(tmp, targetAbs);
-
-  const all = readState();
-  all[rel] = { style: style.id, drafts: includeDrafts, src: srcMtime };
-  writeState(all);
-  return { abs: targetAbs, name };
 }
 
 // display title of a single chapter. Looked up in the UNCLENED tree: a
@@ -297,39 +398,4 @@ function chapterTitle(rel: string): string {
   const parsed = parseName(path.basename(rel).replace(MD, ''));
   const label = parsed.prefix !== null ? String(parsed.prefix) : '?';
   return rel.includes('/') ? `Chapter ${label}: ${parsed.raw}` : parsed.raw;
-}
-
-async function buildTex(
-  rel: string,
-  isFile: boolean,
-  node: Node | null,
-  abs: string,
-  preamble: string,
-): Promise<string> {
-  // content headings (#, ##, …) shift down one level so the inserted
-  // chapter/folder titles lead the hierarchy
-  const setup = '\\markdownSetup{shiftHeadings=1}';
-  if (isFile) {
-    return [
-      preamble,
-      setup,
-      '\\begin{document}',
-      `\\section*{${texEsc(chapterTitle(rel))}}`,
-      `\\markdownInput{${abs}}`,
-      '\\end{document}',
-      '',
-    ].join('\n');
-  }
-  if (!node) throw new Error('not found');
-  return [
-    preamble,
-    setup,
-    '\\begin{document}',
-    titlePage(path.basename(rel)),
-    '\\tableofcontents',
-    '\\clearpage',
-    scopeTex(node.children ?? []),
-    '\\end{document}',
-    '',
-  ].join('\n');
 }

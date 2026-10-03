@@ -17,7 +17,8 @@
             git
             rclone
             # PDF compilation: lualatex + the markdown package (+ house style
-            # deps, matching the fundamentality toolbox)
+            # deps and pdfpages for fragment assembly, matching the
+            # fundamentality toolbox)
             (pkgs.texlive.combine {
               # pinned nixpkgs uses the set-based texlive.combine API
               inherit (pkgs.texlive)
@@ -34,6 +35,8 @@
                 nextpage
                 extsizes
                 framed
+                pdfpages
+                pdfcol
                 ;
             })
           ];
