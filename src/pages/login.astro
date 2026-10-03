@@ -1,0 +1,142 @@
+---
+import Base from '../layouts/base.astro';
+---
+
+<Base title="Login — I author">
+  <main class="page" id="login-page" hidden>
+    <div class="bare">
+      <div class="bare-brand">I author</div>
+      <form id="login-form" novalidate>
+        <div class="fieldline" id="fieldline">
+          <span class="fgroup">
+            <label class="flabel" id="pin-label" for="f-pin">PIN:</label>
+            <input
+              id="f-pin"
+              name="password"
+              type="password"
+              inputmode="numeric"
+              autocomplete="current-password"
+              maxlength="12"
+              aria-label="PIN"
+            />
+          </span>
+          <span class="fgroup" id="totp-group">
+            <label class="flabel" id="totp-label" for="f-totp">2FA:</label>
+            <input
+              id="f-totp"
+              name="totp"
+              type="text"
+              inputmode="numeric"
+              autocomplete="one-time-code"
+              maxlength="6"
+              aria-label="Authenticator code"
+            />
+          </span>
+        </div>
+        <div class="bare-actions">
+          <button type="button" id="mode-toggle" class="btn btn-ghost">use recovery code</button>
+          <button type="submit" class="btn">Unlock</button>
+        </div>
+        <p class="error" id="err" hidden></p>
+      </form>
+    </div>
+  </main>
+</Base>
+
+<script>
+  const loginPage = document.getElementById('login-page')! as HTMLElement;
+  const form = document.getElementById('login-form')! as HTMLFormElement;
+  const fieldline = document.getElementById('fieldline')!;
+  const pinInput = document.getElementById('f-pin')! as HTMLInputElement;
+  const totpInput = document.getElementById('f-totp')! as HTMLInputElement;
+  const pinLabel = document.getElementById('pin-label')! as HTMLElement;
+  const totpGroup = document.getElementById('totp-group')! as HTMLElement;
+  const totpLabel = document.getElementById('totp-label')! as HTMLElement;
+  const modeToggle = document.getElementById('mode-toggle')! as HTMLButtonElement;
+  const err = document.getElementById('err')! as HTMLElement;
+
+  type Mode = 'totp' | 'recovery';
+  let mode: Mode = 'totp';
+  let unlocked = false; // trusted device: PIN only
+
+  pinInput.addEventListener('input', () => {
+    pinInput.value = pinInput.value.replace(/[^0-9]/g, '').slice(0, 12);
+  });
+
+  totpInput.addEventListener('input', () => {
+    if (mode === 'recovery') {
+      totpInput.value = totpInput.value.toUpperCase().replace(/[^A-Z2-7-]/g, '').slice(0, 9);
+    } else {
+      totpInput.value = totpInput.value.replace(/[^0-9]/g, '').slice(0, 6);
+    }
+  });
+
+  // clicking anywhere on the field row focuses a field
+  fieldline.addEventListener('click', () => {
+    (document.activeElement === totpInput ? totpInput : pinInput).focus();
+  });
+
+  modeToggle.addEventListener('click', () => {
+    mode = mode === 'totp' ? 'recovery' : 'totp';
+    totpLabel.textContent = mode === 'recovery' ? 'CODE:' : '2FA:';
+    totpInput.maxLength = mode === 'recovery' ? 9 : 6;
+    totpInput.classList.toggle('recovery', mode === 'recovery');
+    modeToggle.textContent = mode === 'recovery' ? 'use authenticator' : 'use recovery code';
+    totpInput.value = '';
+    totpInput.focus();
+  });
+
+  function showError(msg: string): void {
+    err.textContent = msg;
+    err.hidden = false;
+  }
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    err.hidden = true;
+    const body: Record<string, string> = { pin: pinInput.value };
+    if (!unlocked) {
+      if (mode === 'totp') body.totp = totpInput.value;
+      else body.recovery = totpInput.value;
+    }
+    try {
+      const res = await fetch('/api/login', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (res.ok) {
+        location.href = '/';
+        return;
+      }
+      showError(
+        res.status === 429 ? 'Too many attempts. Wait a bit and try again.' : 'Wrong PIN or code.',
+      );
+      pinInput.value = '';
+      totpInput.value = '';
+      pinInput.focus();
+    } catch {
+      showError('Something went wrong. Try again.');
+    }
+  });
+
+  try {
+    const res = await fetch('/api/session');
+    const data = await res.json();
+    if (data.state === 'open') location.href = '/';
+    else if (data.state === 'setup') location.href = '/setup';
+    else if (data.state === 'locked') {
+      // trusted device: PIN only
+      unlocked = true;
+      pinLabel.hidden = true;
+      totpGroup.hidden = true;
+      modeToggle.hidden = true;
+    }
+    // 'anon' (new device): keep both fields and labels visible
+  } catch {
+    /* session unknown — fall back to full login */
+  }
+
+  loginPage.hidden = false;
+  pinInput.focus();
+</script>

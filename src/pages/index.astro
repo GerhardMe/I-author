@@ -1,0 +1,964 @@
+---
+import Base from '../layouts/base.astro';
+---
+<Base title="I author">
+  <div class="app">
+    <button class="menu-btn" id="menu-btn" aria-label="Toggle sidebar">☰</button>
+    <aside class="sidebar" id="sidebar">
+      <div class="side-head">
+        <span class="brand">I author</span>
+        <div class="toolbar">
+          <button class="btn-tiny" id="hide-drafts" title="Show drafts and notes">drafts <span id="hide-drafts-eye">◡</span></button>
+        </div>
+      </div>
+      <div class="new-row" id="new-row" hidden>
+        <div class="new-kind">
+          <button class="btn-tiny kind-btn is-on" data-kind="file" type="button">md</button>
+          <button class="btn-tiny kind-btn" data-kind="folder" type="button">dir</button>
+        </div>
+        <span class="note" id="new-ctx"></span>
+        <input id="new-name" placeholder="name" autocomplete="off" />
+        <button class="btn-tiny" id="new-ok">add</button>
+        <button class="btn-tiny" id="new-cancel">✕</button>
+      </div>
+      <nav class="tree" id="tree"></nav>
+      <div class="side-foot">
+        <button class="btn-tiny" id="lock">lock</button>
+        <button class="btn-tiny" id="logout">log out</button>
+      </div>
+    </aside>
+    <main class="main">
+      <div class="empty" id="empty">Select a chapter, or create your first work.</div>
+      <article class="doc" id="doc" hidden>
+        <header class="doc-head" title="click to edit the file name">
+          <h1 id="doc-title"></h1>
+          <input id="doc-rename" class="doc-rename" hidden autocomplete="off" spellcheck="false" />
+        <div class="doc-meta">
+            <span class="chip" id="doc-draft" hidden>(draft)</span>
+            <span class="chip" id="doc-words"></span>
+            <button class="btn-tiny" id="doc-del">delete</button>
+        </div>
+        </header>
+        <div class="md-body" id="doc-body" hidden></div>
+        <div id="editor-host" hidden></div>
+      </article>
+    </main>
+  </div>
+</Base>
+<script>
+
+  import { countWords } from '../lib/words.ts';
+  import { NOTES, parseName } from '../lib/naming.ts';
+  import { marked } from 'marked';
+  import { EditorState, type Transaction } from '@codemirror/state';
+  import { EditorView, keymap } from '@codemirror/view';
+  import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
+  import { createPreview, focusField, focusToggle, placeholder } from '../lib/preview.ts';
+  import {
+    unsyncedField,
+    extendUnsynced,
+    markUnsynced,
+    createSync,
+    loadDraft,
+    saveDraft,
+    dropDraft,
+    moveDraft,
+    lastDraftPath,
+  } from '../lib/sync.ts';
+
+  type Node = {
+    name: string;
+    path: string;
+    title: string;
+    draft: boolean; // self: owns the (draft) chip
+    inDraft: boolean; // inside a draft subtree: grays titles
+    words?: number; // self (md) or recursive total of all descendant mds
+    children?: Node[];
+  };
+
+  const treeEl = document.getElementById('tree')!;
+  const sidebar = document.getElementById('sidebar')!;
+  const empty = document.getElementById('empty')!;
+  const doc = document.getElementById('doc')!;
+  const docTitle = document.getElementById('doc-title')!;
+  const docBody = document.getElementById('doc-body')!;
+  const docWords = document.getElementById('doc-words')!;
+  const docDraft = document.getElementById('doc-draft')!;
+  const docDel = document.getElementById('doc-del')!;
+  const renameInput = document.getElementById('doc-rename') as HTMLInputElement;
+  const hideBtn = document.getElementById('hide-drafts') as HTMLButtonElement;
+  const hideEye = document.getElementById('hide-drafts-eye')!;
+  const newRow = document.getElementById('new-row')!;
+  const newCtx = document.getElementById('new-ctx')!;
+  const newName = document.getElementById('new-name') as HTMLInputElement;
+  const editorHost = document.getElementById('editor-host')!;
+
+  let tree: Node[] = [];
+  const byPath = new Map<string, Node>();
+  const expanded = new Set<string>();
+  const EXP_KEY = 'iauthor.expanded';
+  let selected: string | null = null;
+  let pendingKind: 'folder' | 'file' = 'file';
+
+  function saveExpanded(): void {
+    try {
+      localStorage.setItem(EXP_KEY, JSON.stringify([...expanded]));
+    } catch {}
+  }
+
+  function toggleExpanded(p: string): void {
+    if (expanded.has(p)) expanded.delete(p);
+    else expanded.add(p);
+    saveExpanded();
+  }
+
+  // ---------- drafts & notes visibility ----------
+  let hideDrafts = localStorage.getItem('iauthor.hide-drafts') === '1';
+
+  function syncHideBtn(): void {
+    hideEye.textContent = hideDrafts ? '◡' : '◉';
+    hideBtn.title = hideDrafts ? 'Show drafts and notes' : 'Hide drafts and notes';
+  }
+
+  // hide drafts and notes, plus empty directories; folders whose children
+  // all vanish are dropped too
+  function visible(nodes: Node[]): Node[] {
+    if (!hideDrafts) return nodes;
+    const out: Node[] = [];
+    for (const n of nodes) {
+      if (n.draft) continue;
+      if (n.children === undefined && NOTES.test(n.name)) continue;
+      if (n.children !== undefined) {
+        if (n.children.length === 0) continue; // empty directory
+        const kids = visible(n.children);
+        if (!kids.length) continue;
+        out.push({ ...n, children: kids });
+      } else {
+        out.push(n);
+      }
+    }
+    return out;
+  }
+
+  function isVisibleNode(node: Node): boolean {
+    if (!hideDrafts) return true;
+    const walk = (ns: Node[]): boolean =>
+      ns.some((n) => n.path === node.path || (n.children !== undefined && walk(n.children)));
+    return walk(visible(tree));
+  }
+
+  // ---------- editor + sync ----------
+  let editor: EditorView | null = null;
+  let currentFile: string | null = null;
+
+  function flushDraft(): void {
+    if (!currentFile || !editor) return;
+    saveDraft(currentFile, {
+      content: editor.state.doc.toString(),
+      synced: sync.baselineLen(),
+      at: Date.now(),
+    });
+  }
+
+  const sync = createSync({
+    getPath: () => currentFile,
+    getContent: () => (editor ? editor.state.doc.toString() : null),
+    getEditor: () => editor,
+    onSaved: (content) => {
+      docWords.textContent = `${countWords(content)} words`;
+    },
+    onDirtyChange: () => {
+      if (editor && sync.dirtyWords() > 0)
+        docWords.textContent = `${countWords(editor.state.doc.toString())} words · …`;
+    },
+    onAuthLost: () => {
+      flushDraft();
+      location.href = '/login?locked=1';
+    },
+  });
+
+  function onEditorUpdate(u: { docChanged: boolean; state: { doc: { toString(): string } } }): void {
+    if (!u.docChanged) return;
+    docWords.textContent = `${countWords(u.state.doc.toString())} words${sync.dirtyWords() > 0 ? ' · …' : ''}`;
+    scheduleDraft();
+    sync.schedule();
+  }
+
+  let draftTimer: ReturnType<typeof setTimeout> | null = null;
+  function scheduleDraft(): void {
+    if (!currentFile || !editor) return;
+    if (draftTimer) clearTimeout(draftTimer);
+    draftTimer = setTimeout(flushDraft, 400);
+  }
+
+  // accumulate dirty volume for the push trigger, in the same transaction as the marks
+  function extendTracked(tr: Transaction): { effects: Transaction['effects'] } | null {
+    if (!tr.docChanged) return null;
+    let insertedText = '';
+    let deletedLen = 0;
+    tr.changes.iterChangedRanges((a, b, c, d) => {
+      if (d > c) insertedText += tr.state.doc.sliceString(c, d);
+      if (b - a > d - c) deletedLen += b - a - (d - c);
+    });
+    if (insertedText || deletedLen)
+      sync.addDirty(insertedText, deletedLen);
+    return extendUnsynced(tr);
+  }
+
+  function makeEditor(content: string, draft: { synced: number } | null): EditorView {
+    const view = new EditorView({
+      state: EditorState.create({
+        doc: content,
+        extensions: [
+          keymap.of([...defaultKeymap, ...historyKeymap]),
+          history(),
+          EditorView.lineWrapping,
+          createPreview(openLink),
+          unsyncedField,
+          EditorState.transactionExtender.of(extendTracked),
+          EditorView.updateListener.of(onEditorUpdate),
+          EditorView.domEventHandlers({
+            focus: () => {
+              view.dispatch({ effects: focusToggle.of(null) });
+              return false;
+            },
+            blur: () => {
+              view.dispatch({ effects: focusToggle.of(null) });
+              return false;
+            },
+          }),
+        ],
+      }),
+      parent: editorHost,
+    });
+    if (draft && draft.synced < content.length) {
+      view.dispatch({
+        effects: markUnsynced.of([{ from: draft.synced, to: content.length }]),
+      });
+    }
+    return view;
+  }
+
+  function destroyEditor(): void {
+    if (editor) {
+      editor.destroy();
+      editor = null;
+    }
+    editorHost.replaceChildren();
+  }
+
+  function dirty(): boolean {
+    return sync.dirtyWords() > 0;
+  }
+
+  // flush + push before leaving a file (tree switch, delete)
+  async function leavingFile(): Promise<void> {
+    flushDraft();
+    if (editor && currentFile && dirty()) await sync.pushNow();
+    sync.cancel();
+    destroyEditor();
+    currentFile = null;
+  }
+
+  function openLink(href: string): boolean {
+    if (/^(https?:|mailto:)/.test(href)) {
+      window.open(href, '_blank', 'noopener');
+      return true;
+    }
+    // relative link: resolve against the current file's folder
+    const base = currentFile ? currentFile.slice(0, currentFile.lastIndexOf('/') + 1) : '';
+    const stack: string[] = [];
+    for (const part of (base + href).split('/')) {
+      if (!part || part === '.') continue;
+      if (part === '..') stack.pop();
+      else stack.push(part);
+    }
+    const target = stack.join('/');
+    const node = byPath.get(target);
+    if (node && node.children === undefined) {
+      selected = target;
+      renderTree();
+      void openFile(target);
+      return true;
+    }
+    return false;
+  }
+
+  function esc(s: string): string {
+    return s.replace(/[&<>"']/g, (c) =>
+      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!,
+    );
+  }
+
+  async function api(url: string, opts?: RequestInit): Promise<any> {
+    const res = await fetch(url, { cache: 'no-store', ...opts });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error ?? res.statusText);
+    return data;
+  }
+
+  async function loadTree() {
+    tree = (await api('/api/tree')).works;
+    byPath.clear();
+    const walk = (ns: Node[]) => {
+      for (const n of ns) {
+        byPath.set(n.path, n);
+        if (n.children) walk(n.children);
+      }
+    };
+    walk(tree);
+    renderTree();
+  }
+
+  function buildList(nodes: Node[]): HTMLUListElement {
+    const ul = document.createElement('ul');
+    for (const n of nodes) {
+      const li = document.createElement('li');
+      const row = document.createElement('div');
+      const isFolder = n.children !== undefined;
+      row.className =
+      'tree-row' +
+      (n.path === selected ? ' sel' : '') +
+      (n.inDraft ? ' draft' : '');
+      row.dataset.path = n.path;
+      if (isFolder) row.dataset.folder = '1';
+      row.innerHTML = `<span class="tw"${
+        isFolder ? ' data-caret="1"' : ''
+      }>${isFolder ? (expanded.has(n.path) ? '▾' : '▸') : '·'}</span><span class="tn">${esc(
+        n.name,
+      )}</span>`;
+      li.append(row);
+      if (isFolder && expanded.has(n.path) && n.children!.length) li.append(buildList(n.children!));
+      ul.append(li);
+    }
+    return ul;
+  }
+
+  function renderTree() {
+    treeEl.replaceChildren(buildList(visible(tree)));
+    treeEl.append(lineEl); // the insertion line lives here; re-append after rebuild
+    if (!lineEl.hidden) showInsertLine();
+  }
+
+  treeEl.addEventListener('click', async (e) => {
+    const caret = (e.target as HTMLElement).closest('[data-caret]');
+    if (caret) {
+      const crow = caret.closest('.tree-row') as HTMLElement;
+      const cnode = byPath.get(crow.dataset.path!);
+      if (!cnode) return;
+      toggleExpanded(cnode.path);
+      renderTree();
+      return;
+    }
+    const row = (e.target as HTMLElement).closest('.tree-row') as HTMLElement | null;
+    if (!row) return;
+    const node = byPath.get(row.dataset.path!);
+    if (!node) return;
+    if (node.children !== undefined) {
+      toggleExpanded(node.path);
+      selected = node.path;
+      renderTree();
+      await showGroup(node);
+    } else {
+      selected = node.path;
+      renderTree();
+      await openFile(node.path);
+    }
+    sidebar.classList.remove('open');
+  });
+
+  function buildToc(ul: HTMLUListElement, nodes: Node[]): void {
+  for (const n of nodes) {
+    if (n.children === undefined && NOTES.test(n.name)) continue;
+    const li = document.createElement('li');
+    const row = document.createElement('div');
+    const isFolder = n.children !== undefined;
+    row.className =
+      'toc-row ' +
+      (isFolder ? 'toc-folder' : 'toc-chapter') +
+      (n.inDraft ? ' toc-draft' : '');
+    row.dataset.path = n.path;
+    if (isFolder) {
+      row.innerHTML = `<span class="toc-title">${esc(n.title)}</span>`;
+    } else {
+      // "Chapter 2: First flight" -> name left, "Chapter 2" right, dots between
+      const m = /^Chapter [IVX\d?]+: /.exec(n.title);
+      const name = m ? n.title.slice(m[0].length) : n.title;
+      const label = m ? m[0].slice(0, -2) : '';
+      row.innerHTML = `<span class="toc-name">${esc(name)}</span>${
+        label ? '<span class="toc-leader"></span>' : ''
+      }<span class="toc-num">${esc(label)}</span>`;
+    }
+    li.append(row);
+    if (isFolder && n.children!.length) {
+      const sub = document.createElement('ul');
+      sub.className = 'toc-sub';
+      buildToc(sub, n.children!);
+      li.append(sub);
+    }
+    ul.append(li);
+  }
+}
+
+async function showGroup(node: Node): Promise<void> {
+    await leavingFile(); // race fix: fully detach the old editor first
+    // fresh tree: word totals would otherwise miss saves since the last load
+    await loadTree();
+    const cur = byPath.get(node.path) ?? node;
+    empty.hidden = true;
+    doc.hidden = false;
+    docTitle.hidden = false;
+    docTitle.classList.toggle('draft', !!cur.inDraft);
+    docDraft.hidden = !cur.draft;
+    docTitle.textContent = cur.title;
+    docWords.hidden = false;
+    docWords.textContent = `${cur.words ?? 0} words`;
+    docDel.hidden = false;
+    editorHost.hidden = true;
+    docBody.hidden = false;
+
+    const frag = document.createDocumentFragment();
+    const kids = visible(cur.children!);
+    if (kids.length) {
+      const ul = document.createElement('ul');
+      ul.className = 'toc';
+      buildToc(ul, kids);
+      frag.append(ul);
+    } else {
+      const p = document.createElement('p');
+      p.className = 'note';
+      p.textContent = 'Empty folder.';
+      frag.append(p);
+    }
+
+    // a notes.md in this folder is appended verbatim under the index
+    const notes = cur.children!.find(
+      (c) => c.children === undefined && NOTES.test(c.name),
+    );
+    if (notes && !hideDrafts) {
+      try {
+        const { content } = await api('/api/file?path=' + encodeURIComponent(notes.path));
+        const body = document.createElement('div');
+        body.className = 'md-body toc-notes';
+        body.innerHTML = marked.parse(content) as string;
+        frag.append(body);
+      } catch {
+        // unreadable notes: skip silently
+      }
+    }
+    docBody.replaceChildren(frag);
+  }
+
+  docBody.addEventListener('click', async (e) => {
+    const row = (e.target as HTMLElement).closest('.toc-row') as HTMLElement | null;
+    if (!row) return;
+    const node = byPath.get(row.dataset.path!);
+    if (!node) return;
+    selected = node.path;
+    if (node.children !== undefined) {
+      expanded.add(node.path);
+      saveExpanded();
+    }
+    renderTree();
+    if (node.children !== undefined) await showGroup(node);
+    else await openFile(node.path);
+  });
+
+  async function openFile(p: string) {
+    await leavingFile();
+    try {
+      const { content } = await api('/api/file?path=' + encodeURIComponent(p));
+      const node = byPath.get(p)!;
+      empty.hidden = true;
+      doc.hidden = false;
+      docTitle.hidden = false;
+      docTitle.classList.toggle('draft', !!node.inDraft);
+      docDraft.hidden = !node.draft;
+      docTitle.textContent = node.title;
+      docWords.hidden = false;
+      docWords.textContent = `${countWords(content)} words`;
+      docDel.hidden = false;
+      currentFile = p;
+      sync.setBaseline(content, content.length);
+      destroyEditor();
+
+      const draft = loadDraft(p);
+      if (draft && draft.content !== content) {
+        editor = makeEditor(draft.content, draft);
+        sync.schedule();
+      } else {
+        if (draft) dropDraft(p);
+        editor = makeEditor(content, null);
+      }
+      editorHost.hidden = false;
+      docBody.hidden = true;
+      window.scrollTo(0, 0);
+    } catch (err) {
+      void leavingFile();
+      empty.hidden = true;
+      doc.hidden = false;
+      docWords.hidden = true;
+      docDraft.hidden = true;
+      docTitle.classList.remove('draft');
+      editorHost.hidden = true;
+      docBody.hidden = false;
+      docBody.innerHTML = `<p class="error">${esc((err as Error).message)}</p>`;
+    }
+  }
+
+  // ---------- context menu on the tree: new / delete ----------
+  const ctxMenu = document.createElement('div');
+  ctxMenu.id = 'ctx-menu';
+  ctxMenu.hidden = true;
+  const itemNew = document.createElement('button');
+  itemNew.type = 'button';
+  itemNew.className = 'ctx-item';
+  itemNew.textContent = 'new';
+  const itemDel = document.createElement('button');
+  itemDel.type = 'button';
+  itemDel.className = 'ctx-item danger';
+  itemDel.textContent = 'delete';
+  ctxMenu.append(itemNew, itemDel);
+  document.body.append(ctxMenu);
+
+  const lineEl = document.createElement('div');
+  lineEl.id = 'insert-line';
+  lineEl.hidden = true;
+
+  let ctxTarget: Node | null = null; // right-clicked node, null = works root
+  let ctxLi: HTMLElement | null = null; // <li> of the target, for the delete flash
+  let pendingParent = ''; // parent path the new entry goes into ('' = top level)
+  let pendingAnchorPath = ''; // row the insertion line sits under ('' = top level)
+  let newOpen = false;
+  let previewExpandedPath: string | null = null; // folder opened just for the preview
+  let previewDelExpanded: string[] | null = null; // folders opened for the delete preview
+
+  function revertPreviewExpand(): void {
+    if (!previewExpandedPath) return;
+    expanded.delete(previewExpandedPath);
+    saveExpanded();
+    previewExpandedPath = null;
+    renderTree();
+  }
+
+  // open every folder in the target's subtree so the full deletion is visible
+  function expandDeletePreview(target: Node): void {
+    const added: string[] = [];
+    const walk = (n: Node): void => {
+      if (n.children === undefined) return;
+      if (!expanded.has(n.path)) {
+        expanded.add(n.path);
+        added.push(n.path);
+      }
+      for (const c of n.children!) walk(c);
+    };
+    walk(target);
+    if (!added.length) return;
+    previewDelExpanded = added;
+    saveExpanded();
+    renderTree();
+  }
+
+  function revertDeletePreview(): void {
+    ctxLi?.classList.remove('del-flash');
+    ctxLi = null;
+    if (!previewDelExpanded) return;
+    for (const p of previewDelExpanded) expanded.delete(p);
+    saveExpanded();
+    previewDelExpanded = null;
+    renderTree();
+  }
+
+  // file -> sibling in its folder; folder -> inside it; nothing -> works root
+  function newParentOf(target: Node | null): string {
+    if (!target) return '';
+    if (target.children !== undefined) return target.path;
+    const i = target.path.lastIndexOf('/');
+    return i === -1 ? '' : target.path.slice(0, i);
+  }
+
+  // same rule as nextName() on the server: max sibling prefix + 1, zero-padded
+  function nextPrefix(parent: string): string {
+    const siblings = parent ? byPath.get(parent)!.children! : tree;
+    let max = 0;
+    for (const c of siblings) {
+      const p = parseName(c.name).prefix;
+      if (p !== null && p > max) max = p;
+    }
+    return `${String(max + 1).padStart(2, '0')}_`;
+  }
+
+  function placeLine(top: number, left: number, width: number): void {
+    lineEl.style.top = `${top}px`;
+    lineEl.style.left = `${left}px`;
+    lineEl.style.width = `${width}px`;
+    lineEl.style.right = 'auto';
+    lineEl.hidden = false;
+  }
+
+  function showInsertLine(): void {
+    let row: HTMLElement | null = null;
+    if (pendingAnchorPath) {
+      const node = byPath.get(pendingAnchorPath);
+      const li = treeEl
+        .querySelector(`.tree-row[data-path="${pendingAnchorPath}"]`)
+        ?.closest('li') as HTMLElement | null;
+      const head = li?.querySelector(':scope > .tree-row') as HTMLElement | null;
+      // folder target: the entry lands inside it — the line sits directly
+      // under the folder row, at the same indent as its children
+      if (node && node.children !== undefined && head) {
+        const indent = 0.9 * parseFloat(getComputedStyle(document.documentElement).fontSize);
+        placeLine(
+          head.offsetTop + head.offsetHeight,
+          head.offsetLeft + indent,
+          head.offsetWidth - indent,
+        );
+        return;
+      } else if (head) {
+        row = head;
+      }
+    }
+    if (!row) {
+      const tops = treeEl.querySelectorAll<HTMLElement>(':scope > ul > li > .tree-row');
+      row = tops.length ? tops[tops.length - 1]! : null;
+    }
+    if (row) {
+      placeLine(row.offsetTop + row.offsetHeight, row.offsetLeft, row.offsetWidth);
+    } else {
+      lineEl.style.top = '0.35rem';
+      lineEl.style.left = '0.5rem';
+      lineEl.style.right = '0.5rem';
+      lineEl.style.width = 'auto';
+      lineEl.hidden = false;
+    }
+  }
+
+  function closeMenu(): void {
+    ctxMenu.hidden = true;
+    ctxTarget = null;
+    revertDeletePreview();
+    if (!newOpen) {
+      lineEl.hidden = true;
+      pendingAnchorPath = '';
+      revertPreviewExpand();
+    }
+  }
+
+  treeEl.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    const row = (e.target as HTMLElement).closest('.tree-row') as HTMLElement | null;
+    ctxTarget = row ? (byPath.get(row.dataset.path!) ?? null) : null;
+    ctxLi = row ? (row.closest('li') as HTMLElement) : null;
+    itemDel.hidden = !ctxTarget;
+    ctxMenu.hidden = false;
+    const r = ctxMenu.getBoundingClientRect();
+    ctxMenu.style.left = `${Math.min(e.clientX, window.innerWidth - r.width - 8)}px`;
+    ctxMenu.style.top = `${Math.min(e.clientY, window.innerHeight - r.height - 8)}px`;
+  });
+
+  document.addEventListener('click', () => {
+    if (!ctxMenu.hidden) closeMenu();
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !ctxMenu.hidden) closeMenu();
+  });
+
+  itemNew.addEventListener('mouseenter', () => {
+    const target = ctxTarget;
+    // open a closed target folder so the line can sit inside it, at child indent
+    if (target && target.children !== undefined && !expanded.has(target.path)) {
+      expanded.add(target.path);
+      saveExpanded();
+      previewExpandedPath = target.path;
+      renderTree();
+    }
+    pendingAnchorPath = target ? target.path : '';
+    showInsertLine();
+  });
+  itemNew.addEventListener('mouseleave', () => {
+    if (!newOpen) {
+      lineEl.hidden = true;
+      pendingAnchorPath = '';
+      revertPreviewExpand();
+    }
+  });
+  itemNew.addEventListener('click', () => {
+    previewExpandedPath = null; // the folder stays open once creation begins
+    pendingParent = newParentOf(ctxTarget);
+    pendingKind = 'file';
+    syncKindUI();
+    newName.value = nextPrefix(pendingParent);
+    newOpen = true;
+    pendingAnchorPath = ctxTarget ? ctxTarget.path : '';
+    ctxTarget = null;
+    ctxMenu.hidden = true;
+    newCtx.textContent = 'in ' + (pendingParent ? byPath.get(pendingParent)!.title : 'works/');
+    newRow.hidden = false;
+    newName.focus();
+    newName.setSelectionRange(newName.value.length, newName.value.length);
+  });
+
+  itemDel.addEventListener('mouseenter', () => {
+    const target = ctxTarget;
+    if (!target) return;
+    if (target.children !== undefined) expandDeletePreview(target);
+    // resolve the flash row after any re-render from the subtree expansion
+    ctxLi = treeEl
+      .querySelector(`.tree-row[data-path="${target.path}"]`)
+      ?.closest('li') as HTMLElement | null;
+    ctxLi?.classList.add('del-flash');
+  });
+  itemDel.addEventListener('mouseleave', () => revertDeletePreview());
+  itemDel.addEventListener('click', () => {
+    const target = ctxTarget;
+    previewDelExpanded = null; // the subtree stays open; deleteNode prunes it
+    closeMenu();
+    if (target) void deleteNode(target);
+  });
+
+  function syncKindUI(): void {
+    for (const b of newRow.querySelectorAll<HTMLButtonElement>('.kind-btn'))
+      b.classList.toggle('is-on', b.dataset.kind === pendingKind);
+  }
+  for (const b of newRow.querySelectorAll<HTMLButtonElement>('.kind-btn')) {
+    b.addEventListener('click', () => {
+      pendingKind = b.dataset.kind === 'folder' ? 'folder' : 'file';
+      syncKindUI();
+      newName.focus();
+    });
+  }
+
+  document.getElementById('new-cancel')!.addEventListener('click', () => {
+    newRow.hidden = true;
+    newName.value = '';
+    newOpen = false;
+    pendingAnchorPath = '';
+    lineEl.hidden = true;
+  });
+
+  document.getElementById('new-ok')!.addEventListener('click', async () => {
+    const name = newName.value.trim();
+    if (!name) return;
+    try {
+      const { path } = await api('/api/new', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ kind: pendingKind, parent: pendingParent, name }),
+      });
+newRow.hidden = true;
+    newName.value = '';
+    newOpen = false;
+    lineEl.hidden = true;
+    if (pendingParent) expanded.add(pendingParent);
+      saveExpanded();
+      await loadTree();
+      selected = path;
+      const node = byPath.get(path)!;
+      if (node.children !== undefined) {
+        expanded.add(path);
+        saveExpanded();
+        renderTree();
+        await showGroup(node);
+      } else {
+        renderTree();
+        await openFile(path);
+      }
+    } catch (err) {
+      newCtx.textContent = (err as Error).message;
+    }
+  });
+
+  // ---------- delete (header button + context menu share this) ----------
+  async function deleteNode(target: Node): Promise<void> {
+    const what =
+      target.children !== undefined ? `"${target.title}" and everything in it` : `"${target.title}"`;
+    if (!confirm(`Delete ${what}? Git history keeps a copy on the server.`)) return;
+    try {
+      const open = currentFile;
+      if (open && (open === target.path || open.startsWith(target.path + '/'))) {
+        await leavingFile(); // flush + push the open file's last content first
+        dropDraft(open);
+      }
+      await api('/api/delete', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ path: target.path }),
+      });
+      if (selected === target.path || selected?.startsWith(target.path + '/')) {
+        selected = null;
+        doc.hidden = true;
+        empty.hidden = false;
+      }
+      for (const p of [...expanded]) {
+        if (p === target.path || p.startsWith(target.path + '/')) expanded.delete(p);
+      }
+      saveExpanded();
+      await loadTree();
+    } catch (err) {
+      alert((err as Error).message);
+    }
+  }
+
+  docDel.addEventListener('click', async () => {
+    const node = selected ? byPath.get(selected) : null;
+    if (!node) return;
+    await deleteNode(node);
+  });
+
+  // ---------- rename via header title click (live-preview style: display <-> raw) ----------
+  // clicking anywhere in the header (except the buttons) opens the raw-name editor
+  const docHead = document.querySelector('.doc-head')!;
+  let renaming: Node | null = null;
+
+  docHead.addEventListener('click', (e) => {
+    if (renaming || !selected) return;
+    if ((e.target as HTMLElement).closest('button')) return;
+    const node = byPath.get(selected);
+    if (!node) return;
+    renaming = node;
+    docTitle.hidden = true;
+    renameInput.hidden = false;
+    renameInput.value = node.name;
+    renameInput.focus();
+    renameInput.select();
+  });
+
+  function endRename(commit: boolean): void {
+    const node = renaming;
+    if (!node) return;
+    renaming = null;
+    renameInput.hidden = true;
+    docTitle.hidden = false;
+    const name = renameInput.value.trim();
+    if (!commit || !name || name === node.name) return;
+    void commitRename(node, name);
+  }
+
+  // renaming a folder rewrites all descendant paths: carry expanded state over
+  // so the subtree stays open and the sidebar visibly updates in place
+  function remapExpanded(oldPath: string, newPath: string): void {
+    const next = new Set<string>();
+    for (const p of expanded) {
+      if (p === oldPath) next.add(newPath);
+      else if (p.startsWith(oldPath + '/')) next.add(newPath + p.slice(oldPath.length));
+      else next.add(p);
+    }
+    expanded.clear();
+    for (const p of next) expanded.add(p);
+    saveExpanded();
+  }
+
+  async function commitRename(node: Node, name: string): Promise<void> {
+    try {
+      await leavingFile(); // flush + push under the old path while it still exists
+      const { path } = await api('/api/rename', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ path: node.path, name }),
+      });
+      moveDraft(node.path, path);
+      remapExpanded(node.path, path);
+      await loadTree();
+      selected = path;
+      const fresh = byPath.get(path)!;
+      renderTree();
+      if (fresh.children !== undefined) {
+        expanded.add(path);
+        saveExpanded();
+        await showGroup(fresh);
+      } else {
+        await openFile(path);
+      }
+    } catch (err) {
+      alert((err as Error).message);
+      selected = node.path;
+      const stale = byPath.get(node.path);
+      if (stale) {
+        if (stale.children !== undefined) void showGroup(stale);
+        else void openFile(stale.path);
+      }
+    }
+  }
+
+  renameInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') endRename(true);
+    else if (e.key === 'Escape') endRename(false);
+  });
+  renameInput.addEventListener('blur', () => endRename(true));
+
+  // ---------- hide drafts & notes ----------
+  hideBtn.addEventListener('click', () => {
+    hideDrafts = !hideDrafts;
+    localStorage.setItem('iauthor.hide-drafts', hideDrafts ? '1' : '0');
+    syncHideBtn();
+    renderTree();
+    if (selected) {
+      const node = byPath.get(selected);
+      if (!node || !isVisibleNode(node)) {
+        selected = null;
+        doc.hidden = true;
+        empty.hidden = false;
+      } else if (node.children !== undefined) {
+        void showGroup(node);
+      }
+    }
+  });
+
+  const post = (url: string) => {
+    flushDraft();
+    return fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{}',
+    }).then(() => {
+      location.href = url.includes('lock') ? '/login?locked=1' : '/login';
+    });
+  };
+  document.getElementById('lock')!.addEventListener('click', () => post('/api/lock'));
+  document.getElementById('logout')!.addEventListener('click', () => post('/api/logout'));
+
+  window.addEventListener('beforeunload', flushDraft);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') flushDraft();
+  });
+
+  document.getElementById('menu-btn')!.addEventListener('click', () => {
+    sidebar.classList.toggle('open');
+  });
+
+  async function boot(): Promise<void> {
+    syncHideBtn();
+    // restore the expanded/collapsed folders from the last session; first
+    // visit (no stored state) starts with all top-level works expanded
+    let stored: string[] | null = null;
+    try {
+      const raw = localStorage.getItem(EXP_KEY);
+      if (raw !== null) stored = JSON.parse(raw) as string[];
+    } catch {}
+    if (stored) for (const p of stored) expanded.add(p);
+    await loadTree();
+    if (stored) {
+      for (const p of [...expanded]) if (!byPath.has(p)) expanded.delete(p);
+      saveExpanded();
+    } else {
+      for (const w of tree) if (w.children !== undefined) expanded.add(w.path);
+      saveExpanded();
+      renderTree();
+    }
+    // restore a draft left behind by a reload or PIN lock
+    const dpath = lastDraftPath();
+    if (dpath) {
+      const node = byPath.get(dpath);
+      if (node && node.children === undefined) {
+        selected = dpath;
+        renderTree();
+        await openFile(dpath);
+        return;
+      }
+      dropDraft(dpath);
+    }
+  }
+
+  boot();
+</script>

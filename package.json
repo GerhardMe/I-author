@@ -1,0 +1,32 @@
+{
+  "name": "iauthor",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "test": "node --experimental-strip-types src/lib/auth.test.ts && node --experimental-strip-types src/lib/totp.test.ts && node --experimental-strip-types src/lib/works.test.ts"
+  },
+  "dependencies": {
+    "@astrojs/node": "^9.0.0",
+    "@codemirror/commands": "^6.11.1",
+    "@codemirror/lang-markdown": "^6.5.2",
+    "@codemirror/language": "^6.12.4",
+    "@codemirror/language-data": "^6.5.2",
+    "@codemirror/state": "^6.7.6",
+    "@codemirror/view": "^6.43.13",
+    "@fontsource-variable/literata": "^5.0.0",
+    "@lezer/highlight": "^1.2.5",
+    "astro": "^5.0.0",
+    "marked": "^15.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "autoprefixer": "^10.4.0",
+    "postcss": "^8.4.0",
+    "postcss-import": "^16.0.0",
+    "postcss-nesting": "^13.0.0",
+    "typescript": "^5.6.0"
+  }
+}

@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+# Deploy Iauthor to the VPS: test + build locally, sync, install, build,
+# restart, health check. Restores the previous dist if the server build fails.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+SERVER=${IAUTHOR_SERVER:-server}
+ROOT=${IAUTHOR_ROOT:-serverRoot}
+APP_DIR=${IAUTHOR_APP_DIR:-/home/server/iauthor}
+URL=${IAUTHOR_URL:-https://write.gerhard.page}
+DOMAIN=${IAUTHOR_DOMAIN:-write.gerhard.page}
+
+say() { printf '\n==> %s\n' "$*"; }
+
+# run pnpm under nix develop when it is not on PATH
+run() {
+  if command -v pnpm >/dev/null 2>&1; then "$@"; else nix develop -c "$@"; fi
+}
+
+say "tests"
+run pnpm test
+
+say "pre-flight local build"
+run pnpm build
+
+say "syncing source to $SERVER:$APP_DIR"
+rsync -az --delete \
+  --exclude node_modules --exclude .astro --exclude dist --exclude secrets \
+  --exclude .git --exclude .env \
+  ./ "$SERVER:$APP_DIR/"
+
+say "install + build on server (previous dist kept as dist.old until success)"
+ssh "$SERVER" "set -e; cd $APP_DIR
+  pnpm install --frozen-lockfile
+  rm -rf dist.old
+  if [ -d dist ]; then mv dist dist.old; fi
+  if IAUTHOR_DOMAINS=$DOMAIN pnpm build; then
+    rm -rf dist.old
+  else
+    echo 'server build failed; restoring previous dist' >&2
+    if [ -d dist ]; then rm -rf dist; fi
+    if [ -d dist.old ]; then mv dist.old dist; fi
+    exit 1
+  fi"
+
+say "restart service"
+ssh "$ROOT" 'systemctl restart iauthor && sleep 1 && systemctl is-active iauthor'
+
+say "health check $URL"
+for _ in $(seq 1 15); do
+  code=$(curl -s -o /dev/null -w '%{http_code}' "$URL/login" || true)
+  if [ "$code" = "200" ]; then
+    echo "healthy (HTTP $code)"
+    exit 0
+  fi
+  sleep 2
+done
+
+echo "health check failed after restart" >&2
+exit 1

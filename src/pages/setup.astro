@@ -1,0 +1,172 @@
+---
+import Base from '../layouts/base.astro';
+---
+
+<Base title="Setup — I author">
+  <main class="page">
+    <div class="card">
+      <section id="phase-pin">
+        <h1>Create your PIN</h1>
+        <p class="note">
+          This PIN and your authenticator app are the only credentials for this
+          site. Choose something you won't forget — without your recovery codes
+          there is no way back in.
+        </p>
+        <form id="pin-form" novalidate>
+          <div class="field">
+            <label for="pin">PIN (4–12 digits)</label>
+            <input
+              id="pin"
+              name="pin"
+              type="password"
+              inputmode="numeric"
+              autocomplete="off"
+              maxlength="12"
+              autofocus
+            />
+          </div>
+          <div class="field">
+            <label for="pin2">Repeat PIN</label>
+            <input
+              id="pin2"
+              name="pin2"
+              type="password"
+              inputmode="numeric"
+              autocomplete="off"
+              maxlength="12"
+            />
+          </div>
+          <button type="submit" class="btn btn-primary">Continue</button>
+          <p class="error" id="err" hidden></p>
+        </form>
+      </section>
+
+      <section id="phase-secrets" hidden>
+        <h1>Save these now</h1>
+        <p class="note">These are shown only once.</p>
+        <div class="secrets">
+          <section>
+            <h2>Authenticator (TOTP)</h2>
+            <div class="secret-row">
+              <code class="mono" id="totp-secret"></code>
+              <button type="button" class="copy-btn" id="copy-totp" data-copy="totp-secret">copy</button>
+            </div>
+            <p class="note">Add this secret to your authenticator app.</p>
+          </section>
+          <section>
+            <h2>Master key</h2>
+            <div class="secret-row">
+              <code class="mono" id="master-key"></code>
+              <button type="button" class="copy-btn" id="copy-key" data-copy="master-key">copy</button>
+            </div>
+            <p class="note">Encrypts backups. Without it your backups are unreadable.</p>
+          </section>
+          <section>
+            <h2>Recovery codes</h2>
+            <div class="secret-row">
+              <ul class="mono" id="recovery-list"></ul>
+              <button type="button" class="copy-btn" id="copy-recovery">copy all</button>
+            </div>
+            <p class="note">Each works once, and replaces the authenticator code. The PIN is always required; a code is only needed when your authenticator is unavailable.</p>
+          </section>
+        </div>
+        <label class="check">
+          <input type="checkbox" id="saved-check" />
+          <span>I have saved all of these somewhere safe</span>
+        </label>
+        <div class="row end">
+          <button type="button" id="continue-login" class="btn btn-primary" disabled>
+            Continue to login
+          </button>
+        </div>
+      </section>
+    </div>
+  </main>
+</Base>
+
+<script>
+  type SetupData = {
+    totpSecret: string;
+    masterKey: string;
+    recoveryCodes: string[];
+  };
+
+  const phasePin = document.getElementById('phase-pin')!;
+  const phaseSecrets = document.getElementById('phase-secrets')!;
+  const form = document.getElementById('pin-form') as HTMLFormElement;
+  const err = document.getElementById('err')!;
+  const pinInput = document.getElementById('pin') as HTMLInputElement;
+  const pin2Input = document.getElementById('pin2') as HTMLInputElement;
+
+  function showError(msg: string, withLoginLink = false) {
+    err.textContent = msg;
+    if (withLoginLink) {
+      const a = document.createElement('a');
+      a.href = '/login';
+      a.textContent = 'Go to login';
+      err.append(' ', a);
+    }
+    err.hidden = false;
+  }
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    err.hidden = true;
+    const pin = pinInput.value.trim();
+    const pin2 = pin2Input.value.trim();
+    if (!/^\d{4,12}$/.test(pin)) return showError('PIN must be 4–12 digits.');
+    if (pin !== pin2) return showError('PINs do not match.');
+    try {
+      const res = await fetch('/api/setup', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ pin, pin2 }),
+      });
+      if (res.status === 403) return showError('Already set up. Go to login.', true);
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        return showError(data?.error ?? 'Setup failed. Try again.');
+      }
+      fill(await res.json());
+      phasePin.hidden = true;
+      phaseSecrets.hidden = false;
+    } catch {
+      showError('Network error. Try again.');
+    }
+  });
+
+  function fill(data: SetupData) {
+    document.getElementById('totp-secret')!.textContent = data.totpSecret;
+    document.getElementById('master-key')!.textContent = data.masterKey;
+    const list = document.getElementById('recovery-list')!;
+    for (const code of data.recoveryCodes) {
+      const li = document.createElement('li');
+      li.textContent = code;
+      list.append(li);
+    }
+    const copyAll = document.getElementById('copy-recovery') as HTMLButtonElement;
+    copyAll.dataset.copyText = data.recoveryCodes.join('\n');
+  }
+
+  document.addEventListener('click', async (e) => {
+    const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('.copy-btn');
+    if (!btn) return;
+    const id = btn.dataset.copy;
+    const text = (id ? document.getElementById(id)?.textContent : btn.dataset.copyText)?.trim() ?? '';
+    try {
+      await navigator.clipboard.writeText(text);
+      const prev = btn.textContent;
+      btn.textContent = 'copied';
+      setTimeout(() => (btn.textContent = prev), 1200);
+    } catch {
+      /* clipboard unavailable */
+    }
+  });
+
+  const check = document.getElementById('saved-check') as HTMLInputElement;
+  const continueBtn = document.getElementById('continue-login') as HTMLButtonElement;
+  check.addEventListener('change', () => (continueBtn.disabled = !check.checked));
+  continueBtn.addEventListener('click', () => {
+    if (!continueBtn.disabled) location.href = '/login';
+  });
+</script>
