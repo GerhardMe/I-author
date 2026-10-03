@@ -10,8 +10,10 @@ export const GET: APIRoute = async (ctx) => {
   const rel = ctx.url.searchParams.get('path') ?? '';
   const preset = ctx.url.searchParams.get('preset');
   const force = ctx.url.searchParams.get('recompile') === '1';
+  // folder aggregates follow the sidebar's drafts toggle (drafts=1 includes)
+  const includeDrafts = ctx.url.searchParams.get('drafts') === '1';
   try {
-    const { abs, name } = await ensurePdf(rel, preset, force);
+    const { abs, name } = await ensurePdf(rel, preset, force, includeDrafts);
     const data = fs.readFileSync(abs);
     return new Response(data, {
       headers: {

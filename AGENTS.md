@@ -308,8 +308,11 @@ menu from `GET /api/pdfstyles`, default `bicameral` = 6.1″×9″ academic;
 recompile item + stale-mtime auto-recompile; preset in
 `iauthor.pdf-preset`); folder scopes get title page + `\tableofcontents`
 (real page numbers, two-pass compile), chapters get ruled unnumbered section
-headings, markdown content headings shift down one level; drafts/notes never
-leak into PDFs; works dir `.gitignore` gets `*.pdf` seeded by `ensureRepo`;
+headings, markdown content headings shift down one level; folder aggregates
+follow the sidebar's drafts toggle (`drafts=1` includes them — a `.texbuild`
+state file keys artifact freshness by style + toggle + mtimes), while a
+directly requested draft chapter always compiles; works dir `.gitignore` gets
+`*.pdf` seeded by `ensureRepo`;
 KaTeX renders `$…$`/`$$…$$` math in the editor preview (`preview.ts`).
 
 Next: 6) Encrypted GitHub

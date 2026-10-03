@@ -46,24 +46,25 @@ export function listPdfStyles(): PdfStyle[] {
   return ids.map((id) => ({ id, ...styleMeta(path.join(STYLES_DIR, `${id}.tex`)) }));
 }
 
-function stylePreamble(id: string | null): string {
+function resolveStyle(id: string | null): { id: string; preamble: string } {
   const styles = listPdfStyles();
   const pick = styles.find((s) => s.id === id) ?? styles[0];
   if (!pick) throw new Error('no pdf styles found');
-  return fs.readFileSync(path.join(STYLES_DIR, `${pick.id}.tex`), 'utf8');
+  return { id: pick.id, preamble: fs.readFileSync(path.join(STYLES_DIR, `${pick.id}.tex`), 'utf8') };
 }
 
 // ---------- scope tree ----------
-// compiled exports are clean artifacts: drafts and notes.md never leak in,
-// and folders left with nothing visible are dropped (mirrors the sidebar
-// drafts toggle, minus the toggle)
-function clean(nodes: Node[]): Node[] {
+// compiled exports mirror the sidebar's drafts toggle: with drafts hidden,
+// draft entries, notes.md, and folders left with nothing visible are dropped;
+// with drafts visible, draft entries ride along (notes.md is folder material
+// and never compiles as a chapter)
+function clean(nodes: Node[], includeDrafts: boolean): Node[] {
   const out: Node[] = [];
   for (const n of nodes) {
-    if (n.draft) continue;
+    if (!includeDrafts && n.draft) continue;
     if (n.children === undefined && NOTES.test(n.name)) continue;
     if (n.children !== undefined) {
-      const kids = clean(n.children);
+      const kids = clean(n.children, includeDrafts);
       if (!kids.length) continue;
       out.push({ ...n, children: kids });
     } else {
@@ -197,16 +198,42 @@ function scopeMtime(node: Node): number {
   return max;
 }
 
+// ---------- compile state ----------
+// the artifact beside the source is one file serving several compile variants
+// (style, drafts toggle), so freshness is keyed in a state file in the app's
+// scratch dir — the works dir stays clean
+type CompileState = Record<string, { style: string; drafts: boolean; src: number }>;
+
+const STATE_FILE = path.join(TEXBUILD, 'state.json');
+
+function readState(): CompileState {
+  try {
+    return JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')) as CompileState;
+  } catch {
+    return {};
+  }
+}
+
+function writeState(state: CompileState): void {
+  try {
+    fs.mkdirSync(TEXBUILD, { recursive: true });
+    fs.writeFileSync(STATE_FILE, JSON.stringify(state));
+  } catch {}
+}
+
 // ---------- ensure ----------
 export type EnsureResult = { abs: string; name: string };
 
 // rel: a chapter (.md) or folder path. The artifact lands beside the source:
 //   01_work/01_part/01_flight.md -> 01_work/01_part/01_flight.pdf
 //   01_work                      -> 01_work.pdf
+// A directly requested draft chapter always compiles; folder aggregates
+// follow the drafts toggle (includeDrafts).
 export async function ensurePdf(
   rel: string,
   styleId: string | null,
   force = false,
+  includeDrafts = false,
 ): Promise<EnsureResult> {
   const isFile = MD.test(rel);
   const abs = safePath(rel);
@@ -221,21 +248,28 @@ export async function ensurePdf(
   const targetAbs = isFile ? abs.replace(MD, '.pdf') : `${abs}.pdf`;
   const name = path.basename(targetAbs);
 
-  if (!force) {
-    try {
-      let srcMtime = fs.statSync(abs).mtimeMs;
-      if (!isFile) {
-        const node = findNode(clean(listWorks()), rel);
-        if (node) srcMtime = scopeMtime(node);
-      }
-      if (fs.statSync(targetAbs).mtimeMs >= srcMtime) return { abs: targetAbs, name };
-    } catch {
-      // missing target or unreadable source: fall through and compile
-    }
+  let srcMtime = fs.statSync(abs).mtimeMs;
+  let node: Node | null = null;
+  if (!isFile) {
+    node = findNode(clean(listWorks(), includeDrafts), rel);
+    if (!node) throw new Error('not found');
+    srcMtime = scopeMtime(node);
   }
 
-  const preamble = stylePreamble(styleId);
-  const tex = await buildTex(rel, isFile, abs, preamble);
+  const style = resolveStyle(styleId);
+  const state = readState()[rel];
+  if (
+    !force &&
+    state &&
+    state.style === style.id &&
+    state.drafts === includeDrafts &&
+    state.src === srcMtime &&
+    fs.existsSync(targetAbs)
+  ) {
+    return { abs: targetAbs, name };
+  }
+
+  const tex = await buildTex(rel, isFile, node, abs, style.preamble);
   const jobname = isFile ? path.basename(abs, path.extname(abs)) : path.basename(abs);
   const data = await lualatex(tex, jobname);
 
@@ -244,6 +278,10 @@ export async function ensurePdf(
   const tmp = `${targetAbs}.tmp-${process.pid}`;
   fs.writeFileSync(tmp, data);
   fs.renameSync(tmp, targetAbs);
+
+  const all = readState();
+  all[rel] = { style: style.id, drafts: includeDrafts, src: srcMtime };
+  writeState(all);
   return { abs: targetAbs, name };
 }
 
@@ -262,6 +300,7 @@ function chapterTitle(rel: string): string {
 async function buildTex(
   rel: string,
   isFile: boolean,
+  node: Node | null,
   abs: string,
   preamble: string,
 ): Promise<string> {
@@ -279,7 +318,6 @@ async function buildTex(
       '',
     ].join('\n');
   }
-  const node = findNode(clean(listWorks()), rel);
   if (!node) throw new Error('not found');
   return [
     preamble,

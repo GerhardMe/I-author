@@ -988,7 +988,8 @@ newRow.hidden = true;
   });
 
   // compile on the server, open only when the pdf is fully there; the button
-  // carries a worker animation while LaTeX runs
+  // carries a worker animation while LaTeX runs. Folder aggregates follow the
+  // sidebar's drafts toggle: drafts hidden -> excluded, visible -> included
   let pdfObjectUrl: string | null = null;
 
   function pdfBusy(): boolean {
@@ -1004,7 +1005,9 @@ newRow.hidden = true;
     const label = pdfBtn.textContent;
     pdfBtn.textContent = '…';
     try {
-      const url = `/pdf?path=${encodeURIComponent(scope)}&preset=${presetId}${force ? '&recompile=1' : ''}`;
+      const url =
+        `/pdf?path=${encodeURIComponent(scope)}&preset=${presetId}` +
+        `&drafts=${hideDrafts ? '0' : '1'}${force ? '&recompile=1' : ''}`;
       const res = await fetch(url, { cache: 'no-store' });
       if (!res.ok) throw new Error((await res.text()) || res.statusText);
       pdfObjectUrl = URL.createObjectURL(await res.blob());
