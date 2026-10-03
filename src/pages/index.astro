@@ -36,6 +36,8 @@ import Base from '../layouts/base.astro';
         <div class="doc-meta">
             <span class="chip" id="doc-draft" hidden>(draft)</span>
             <span class="chip" id="doc-words"></span>
+            <button class="btn-tiny pdf-btn" id="pdf-toggle" hidden
+                    title="pdf — compile this scope, right-click for sizes">pdf</button>
             <button class="btn-tiny" id="doc-del">delete</button>
         </div>
         </header>
@@ -44,8 +46,6 @@ import Base from '../layouts/base.astro';
       </article>
     </main>
   </div>
-  <button class="btn-tiny pdf-dock" id="pdf-toggle" hidden
-          title="pdf — compile this scope, right-click for page sizes">pdf</button>
   <div id="pdf-menu" hidden></div>
 </Base>
 <script>
@@ -1002,8 +1002,6 @@ newRow.hidden = true;
       pdfObjectUrl = null;
     }
     pdfBtn.classList.add('busy');
-    const label = pdfBtn.textContent;
-    pdfBtn.textContent = '…';
     // a compiles-longer-than-activation fetch loses the popup privilege, so
     // the tab opens NOW (inside the click gesture) and gets redirected once
     // the pdf is fully here
@@ -1031,7 +1029,6 @@ newRow.hidden = true;
       alert(`pdf: ${(err as Error).message}`);
     } finally {
       pdfBtn.classList.remove('busy');
-      pdfBtn.textContent = label ?? 'pdf';
       syncPdfBtnTitle();
     }
   }
@@ -1047,12 +1044,13 @@ newRow.hidden = true;
 
   pdfBtn.addEventListener('contextmenu', (e) => {
     e.preventDefault();
+    if (!currentScope()) return;
     syncPdfMenu();
     pdfMenu.hidden = false;
-    const r = pdfBtn.getBoundingClientRect();
+    // positioned at the cursor, exactly like the tree context menu
     const m = pdfMenu.getBoundingClientRect();
-    pdfMenu.style.left = `${Math.max(8, Math.min(r.right - m.width, window.innerWidth - m.width - 8))}px`;
-    pdfMenu.style.top = `${Math.max(8, r.top - m.height - 6)}px`;
+    pdfMenu.style.left = `${Math.min(e.clientX, window.innerWidth - m.width - 8)}px`;
+    pdfMenu.style.top = `${Math.min(e.clientY, window.innerHeight - m.height - 8)}px`;
   });
   document.addEventListener('click', (e) => {
     if (!pdfMenu.hidden && !pdfMenu.contains(e.target as Node)) hidePdfMenu();
