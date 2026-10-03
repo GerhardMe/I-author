@@ -279,9 +279,18 @@ sidebar toolbar reduced to the drafts toggle (eye glyph); expand/collapse state
 persisted in localStorage (`iauthor.expanded`), caret clicks toggle without
 selecting.
 
-Next: 5) Paged view — CSS multi-column pagination, page-size presets
-(A4/trade/academic-large with big margins), CSS-counter page numbers; pageless default;
-page numbers & word counts computed client-side, never stored. 6) Encrypted GitHub
+Next: 5b) Paged view phase 2 — running page numbers across the whole work:
+paginate preceding chapters of the same top-level work (hidden measure views,
+cached per path+preset) to get each chapter's first page number. 5a done:
+paged view phase 1 — `src/lib/paged.ts` paginates the editor with page-gap +
+page-number block decorations (breaks measured from the real DOM via posAtDOM,
+recomputed debounced 300ms; the editor already grows with content so the whole
+doc is measurable); presets A4/A5/Bicameral (6.1″ × 9″ — the Mariner trim of
+Jaynes's *Breakdown of the Bicameral Mind*) behind a fixed bottom-right `pages`
+toggle (left-click = on/off, right-click = preset menu, preset in
+`iauthor.pages-preset`); pageless default; dock hidden ≤900px (laptop-first).
+Editor extension assembly lives in `src/lib/editor.ts` (`editorExtensions`) so
+hidden measure views can reuse the exact rendering pipeline. 6) Encrypted GitHub
 backup: tar+gzip whole tree → AES-256-GCM with master key → one ciphertext blob per
 snapshot to a private repo via deploy key; `scripts/restore` to decrypt+untar; prune
 option (keep last N); optional rclone crypt → ProtonDrive timer. 7) Mobile pass.

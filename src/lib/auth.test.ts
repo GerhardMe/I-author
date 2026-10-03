@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { isValidPin, hashSecret, verifySecret } from './auth/pin.ts';
 import { createToken, tokenExp, tokenKey, verifyToken } from './auth/device.ts';
-import { isBlocked, recordFail, recordSuccess } from './auth/ratelimit.ts';
+import { isBlocked, recordFail, recordSuccess, forceSweep } from './auth/ratelimit.ts';
 import { makeRecoveryCodes, findRecoveryEntry } from './auth/recovery.ts';
 
 test('pin validation', () => {
@@ -42,6 +42,16 @@ test('rate limit: 5 fails then block, success clears', () => {
   assert.ok(isBlocked(key));
   recordSuccess(key);
   assert.ok(!isBlocked(key));
+});
+
+test('rate limit: sweeps never wipe unlocked fail counters (regression)', () => {
+  const key = `test-${Math.random()}`;
+  for (let i = 0; i < 4; i++) recordFail(key);
+  forceSweep(); // used to delete the counter (until=0 is "in the past")
+  assert.ok(!isBlocked(key)); // 4 fails still free...
+  recordFail(key); // ...but the history survived: this is the 5th
+  assert.ok(isBlocked(key));
+  assert.ok(!isBlocked(`${key}-other`));
 });
 
 test('recovery codes verify once (used flag)', () => {

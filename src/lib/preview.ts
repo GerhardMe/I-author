@@ -389,7 +389,7 @@ export function createPreview(onOpenLink: OpenLink): Extension[] {
     focusField,
     previewField,
     EditorView.decorations.compute([previewField], (s) => s.field(previewField).deco),
-    EditorView.atomicRanges.compute([previewField], (s) => s.field(previewField).atom),
+    EditorView.atomicRanges.compute([previewField], (s) => () => s.field(previewField).atom),
     // ctrl/cmd+click on a link opens it (external → new tab, relative .md → in-app)
     EditorView.domEventHandlers({
       mousedown(e, view) {

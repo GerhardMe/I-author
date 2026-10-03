@@ -427,7 +427,8 @@ input:-webkit-autofill {
   gap: 0.15rem;
 }
 
-.kind-btn.is-on {
+.kind-btn.is-on,
+.ctx-item.is-on {
   color: var(--accent);
   border-color: var(--line);
   background: var(--tint);
@@ -539,7 +540,8 @@ input:-webkit-autofill {
 }
 
 /* tree context menu (JS-created: global styles) */
-#ctx-menu {
+#ctx-menu,
+#pages-menu {
   position: fixed;
   z-index: 60;
   min-width: 6.5rem;
@@ -954,6 +956,45 @@ input:-webkit-autofill {
   font-weight: 600;
 }
 
+/* ---------- paged view (milestone 5) — JS-created DOM, so global ---------- */
+.page-dock {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 40;
+}
+
+/* geometry numbers are set from src/lib/paged.ts (single source of truth) */
+#editor-host.paged {
+  max-width: calc(var(--page-w) - 2 * var(--page-mx));
+}
+
+#editor-host.paged .cm-content {
+  padding: 0.25rem 0 0; /* the page flow supplies the space below */
+}
+
+/* the gap between two pages: foot margin of the ended page (number centered
+   in it), then the head margin of the next one; hairlines mark the sheet
+   edges at both ends */
+#editor-host .cm-page-gap {
+  height: calc(var(--page-my) * 2);
+  position: relative;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+#editor-host .cm-page-num {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(var(--page-my) / 2);
+  transform: translateY(-50%);
+  text-align: center;
+  font-size: 0.75rem;
+  color: var(--muted);
+  user-select: none;
+}
+
 @media (max-width: 900px) {
   .app {
     grid-template-columns: 1fr;
@@ -988,5 +1029,9 @@ input:-webkit-autofill {
 
   .main {
     padding: 3.5rem 1.25rem 2rem;
+  }
+
+  .page-dock {
+    display: none; /* laptop-first: no paged view on small screens */
   }
 }

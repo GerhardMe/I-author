@@ -44,6 +44,9 @@ import Base from '../layouts/base.astro';
       </article>
     </main>
   </div>
+  <button class="btn-tiny page-dock" id="pages-toggle" hidden
+          title="pages — click to toggle, right-click for page sizes">pages</button>
+  <div id="pages-menu" hidden></div>
 </Base>
 <script>
 
@@ -51,11 +54,10 @@ import Base from '../layouts/base.astro';
   import { NOTES, parseName } from '../lib/naming.ts';
   import { marked } from 'marked';
   import { EditorState, type Transaction } from '@codemirror/state';
-  import { EditorView, keymap } from '@codemirror/view';
-  import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
-  import { createPreview, focusField, focusToggle, placeholder } from '../lib/preview.ts';
+  import { EditorView } from '@codemirror/view';
+  import { DEFAULT_PRESET_ID, createPagedExt, setPaged, pagePresets, type PagePresetId } from '../lib/paged.ts';
+  import { editorExtensions } from '../lib/editor.ts';
   import {
-    unsyncedField,
     extendUnsynced,
     markUnsynced,
     createSync,
@@ -99,6 +101,7 @@ import Base from '../layouts/base.astro';
   const EXP_KEY = 'iauthor.expanded';
   let selected: string | null = null;
   let pendingKind: 'folder' | 'file' = 'file';
+  let pagesOn = false;
 
   function saveExpanded(): void {
     try {
@@ -206,31 +209,20 @@ import Base from '../layouts/base.astro';
   }
 
   function makeEditor(content: string, draft: { synced: number } | null): EditorView {
+    const hooks = {
+      onOpenLink: openLink,
+      onUpdate: onEditorUpdate,
+      onTrackTransaction: extendTracked,
+      getView: () => editor,
+    };
     const view = new EditorView({
       state: EditorState.create({
         doc: content,
-        extensions: [
-          keymap.of([...defaultKeymap, ...historyKeymap]),
-          history(),
-          EditorView.lineWrapping,
-          createPreview(openLink),
-          unsyncedField,
-          EditorState.transactionExtender.of(extendTracked),
-          EditorView.updateListener.of(onEditorUpdate),
-          EditorView.domEventHandlers({
-            focus: () => {
-              view.dispatch({ effects: focusToggle.of(null) });
-              return false;
-            },
-            blur: () => {
-              view.dispatch({ effects: focusToggle.of(null) });
-              return false;
-            },
-          }),
-        ],
+        extensions: editorExtensions(hooks, createPagedExt()),
       }),
       parent: editorHost,
     });
+    editor = view;
     if (draft && draft.synced < content.length) {
       view.dispatch({
         effects: markUnsynced.of([{ from: draft.synced, to: content.length }]),
@@ -245,6 +237,10 @@ import Base from '../layouts/base.astro';
       editor = null;
     }
     editorHost.replaceChildren();
+    editorHost.classList.remove('paged');
+    pagesOn = false;
+    pagesBtn.classList.remove('is-on');
+    hidePagesMenu();
   }
 
   function dirty(): boolean {
@@ -416,6 +412,7 @@ async function showGroup(node: Node): Promise<void> {
     docDel.hidden = false;
     editorHost.hidden = true;
     docBody.hidden = false;
+    pagesBtn.hidden = true; // no editor -> no pages toggle
 
     const frag = document.createDocumentFragment();
     const kids = visible(cur.children!);
@@ -478,6 +475,7 @@ async function showGroup(node: Node): Promise<void> {
       docWords.hidden = false;
       docWords.textContent = `${countWords(content)} words`;
       docDel.hidden = false;
+      pagesBtn.hidden = false;
       currentFile = p;
       sync.setBaseline(content, content.length);
       destroyEditor();
@@ -502,6 +500,7 @@ async function showGroup(node: Node): Promise<void> {
       docTitle.classList.remove('draft');
       editorHost.hidden = true;
       docBody.hidden = false;
+      pagesBtn.hidden = true;
       docBody.innerHTML = `<p class="error">${esc((err as Error).message)}</p>`;
     }
   }
@@ -903,6 +902,71 @@ newRow.hidden = true;
         void showGroup(node);
       }
     }
+  });
+
+  // ---------- paged view (milestone 5, phase 1) ----------
+  const pagesBtn = document.getElementById('pages-toggle') as HTMLButtonElement;
+  const pagesMenu = document.getElementById('pages-menu')!;
+  const smallScreen = (): boolean => matchMedia('(max-width: 900px)').matches;
+
+  const storedPreset = localStorage.getItem('iauthor.pages-preset') as PagePresetId | null;
+  let presetId: PagePresetId =
+    storedPreset && pagePresets.some((p) => p.id === storedPreset)
+      ? storedPreset
+      : DEFAULT_PRESET_ID;
+
+  function setPages(on: boolean): void {
+    if (on && smallScreen()) on = false; // laptop-first: no pages on phones
+    pagesOn = on;
+    if (editor) setPaged(editor, on, presetId);
+    pagesBtn.classList.toggle('is-on', on);
+    pagesBtn.title = on
+      ? 'paged view — click to go pageless, right-click for page sizes'
+      : 'pages — click to toggle, right-click for page sizes';
+    hidePagesMenu();
+  }
+
+  function syncPagesMenu(): void {
+    for (const b of pagesMenu.querySelectorAll<HTMLButtonElement>('.ctx-item'))
+      b.classList.toggle('is-on', b.dataset.preset === presetId);
+  }
+
+  function hidePagesMenu(): void {
+    pagesMenu.hidden = true;
+  }
+
+  for (const p of pagePresets) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'ctx-item';
+    b.textContent = `${p.label} — ${p.note}`;
+    b.dataset.preset = p.id;
+    b.addEventListener('click', () => {
+      presetId = p.id;
+      try {
+        localStorage.setItem('iauthor.pages-preset', p.id);
+      } catch {}
+      setPages(true); // picking a size means wanting pages
+    });
+    pagesMenu.append(b);
+  }
+
+  pagesBtn.addEventListener('click', () => setPages(!pagesOn));
+  pagesBtn.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    if (!editor) return;
+    syncPagesMenu();
+    pagesMenu.hidden = false;
+    const r = pagesBtn.getBoundingClientRect();
+    const m = pagesMenu.getBoundingClientRect();
+    pagesMenu.style.left = `${Math.max(8, Math.min(r.right - m.width, window.innerWidth - m.width - 8))}px`;
+    pagesMenu.style.top = `${Math.max(8, r.top - m.height - 6)}px`;
+  });
+  document.addEventListener('click', (e) => {
+    if (!pagesMenu.hidden && !pagesMenu.contains(e.target as Node)) hidePagesMenu();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !pagesMenu.hidden) hidePagesMenu();
   });
 
   const post = (url: string) => {
