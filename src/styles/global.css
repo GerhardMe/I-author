@@ -344,6 +344,15 @@ input:-webkit-autofill {
   width: 6ch; /* always 6: never shifts while typing the code */
 }
 
+/* the PIN is always masked — no reveal affordances from browsers or
+   password-manager extensions, and nothing worth autofilling */
+.fgroup input[type='password']::-ms-reveal,
+.fgroup input[type='password']::-ms-clear,
+.fgroup input::-webkit-credentials-auto-fill-button,
+.fgroup input::-webkit-password-toggle-button {
+  display: none;
+}
+
 #f-totp.recovery {
   width: 9ch;
 }

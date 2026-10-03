@@ -85,7 +85,7 @@ src/lib/pdf.ts       PDF compiler: LuaLaTeX + `markdown` package; ensurePdf(rel,
 src/pages/api/       setup, login, session, logout, lock, tree, file (GET/PUT), new, delete,
                      rename, pdfstyles
 src/pages/           index.astro (app shell), login.astro, setup.astro, pdf.ts (stream)
-pdfstyles/           LaTeX preamble "stylesheets" (a4, a5, bicameral) — single source
+pdfstyles/           LaTeX preamble "stylesheets" (a4, a5, academic) — single source
                      of truth for the pdf style menu
 src/layouts/         base.astro (theme pre-paint script, Literata import)
 src/styles/global.css  design tokens + shared components + app shell + markdown styles
@@ -304,7 +304,7 @@ fought screen text sizes — deleted) — the `pdf` dock button opens
 beside its source in the works dir (`01_flight.md` → `01_flight.pdf`,
 folder `01_work/` → `01_work.pdf`); LuaLaTeX + the `markdown` package,
 preamble "stylesheets" live in `pdfstyles/` (first line `% label: ...`,
-menu from `GET /api/pdfstyles`, default `bicameral` = 6.1″×9″ academic;
+menu from `GET /api/pdfstyles`, default `academic` = 6.1″×9″; Book/Part folders get a large centered part page of their own (always after a page break); only books take Roman numerals — parts and chapters are Arabic;
 recompile item + stale-mtime auto-recompile; preset in
 `iauthor.pdf-preset`); folder scopes get title page + `\tableofcontents`
 (real page numbers, two-pass compile), chapters get ruled unnumbered section

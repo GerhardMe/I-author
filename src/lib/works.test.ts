@@ -147,7 +147,7 @@ test('display titles follow nesting depth', () => {
 
   assert.equal(titles.get(w.path), 'Epic');
   assert.equal(titles.get(b.path), 'Book I: Book One');
-  assert.equal(titles.get(p.path), 'Part I: Part One');
+  assert.equal(titles.get(p.path), 'Part 1: Part One');
   assert.equal(titles.get(c.path), 'Chapter 1: First Flight');
   assert.equal(titles.get(loose.path), 'Chapter 2: Loose'); // number comes from its own 02_ prefix
   assert.equal(titles.get(poem.path), 'Poems');
@@ -177,8 +177,8 @@ test('titles clamp: 4-level chain and mixed sibling kinds', () => {
 
   assert.equal(titles.get(w.path), 'Epic');
   assert.equal(titles.get(b.path), 'Book I: Book One');
-  assert.equal(titles.get(p.path), 'Part I: Part One');
-  assert.equal(titles.get(sub.path), 'Part I: Deeper'); // level 4 clamps to Part
+  assert.equal(titles.get(p.path), 'Part 1: Part One');
+  assert.equal(titles.get(sub.path), 'Part 1: Deeper'); // level 4 clamps to Part
   assert.equal(titles.get(deep.path), 'Chapter 1: Buried');
   assert.equal(titles.get(w.path + '/02_Loose_Top.md'), 'Chapter 2: Loose Top');
 });
@@ -202,7 +202,7 @@ test('titles: 2-level chain is book/part, legacy hyphen slugs resolve', () => {
   walk(listWorks());
 
   assert.equal(titles.get(w.path), 'Epic'); // only 2 levels -> top is a Book
-  assert.equal(titles.get(b.path), 'Part I: Book One');
+  assert.equal(titles.get(b.path), 'Part 1: Book One');
   assert.equal(titles.get(c.path), 'Chapter 1: First Flight');
   assert.equal(titles.get(shallow.path), 'Just Chapters');
   assert.equal(titles.get(c2.path), 'Chapter 1: Solo');
@@ -285,7 +285,7 @@ test('draft_ prefix marks entries, is stripped from titles, still numbers', () =
 
   assert.equal(nodes.get(b.path)!.draft, true);
   assert.equal(nodes.get(b.path)!.inDraft, true);
-  assert.equal(nodes.get(b.path)!.title, 'Part I: rewrites');
+  assert.equal(nodes.get(b.path)!.title, 'Part 1: rewrites');
   assert.equal(nodes.get(c.path)!.draft, true);
   assert.equal(nodes.get(c.path)!.inDraft, true);
   assert.equal(nodes.get(c.path)!.title, 'Chapter 1: idea2'); // drafts consume chapter numbers

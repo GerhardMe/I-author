@@ -134,7 +134,8 @@ export function toRoman(n: number): string {
 
 function kindNumber(kind: Kind, num: number | '?'): string {
   if (num === '?') return '?';
-  return kind === 'book' || kind === 'part' ? toRoman(num) : String(num);
+  // books get Roman numerals; parts and chapters are Arabic
+  return kind === 'book' ? toRoman(num) : String(num);
 }
 
 function folderKind(depth: number, maxSub: number): Kind {

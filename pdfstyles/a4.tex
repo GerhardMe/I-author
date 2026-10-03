@@ -38,16 +38,17 @@
   {0pt}
   {}
 
-% Parts (folders) — modest centered block, no rule
-\titleformat{\part}[block]
-  {\centering\large\bfseries\itshape}
+% Parts (Book/Part folders) — a page of their own, large centered label
+\titleformat{\part}[display]
+  {\centering\Huge\bfseries}
   {}
   {0pt}
   {}
+  [\vspace{1.5em}]
 
 \titlespacing*{\section}{0pt}{1.5em}{0.6em}
 \titlespacing*{\subsection}{0pt}{1em}{0.3em}
-\titlespacing*{\part}{0pt}{2em}{1em}
+\titlespacing*{\part}{0pt}{4em}{2em}
 
 \usepackage{hyperref}
 \hypersetup{hidelinks}

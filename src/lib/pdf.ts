@@ -41,7 +41,7 @@ export function listPdfStyles(): PdfStyle[] {
   }
   // the house academic trim first, the rest alphabetical
   ids.sort((a, b) =>
-    a === 'bicameral' ? -1 : b === 'bicameral' ? 1 : a.localeCompare(b),
+    a === 'academic' ? -1 : b === 'academic' ? 1 : a.localeCompare(b),
   );
   return ids.map((id) => ({ id, ...styleMeta(path.join(STYLES_DIR, `${id}.tex`)) }));
 }
@@ -122,7 +122,9 @@ function chapterTex(node: Node): string {
 }
 
 function folderTex(node: Node): string {
+  // parts start on a fresh page — never mid-page, whatever the style does
   return [
+    `\\clearpage`,
     `\\part*{${texEsc(node.title)}}`,
     `\\addcontentsline{toc}{part}{${texEsc(node.title)}}`,
   ].join('\n');

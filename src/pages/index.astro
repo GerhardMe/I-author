@@ -1004,16 +1004,30 @@ newRow.hidden = true;
     pdfBtn.classList.add('busy');
     const label = pdfBtn.textContent;
     pdfBtn.textContent = '…';
+    // a compiles-longer-than-activation fetch loses the popup privilege, so
+    // the tab opens NOW (inside the click gesture) and gets redirected once
+    // the pdf is fully here
+    const tab = window.open('about:blank', '_blank');
+    if (tab) {
+      tab.document.write(
+        '<meta charset="utf-8"><body style="font:14px Georgia,serif;color:#777;display:grid;place-items:center;height:100vh;margin:0">compiling…</body>',
+      );
+    }
     try {
       const url =
         `/pdf?path=${encodeURIComponent(scope)}&preset=${presetId}` +
         `&drafts=${hideDrafts ? '0' : '1'}${force ? '&recompile=1' : ''}`;
       const res = await fetch(url, { cache: 'no-store' });
-      if (!res.ok) throw new Error((await res.text()) || res.statusText);
+      if (!res.ok) {
+        throw new Error(
+          res.headers.get('x-iauthor-error') || (await res.text()) || res.statusText,
+        );
+      }
       pdfObjectUrl = URL.createObjectURL(await res.blob());
-      const w = window.open(pdfObjectUrl, '_blank');
-      if (!w) location.assign(pdfObjectUrl); // popup blocked: same tab is fine
+      if (tab) tab.location.replace(pdfObjectUrl);
+      else location.assign(pdfObjectUrl); // popups blocked entirely: same tab
     } catch (err) {
+      tab?.close();
       alert(`pdf: ${(err as Error).message}`);
     } finally {
       pdfBtn.classList.remove('busy');

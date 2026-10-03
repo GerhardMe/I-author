@@ -34,7 +34,7 @@ export const GET: APIRoute = async (ctx) => {
           /[&<>]/g,
           (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]!,
         )}</pre></body>`,
-      { status, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } },
+      { status, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'x-iauthor-error': msg.slice(0, 800) } },
     );
   }
 };
