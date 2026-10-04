@@ -457,6 +457,9 @@ test('renameEntry edits the title: prefix and draft token are kept', () => {
     .find((p) => parseName(p.split('/').pop()!).stem === 'Third')!;
   assert.throws(() => renameEntry(d.path, third.split('/').pop()!), /already exists/);
 
+  // a case-variant collides too, same rule create uses (findExisting, not existsSync)
+  assert.throws(() => renameEntry(d.path, 'ALPHA'), /already exists/);
+
   // folder rename cascades to children
   const r3 = renameEntry(w.path, 'Legend');
   assert.equal(r3.path, '01_Legend');

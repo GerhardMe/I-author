@@ -30,10 +30,15 @@ export const POST: APIRoute = async (ctx) => {
   };
   saveSecrets(secrets);
 
-  return json(ctx, {
-    totpSecret,
-    otpauthUri: otpauthUri(totpSecret, 'you', 'Iauthor'),
-    masterKey: secrets.masterKey,
-    recoveryCodes,
-  });
+  return json(
+    ctx,
+    {
+      totpSecret,
+      otpauthUri: otpauthUri(totpSecret, 'you', 'Iauthor'),
+      masterKey: secrets.masterKey,
+      recoveryCodes,
+    },
+    200,
+    true,
+  );
 };

@@ -39,8 +39,8 @@ the roadmap below. If a change adds complexity, it needs a good reason.
   Do not mention the user's password manager or setup in UI text.
 - **Nav**: the `I author` title is the *only* tree toggle — desktop slides between
   docked/focus, mobile expands over the page. No hamburger button; don't reintroduce one.
-- **Laptop-first.** Mobile = bare minimum (sidebar behind the ☰ button today, replaced by
-  the title-as-toggle overlay in 4.7; forms must work).
+- **Laptop-first.** Mobile = bare minimum (the sidebar toggle still exists until 4.7
+  replaces it with the title-as-toggle overlay; forms must work).
 
 ## Stack
 
@@ -65,7 +65,9 @@ flake.nix            dev shell: nodejs_22, pnpm, git, rclone; scripts/ on PATH
 scripts/             run (dev :4321), build, test-auth, deploy
 src/middleware.ts    auth guard: setup redirect, session check, idle lock, cookie renewal
 src/lib/config.ts    all env vars, cookie name, TTLs
-src/lib/http.ts      json(), clientIp(), isSecure()
+src/lib/http.ts      json(), clientIp() (socket address only — see §Auth model), isSecure()
+src/lib/visibility.ts  the "what's visible" rule (drafts + notes + empty dirs) in one place;
+                     visibleNodes(nodes, opts) — shared by the sidebar and the pdf aggregates
 src/lib/totp.ts      TOTP generate/verify + totpAt(secret, unixSeconds, digits) for tests
 src/lib/auth/        secrets, pin (scrypt), device tokens (HMAC), idle lock, rate limit,
                      recovery codes, auth.test.ts
@@ -97,9 +99,12 @@ pdfstyles/           LaTeX preamble "stylesheets" (a4, a5, academic) — single 
                      of truth for the pdf style menu
 src/layouts/         base.astro (theme pre-paint script, Literata import)
 src/styles/global.css  design tokens + shared components + app shell + markdown styles
+src/lib/editor.ts    CodeMirror extension set (editor_extensions assembled once)
+src/lib/pdf-wait.ts  client-side loader polling /api/pdfstatus
+src/lib/*.test.ts    node:test suites (test-auth runs the src/lib/*.test.ts glob)
 ```
 
-### index.astro flow map (~950 lines, the entire UI; all JS in one `<script>`)
+### index.astro flow map (~1400 lines, the entire UI; all JS in one `<script>`)
 
 ```
 boot()         restore expanded state (localStorage) → loadTree() → restore last draft
@@ -137,9 +142,9 @@ drop preview    ONE `#insert-line` element for both create and move; only the
                Hovering a CLOSED folder expands it (like the
                `new` preview does on mouseenter) and only folders the drag
                opened are collapsed again on dragend (`dragExpandPath`);
-               `visible()` keeps such an empty folder on screen via `dragPreview`,
-               and `isVisibleNode` walks the same rule instead of reimplementing
-               it.
+               `visible()` keeps such an empty folder on screen via `dragPreview`
+               (the `keepEmpty` callback in `visibility.ts`), and `isVisibleNode`
+               walks the same rule instead of reimplementing it.
 openFile(p)    GET /api/file → makeEditor(content); restores sessionStorage draft if newer
 showGroup(n)   folder index TOC (never an editor); awaits leavingFile() + loadTree()
                first so word totals (Node.words) reflect saves since the last load
@@ -161,7 +166,8 @@ nix develop          # everything below assumes this shell
 run                  # astro dev on :4321
 test-auth            # pnpm test (node --experimental-strip-types, node:test)
 build                # production build
-deploy               # test + build locally, sync source + dist to VPS, restart, health check
+deploy               # test locally, push main to GitHub; the server pulls, installs,
+                     # builds, restarts and health-checks (see §Deployment)
 ```
 
 - **Test on the deployed server, not locally.** The user tests UI changes against the
@@ -251,7 +257,7 @@ WORKS_DIR (server: /home/server/writing/works)
   `notes.md`, matter DOES compile into the book, as unnumbered front/back matter in
   the contents.
 - **Sidebar toolbar is one button**: the drafts toggle ("drafts" + eye glyph,
-  👁 open / 🙈 hidden, persisted in localStorage) hides drafts, notes, and empty
+  ◉ open / ◡ hidden, persisted in localStorage) hides drafts, notes, and empty
   directories from tree and indexes; folders whose children all vanish are dropped;
   notes render normally in indexes, they are only hidden together with drafts.
   Create/delete happen via the right-click context menu on the tree.
@@ -334,10 +340,10 @@ migrations won't be undone by deploys.
 |---|---|---|
 | `IAUTHOR_WORKS_DIR` | `~/writing/works` | works root |
 | `IAUTHOR_SECRETS_FILE` | `./secrets/secrets.json` | secrets path |
-| `IAUTHOR_IDLE_LOCK` | `12h` | idle lock timeout (`30m`/`12h` style) |
-| `IAUTHOR_SECURE` | unset | force Secure cookies (normally auto via `x-forwarded-proto`) |
-| `IAUTHOR_DOMAINS` | `localhost` | build-time `security.allowedDomains` (deploy sets it) |
-| `IAUTHOR_LUALATEX` | `lualatex` | pdf compiler binary (flake puts it on PATH) |
+| `IAUTHOR_IDLE_LOCK` | `12h` | idle lock timeout (`30m`/`12h`/`1d` style) |
+| `IAUTHOR_SECURE` | unset | force Secure cookies (`1`/`true`/`yes`/`on`; normally auto via `x-forwarded-proto`) |
+| `IAUTHOR_DOMAINS` | `localhost`,`[::1]` | build-time `security.allowedDomains` (deploy sets it) |
+| `IAUTHOR_LUALATEX` | `lualatex` | pdf compiler binary (flake puts it on PATH; read by `pdf.ts` directly, not `config.ts`) |
 | `HOST`/`PORT` | localhost/4321 | node adapter bind |
 
 ## Gotchas learned the hard way
@@ -360,123 +366,105 @@ migrations won't be undone by deploys.
 - Never commit secrets or the `.env`. The project repo itself has almost nothing
   committed yet; only commit when explicitly asked.
 
-## Known issues (audit 2026-10-04) — recorded, NOT fixed
+## Known issues (audit 2026-10-04) — Tiers 1–3 fixed, Tier 4 partly open
 
 A full read-only audit of the project against this file. Everything below was verified in
-the source. Nothing has been fixed; the plan is to work through the tiers in order. Treat
-this as a work list, not as spec — where the two disagree, the code is current and the
-prose above is stale.
+the source. Tier 1 was fixed on 2026-10-04 (same day); Tiers 2–4 (the cheap ones) followed
+the same day. What remains open is listed at the bottom. Treat the audit as a work list,
+not as spec — where the two disagree, the code is current and the prose above is stale.
 
-**Tier 1 — real bugs, small fixes, no API change:**
+**Tier 1 — real bugs, small fixes, no API change — FIXED 2026-10-04:**
 
-- `src/middleware.ts:47-58` **the idle lock fires itself.** The request `touch`es the *old*
-  token, then mints and sets a *fresh* cookie that never gets a `seen` entry — and
-  `auth/idle.ts:11` treats "no entry" as locked. Net: ~15 days after each login the next
-  request is bounced to `/login?locked=1`. Not a security hole (the cookie is still valid,
-  so it's PIN-only), but it contradicts the 30-day rolling cookie in §Product decisions.
-  Fix: `touch(fresh)` after minting. Also `seen` grows one entry per login forever — it has
-  no sweeper, unlike `auth/ratelimit.ts`.
-- `src/lib/works.ts:53` **one unreadable folder kills the whole tree.** `scan()` has no
-  `try/catch` around `readdirSync`, so an EACCES/EBUSY subdirectory throws out of
-  `listWorks` → `/api/tree` 500 → blank sidebar. `countFile` right below swallows errors,
-  which makes the asymmetry look accidental.
-- `src/lib/http.ts:15` **the rate limiter trusts the client's IP.** `x-forwarded-for` is
-  split and the *leftmost* entry taken — the one a client can forge (a proxy appends, so
-  the trustworthy value is rightmost). Caddy overwrites the header today, so it's latent,
-  but this is the only control between a 4-digit PIN and an online brute forcer, and it
-  also allows deliberate lockout of the owner's IP.
-- `src/lib/pdf.ts:446-452` **`chapterTitle`'s fallback still speaks the old numbering
-  grammar** (`Chapter ${diskPrefix}: …`, with `?`), so a tree-stale chapter prints a
-  different number than the sidebar shows. Also a real typo at `:442` ("UNCLENED").
+- the idle lock fired itself: the middleware `touch`ed the *old* token, then minted a
+  *fresh* cookie with no `seen` entry ("no entry" = locked) → ~15 days after each login the
+  next request bounced to `/login?locked=1`. Fixed with `touch(fresh)` after minting
+  (`middleware.ts`), plus a sweeper in `auth/idle.ts` that drops entries older than the
+  idle lock (they are meaningless — the session is locked by then anyway).
+- one unreadable folder killed the whole tree: `scan()` now try/catches `readdirSync` and
+  renders the folder empty, matching `countFile`'s swallow-an-error behaviour.
+- the rate limiter trusted the client's IP: `clientIp` now uses the **socket address
+  only** and ignores `x-forwarded-for` entirely — XFF is client-supplied and forgeable,
+  and behind Caddy every socket address is the proxy anyway, so the login rate limit is
+  one global bucket. Product decision by the owner: a global lockout is fine and even
+  desired (a break-in attempt locks everything and is visible).
+- `pdf.ts` `chapterTitle`'s fallback spoke the old disk-prefix numbering grammar; it now
+  prints the raw title unnumbered (a number there could only contradict the sidebar), and
+  the "UNCLENED" typo is gone.
 
-**Tier 2 — consistency / dead code:**
+**Tier 2 — consistency / dead code — FIXED 2026-10-04:**
 
-- The "what's visible" rule (drafts + notes + empty folders) is implemented **twice**:
-  `index.astro:129-145` (`visible`) and `pdf.ts:69-83` (`clean`). If the sidebar rule
-  changes, the PDF aggregate silently diverges. One shared predicate.
-- `renameEntry` duplicate check is `fs.existsSync` (`works.ts:274`) while `createEntry`
-  uses `findExisting` (`works.ts:183`, case-insensitive + prefix-stripped). Rename lets a
-  case-variant collision through that create would reject.
-- `sync.ts:84` **`dropDraft` always clears the global `iauthor.draft` pointer**, even when
-  the dropped draft isn't the one it points at — a second file's draft can't be restored at
-  boot (`boot()` reads `lastDraftPath()`).
-- `sync.ts:169` **the unsynced chip can stick**: `pushNow` returns early when content equals
-  baseline without resetting the dirty counter. `clearIfClean` (`sync.ts:208`) is the
-  intended fix and is exported but **never called**.
-- Dead code: `clearIfClean`'s export, `works.ts:150-152` `rawTitle()` (identity wrapper),
-  `works.ts:53` `scan`'s `depth` parameter (never read — `assignTitles` owns depth),
-  `preview.ts:200` `buildDeco`'s unused `onOpenLink` (only `createPreview`'s mousedown
-  handler uses it), `preview.ts:19/555` re-exported `placeholder`.
+- The "what's visible" rule (drafts + notes + empty folders) lived in **two** copies
+  (`index.astro`'s `visible` and `pdf.ts`'s `clean`). It is now `src/lib/visibility.ts`
+  (`visibleNodes(nodes, opts)`), shared by both; the sidebar's drag-preview escape hatch
+  is an optional `keepEmpty` callback the pdf path omits.
+- `renameEntry`'s duplicate check used `fs.existsSync`; it now goes through
+  `findExisting`, the same case-insensitive, prefix-stripped rule `createEntry` uses —
+  a case-variant collision is rejected on rename too.
+- `dropDraft` cleared the global `iauthor.draft` pointer unconditionally; it now clears
+  it only when it names the draft being dropped, so a second file's draft stays
+  restorable at boot.
+- The unsynced chip could stick: `pushNow`'s equal-content early return left the dirty
+  counter set. `clearIfClean` now resets it (and fires `onDirtyChange`), and `pushNow`
+  calls it on that path.
+- Dead code removed: `rawTitle()` (identity wrapper), `scan`'s never-read `depth`
+  parameter, `buildDeco`'s unused `onOpenLink`, the `placeholder` re-export.
 
-**Tier 3 — this file is behind the code (fix the prose, not the code):**
+**Tier 3 — this file is behind the code (fix the prose, not the code) — FIXED 2026-10-04:**
 
-- Self-contradiction: the `Nav` bullet says "no hamburger button", §Auth model still says
-  "sidebar behind a ☰ button". The ☰ line is the stale one (4.7 deletes it).
-- §Repository layout omits `src/lib/editor.ts`, `src/lib/pdf-wait.ts`,
-  `src/pages/api/pdfstatus.ts` and every `*.test.ts`.
-- §Environment variables lists `IAUTHOR_LUALATEX`, but `config.ts` doesn't own it —
-  `pdf.ts:24` reads `process.env` directly, contradicting "config.ts: all env vars".
-- §Dev workflow + `flake.nix:49` describe `scripts/deploy` as "build locally, sync source +
-  dist to VPS". It does neither: it pushes `main`, and the *server* pulls, installs and
-  builds. §Deployment describes the real behaviour.
-- "deleting the secrets file re-runs setup" is **false until the process restarts** —
-  `auth/secrets.ts:22` caches at module load and never invalidates on read failure.
-- The login-page gotcha describes an older shape: `login.astro:6` now ships
-  `<main hidden>` and reveals the page after the `/api/session` probe. The "no unhide
-  later" rule now guards a different element.
-- Factual drift: drafts-toggle glyphs are `◉`/`◡` (`index.astro:11,123`), not `👁`/`🙈`;
-  `index.astro` is 1150 lines, not ~950; "almost nothing committed yet" is now 10 commits
-  / 60 tracked files.
-- The Roadmap's 4.5 entry still says "prefix-derived numbers" — historical, superseded by
-  the numbering rework below it. Needs one footnote, not a rewrite.
-- **A doc trap:** §Gotchas says to test locally at `http://[::1]:4321`, but
-  `IAUTHOR_DOMAINS` defaults to `localhost` and Astro's origin check compares hostnames
-  exactly (then drops the port) — by the CSRF rule in the same section, every non-GET
-  request there 403s. Either add `[::1]` to the default or the doc should say
-  `http://localhost:4321`.
-- `.gitignore` doesn't cover `dist.old/`, which `scripts/deploy:35` creates inside the
-  server's git clone. Harmless (never pushed) but it shows as untracked there.
+- Self-contradiction resolved: the ☰ line under "Laptop-first" now defers to the Nav
+  bullet (the toggle exists today; 4.7 replaces it with the title-as-toggle overlay).
+- §Repository layout now lists `editor.ts`, `pdf-wait.ts`, `pdfstatus.ts`, `visibility.ts`
+  and the `*.test.ts` suites.
+- The `IAUTHOR_LUALATEX` table row now says `pdf.ts` reads it directly (config.ts owns the
+  rest).
+- §Dev workflow's `deploy` line describes the real push-and-server-builds behaviour.
+- The `[::1]` doc trap is fixed in code: `IAUTHOR_DOMAINS` now defaults to
+  `localhost,[::1]`, so `http://[::1]:4321` no longer 403s non-GET requests.
+- `.gitignore` covers `dist.old/`.
+
+Still stale prose (left open deliberately): the secrets-cache claim ("deleting the
+secrets file re-runs setup" is false until the process restarts — `auth/secrets.ts` caches
+at module load), the login-page gotcha shape (`login.astro:6` ships `<main hidden>` and
+reveals after the `/api/session` probe; the "no unhide later" rule guards a different
+element), and the Roadmap 4.5 "prefix-derived numbers" wording (historical, superseded by
+the numbering rework below it — needs a footnote, not a rewrite).
 
 **Tier 4 — needs an explicit product decision, not just an edit:**
 
+Fixed the same day (cheap, no product question involved): `--shell-escape` dropped from
+the LuaLaTeX invocation (`pdf.ts`); setup response sends `Cache-Control: no-store`;
+`parseDuration` accepts `1d`-style durations; `IAUTHOR_SECURE` accepts `true`/`yes`/`on`;
+`git.ts` checks for a trailing newline before appending `*.pdf` (fixed during Tier 1);
+`.gitignore` covers `dist.old/`. The `seen`-map leak was fixed with the idle sweeper.
+
+Still open — each needs a yes/no from the owner:
+
 - `.md.md`: `slugify` keeps dots (`naming.ts:51`) and `createEntry` appends `.md`
-  unconditionally (`works.ts:203`), so typing "notes.md" yields `01_notes.md.md`.
+  unconditionally (`works.ts:211`), so typing "notes.md" yields `01_notes.md.md`.
   `renameEntry` strips the extension first, so the two entry points disagree.
-- **There is no way to un-draft or un-number an entry.** `composeName` (`works.ts:252`)
+- **There is no way to un-draft or un-number an entry.** `composeName` (`works.ts:400`)
   preserves the prefix and ORs the draft flag with no way to clear either. That matches
   §Data & naming as written — but it makes `NN_`/`draft_` permanent once set.
 - `git.commit()` swallows every failure and returns `false`, and all four mutation routes
   ignore the return value — a save can land with no history and no user-visible signal,
   while the UI promises "Git history keeps a copy on the server". Concurrent commits can
   also collide on `.git/index.lock` and vanish silently.
-- `git.ts:20` appends `*.pdf\n` without checking for a trailing newline, so an existing
-  `.gitignore` ending `node_modules` (no `\n`) becomes `node_modules*.pdf`.
-- `pdf.ts:268` passes `--shell-escape` to LuaLaTeX; nothing in `pdfstyles/` needs it
-  (no `minted`/`gobble`/`pandoc`), so it's pure attack surface for a document compiled on
-  the server.
-- One-time secrets (`totpSecret`, `masterKey`, 8 recovery codes) are returned without
-  `Cache-Control: no-store` — `http.ts:4` sets only `content-type`. `pages/pdf.ts` does set
-  it, so the omission is inconsistent.
 - Oversized files (>512 KB) report **0 words** in the tree (`works.ts:45`) while being
-  unreadable (`works.ts:219`) — the header chip silently lies. Also `listWorks`
+  unreadable (`works.ts:229`) — the header chip silently lies. Also `listWorks`
   `mkdirSync`s the works dir on every `GET /api/tree` (a GET with a side effect).
-- Silent env parsing: `parseDuration` (`config.ts:13`) takes one unit, so `1d` or `12 h`
-  quietly becomes 12h; `IAUTHOR_SECURE` must be exactly `1`, so `true`/`yes` silently drop
-  `Secure` from the cookie.
-- `--shell-escape`, `pdfstyles/a4.tex` vs `a5.tex` (byte-identical but for two lines — two
-  hand-maintained copies of one preamble), and the `seen`-map leak are all cheap; the
-  above are the ones that need a yes/no first.
+- `pdfstyles/a4.tex` vs `a5.tex` are byte-identical but for two lines — two
+  hand-maintained copies of one preamble.
 
 **Claims that look like drift but are NOT — don't "fix" these:**
 
 - `pnpm test` really does glob (`package.json:9`: `node --experimental-strip-types --test
   src/lib/*.test.ts`), so `pdf.test.ts` runs. The §Gotchas warning is satisfied.
-- Printed numbers are positional in **both** the code (`works.ts:154-181`) and §Data &
+- Printed numbers are positional in **both** the code (`works.ts:162-193`) and §Data &
   naming. Only the historical Roadmap entry lags.
 - `renameEntry` preserving the prefix + `draft_` token is documented correctly
   (`composeName`).
 - There is no `?` placeholder for unprefixed entries any more; `kindNumber`'s `num === '?'`
-  branch (`works.ts:145`) is the only leftover, and it is unreachable.
+  branch (`works.ts:152`) is the only leftover, and it is unreachable.
 
 ## Planned: collapsible tree view (milestone 4.7)
 

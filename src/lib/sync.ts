@@ -82,7 +82,9 @@ export function saveDraft(p: string, draft: Draft): void {
 }
 
 export function dropDraft(p: string): void {
-  sessionStorage.removeItem(DRAFT_KEY);
+  // only clear the pointer when it names THIS draft — another file's draft
+  // must stay restorable at boot (boot() reads lastDraftPath())
+  if (sessionStorage.getItem(DRAFT_KEY) === p) sessionStorage.removeItem(DRAFT_KEY);
   sessionStorage.removeItem(draftKey(p));
 }
 
@@ -187,8 +189,7 @@ export function createSync(hooks: SyncHooks): SyncState {
       pushTimer = null;
     }
     if (content === baseline) {
-      dropDraft(path);
-      hooks.getEditor()?.dispatch({ effects: clearUnsynced.of(null) });
+      clearIfClean();
       return;
     }
     pushing = true;
@@ -226,13 +227,18 @@ export function createSync(hooks: SyncHooks): SyncState {
     }
   }
 
+  // the doc matches the server copy: drop the draft, clear the marks AND the
+  // dirty counter — otherwise the chip's "· …" sticks forever (pushNow's
+  // equal-content early return used to leave it set)
   function clearIfClean(): void {
     const path = hooks.getPath();
     const content = hooks.getContent();
     if (!path || !content) return;
     if (content === baseline) {
+      dirty = 0;
       dropDraft(path);
       hooks.getEditor()?.dispatch({ effects: clearUnsynced.of(null) });
+      hooks.onDirtyChange();
     }
   }
 

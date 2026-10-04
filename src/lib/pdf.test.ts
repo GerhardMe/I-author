@@ -12,7 +12,7 @@ import './test-setup.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { collectItems, pdfPlan, type FragItem } from './pdf.ts';
+import { chapterTitle, collectItems, pdfPlan, type FragItem } from './pdf.ts';
 import { createEntry, type Node } from './works.ts';
 import { TEST_WORKS_DIR } from './test-setup.ts';
 
@@ -116,4 +116,12 @@ test('the scope title is the entry title, never the disk prefix', () => {
 
   assert.equal(pdfPlan(w.path, 'academic').scope, 'The Silmarillion');
   assert.equal(pdfPlan(p.path, 'academic').scope, 'Front Light');
+});
+
+test('a tree-stale chapter path falls back to its bare raw title', () => {
+  // the disk prefix is order only — the fallback must not resurrect the old
+  // "Chapter N: title" grammar or print a ? placeholder
+  assert.equal(chapterTitle('01_work/01_part/01_first_flight.md'), 'first flight');
+  assert.equal(chapterTitle('02_poems.md'), 'poems');
+  assert.equal(chapterTitle('01_work/01_part/03_no_prefix_yet.md'), 'no prefix yet');
 });

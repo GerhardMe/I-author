@@ -1,7 +1,9 @@
 import { defineConfig } from 'astro/config';
 import node from '@astrojs/node';
 
-const domains = (process.env.IAUTHOR_DOMAINS ?? 'localhost')
+// [::1] covers the local dev server, which binds IPv6 — without it Astro's
+// origin check 403s every non-GET request to http://[::1]:4321
+const domains = (process.env.IAUTHOR_DOMAINS ?? 'localhost,[::1]')
   .split(',')
   .map((s) => s.trim())
   .filter(Boolean)

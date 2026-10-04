@@ -17,7 +17,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { WORKS_DIR } from './config.ts';
 import { parseName, slugify } from './naming.ts';
-import { NOTES, type Node, listWorks, readChapter, safePath } from './works.ts';
+import { type Node, listWorks, readChapter, safePath } from './works.ts';
+import { visibleNodes } from './visibility.ts';
 import { ensureRepo } from './git.ts';
 
 const run = promisify(execFile);
@@ -65,21 +66,10 @@ function resolveStyle(id: string | null): { id: string; preamble: string } {
 // compiled exports mirror the sidebar's drafts toggle: with drafts hidden,
 // draft entries, notes.md, and folders left with nothing visible are dropped;
 // with drafts visible, draft entries ride along (notes.md is folder material
-// and never compiles as a chapter)
+// and never compiles as a chapter). The rule itself lives in visibility.ts —
+// one implementation for sidebar and print.
 function clean(nodes: Node[], includeDrafts: boolean): Node[] {
-  const out: Node[] = [];
-  for (const n of nodes) {
-    if (!includeDrafts && n.draft) continue;
-    if (n.children === undefined && NOTES.test(n.name)) continue;
-    if (n.children !== undefined) {
-      const kids = clean(n.children, includeDrafts);
-      if (!kids.length) continue;
-      out.push({ ...n, children: kids });
-    } else {
-      out.push(n);
-    }
-  }
-  return out;
+  return visibleNodes(nodes, { drafts: !includeDrafts, notes: true, empty: true });
 }
 
 function findNode(nodes: Node[], rel: string): Node | null {
@@ -262,12 +252,9 @@ async function runLatex(tex: string, jobname: string, passes: number): Promise<B
   const dir = fs.mkdtempSync(path.join(TEXBUILD, 'j-'));
   try {
     fs.writeFileSync(path.join(dir, `${jobname}.tex`), tex);
-    const args = [
-      '-interaction=nonstopmode',
-      '--shell-escape',
-      `-jobname=${jobname}`,
-      `${jobname}.tex`,
-    ];
+    // no --shell-escape: nothing in pdfstyles/ needs it, and it hands a
+    // compiled document \write18 — pure attack surface on a server
+    const args = ['-interaction=nonstopmode', `-jobname=${jobname}`, `${jobname}.tex`];
     // non-stop mode still exits nonzero on recoverable errors; only a missing
     // pdf is fatal. Multiple passes: the TOC needs the first pass's .toc file.
     for (let i = 0; i < passes; i++) {
@@ -439,16 +426,17 @@ function scopeTitle(rel: string): string {
   return parseName(path.basename(rel).replace(MD, '')).raw;
 }
 
-// display title of a single chapter. Looked up in the UNCLENED tree: a
+// display title of a single chapter. Looked up in the UNCLEANED tree: a
 // directly requested draft chapter compiles intentionally — the no-drafts
-// rule only governs folder aggregates. Fallback for a tree-stale path:
-// synthesize the chapter title from the filename grammar.
-function chapterTitle(rel: string): string {
+// rule only governs folder aggregates. Fallback for a tree-stale path (the
+// file moved or sits under a symlink the scanner can't follow): print the raw
+// title unnumbered. A number here would come from the disk prefix, which is
+// order-only, so it could contradict the number the sidebar shows.
+// (exported for tests)
+export function chapterTitle(rel: string): string {
   const node = findNode(listWorks(), rel);
   if (node) return node.title;
-  const parsed = parseName(path.basename(rel).replace(MD, ''));
-  const label = parsed.prefix !== null ? String(parsed.prefix) : '?';
-  return rel.includes('/') ? `Chapter ${label}: ${parsed.raw}` : parsed.raw;
+  return parseName(path.basename(rel).replace(MD, '')).raw;
 }
 
 // ---------- plan ----------

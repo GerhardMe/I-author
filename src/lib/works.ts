@@ -6,7 +6,6 @@ import { countWords } from './words.ts';
 
 // re-exported for a single import surface (API routes, tests)
 export { naturalCompare, slugify, NOTES } from './naming.ts';
-import type { ParsedName } from './naming.ts';
 
 const MAX_FILE = 512 * 1024;
 const MD = /\.(md|markdown)$/i;
@@ -49,17 +48,25 @@ function countFile(abs: string): number {
   }
 }
 
-function scan(absDir: string, relPrefix: string, depth: number, inDraft: boolean): Node[] {
-  const entries = fs
-    .readdirSync(absDir, { withFileTypes: true })
-    .filter((e) => !e.name.startsWith('.') && (e.isDirectory() || MD.test(e.name)))
-    .sort((a, b) => naturalCompare(a.name, b.name));
+function scan(absDir: string, relPrefix: string, inDraft: boolean): Node[] {
+  // an unreadable directory (EACCES, EBUSY on a mounted volume) must not kill
+  // the whole tree — it shows as empty, exactly like an unreadable file in
+  // countFile below counts as 0 words
+  let entries: fs.Dirent[];
+  try {
+    entries = fs
+      .readdirSync(absDir, { withFileTypes: true })
+      .filter((e) => !e.name.startsWith('.') && (e.isDirectory() || MD.test(e.name)))
+      .sort((a, b) => naturalCompare(a.name, b.name));
+  } catch {
+    return [];
+  }
   const out: Node[] = [];
   for (const e of entries) {
     const rel = relPrefix + e.name;
     const draft = parseName(e.name).draft;
     if (e.isDirectory()) {
-      const children = scan(path.join(absDir, e.name), `${rel}/`, depth + 1, inDraft || draft);
+      const children = scan(path.join(absDir, e.name), `${rel}/`, inDraft || draft);
       out.push({
         name: e.name,
         path: rel,
@@ -89,7 +96,7 @@ function scan(absDir: string, relPrefix: string, depth: number, inDraft: boolean
 
 export function listWorks(): Node[] {
   fs.mkdirSync(WORKS_DIR, { recursive: true });
-  const tree = scan(WORKS_DIR, '', 0, false);
+  const tree = scan(WORKS_DIR, '', false);
   assignTitles(tree, 0);
   return tree;
 }
@@ -147,10 +154,6 @@ function kindNumber(kind: Kind, num: number | '?'): string {
   return kind === 'book' ? toRoman(num) : String(num);
 }
 
-function rawTitle({ raw }: ParsedName): string {
-  return raw;
-}
-
 function assignTitles(nodes: Node[], depth: number): void {
   // The disk prefix is ORDER ONLY; the printed number is the entry's position
   // among same-kind siblings, so a book's label is "Book II" whenever it is
@@ -160,7 +163,7 @@ function assignTitles(nodes: Node[], depth: number): void {
   const pos: Record<Kind, number> = { book: 0, part: 0, chapter: 0 };
   for (const n of nodes) {
     const parsed = parseName(n.name);
-    n.raw = rawTitle(parsed);
+    n.raw = parsed.raw;
     if (depth === 0) {
       // top-level entries are presented bare, without label or number
       n.label = '';
@@ -411,7 +414,11 @@ export function renameEntry(rel: string, name: string): { path: string; renumber
   const target = composeName(path.basename(rel), isFile ? slug.replace(MD, '') : slug, isFile);
   const targetAbs = path.join(parentAbs, target);
   if (targetAbs === abs) return { path: rel, renumbered: renumberDir(parentOf(rel)) };
-  if (fs.existsSync(targetAbs)) throw new Error('already exists');
+  // same collision rule create uses: case-insensitive, prefix-stripped — an
+  // exact-name check would let a case-variant through (and then renumberDir
+  // would happily sit two same-stem siblings next to each other)
+  if (fs.existsSync(targetAbs) || findExisting(parentAbs, isFile ? slug.replace(MD, '') : slug))
+    throw new Error('already exists');
   fs.renameSync(abs, targetAbs);
   // carry the compiled pdf to the new name, if one was built
   const parentRel = rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/') + 1) : '';

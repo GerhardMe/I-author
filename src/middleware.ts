@@ -48,6 +48,9 @@ export const onRequest = defineMiddleware(async (ctx, next) => {
 
   if (tokenExp(token) - Date.now() < DEVICE_TTL_MS / 2) {
     const { token: fresh } = createToken(secrets.sessionSecret, DEVICE_TTL_MS);
+    touch(fresh); // the next request carries the new cookie; without a `seen`
+    // entry it would read as idle-locked (no entry = locked) and bounce the
+    // author to a PIN re-entry halfway through the cookie's life
     ctx.cookies.set(DEVICE_COOKIE, fresh, {
       path: '/',
       httpOnly: true,

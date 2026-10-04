@@ -16,7 +16,6 @@ import {
   Decoration,
   type DecorationSet,
   WidgetType,
-  placeholder,
 } from '@codemirror/view';
 import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
 import { tags as t } from '@lezer/highlight';
@@ -197,7 +196,7 @@ function renderMath(src: string, display: boolean): string | null {
 // currency text ("costs $5 and $10") stays prose
 const INLINE_MATH = /(?<![$\\])\$(?!\s)((?:\\.|[^$\n])+?)(?<!\s)\$(?!\$)/g;
 
-function buildDeco(state: EditorState, onOpenLink: OpenLink): {
+function buildDeco(state: EditorState): {
   deco: DecorationSet;
   atom: DecorationSet;
 } {
@@ -513,11 +512,11 @@ function buildDeco(state: EditorState, onOpenLink: OpenLink): {
 
 export function createPreview(onOpenLink: OpenLink): Extension[] {
   const previewField = StateField.define<{ deco: DecorationSet; atom: DecorationSet }>({
-    create: (s) => buildDeco(s, onOpenLink),
+    create: (s) => buildDeco(s),
     update(_v, tr) {
       if (tr.docChanged) invalidatePreviewMemo();
       return tr.docChanged || tr.selection || tr.effects.some((e) => e.is(focusToggle))
-        ? buildDeco(tr.state, onOpenLink)
+        ? buildDeco(tr.state)
         : _v;
     },
   });
@@ -551,5 +550,3 @@ export function createPreview(onOpenLink: OpenLink): Extension[] {
     ),
   ];
 }
-
-export { placeholder };
