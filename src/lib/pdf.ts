@@ -124,8 +124,11 @@ function sha(s: string): string {
 
 type FragItem = {
   kind: 'part' | 'chapter';
-  title: string;
-  key: string; // content hash: style + title (+ md content)
+  title: string; // fused display title — the toc entry
+  label: string; // division label ("Part 1"), '' for a bare container
+  raw: string; // the folder's own title
+  above: string; // enclosing division line ("Book I: Book One"), '' if none
+  key: string; // content hash: style + the printed lines (+ md content)
   file: string; // cached fragment pdf path
   abs?: string; // chapter md path
 };
@@ -134,35 +137,57 @@ function fragFile(key: string): string {
   return path.join(FRAG_DIR, `f${key}.pdf`);
 }
 
-// book layout in order: part page for every non-root folder, chapter pages
-// under them; a fragment file that exists is current (the hash covers style,
-// title and content), so freshness needs no state bookkeeping
+// the line naming a division as a container of another: "Book I: Book One",
+// or just the title when the division is presented bare (a top-level work)
+function containerLine(n: { label: string; raw: string }): string {
+  return n.label ? `${n.label}: ${n.raw}` : n.raw;
+}
+
+// book layout in order: a division page for every non-root folder, chapter
+// pages under them. The walk carries the enclosing division down, so every
+// page knows the line to print above itself — a book's parts name the book,
+// a work's books name the work. A fragment file that exists is current (the
+// hash covers the style and every printed line), so freshness needs no state
 function collectItems(node: Node, styleHash: string, out: FragItem[]): void {
-  const walk = (n: Node, root: boolean): void => {
+  const walk = (n: Node, above: string): void => {
     if (n.children === undefined) return;
-    if (!root) {
-      const key = sha(`${styleHash}\n${n.title}`);
-      out.push({ kind: 'part', title: n.title, key, file: fragFile(key) });
-    }
     for (const c of n.children) {
-      if (c.children !== undefined) walk(c, false);
-      else {
-        let content = '';
-        try {
-          content = readChapter(c.path);
-        } catch {}
-        const key = sha(`${styleHash}\n${c.title}\n${content}`);
+      if (c.children !== undefined) {
+        // this folder's page first, then everything under it
+        const key = sha(`${styleHash}\n${above}\n${c.label}\n${c.raw}`);
         out.push({
-          kind: 'chapter',
+          kind: 'part',
           title: c.title,
+          label: c.label,
+          raw: c.raw,
+          above,
           key,
           file: fragFile(key),
-          abs: safePath(c.path) ?? undefined,
         });
+        // the container line of this folder's children is its own
+        walk(c, containerLine(n));
+        continue;
       }
+      let content = '';
+      try {
+        content = readChapter(c.path);
+      } catch {}
+      const key = sha(`${styleHash}\n${c.title}\n${content}`);
+      out.push({
+        kind: 'chapter',
+        title: c.title,
+        label: c.label,
+        raw: c.raw,
+        above,
+        key,
+        file: fragFile(key),
+        abs: safePath(c.path) ?? undefined,
+      });
     }
   };
-  walk(node, true);
+  // the scope itself never prints a page, but it is the container of its
+  // children — compiling a book gives its parts the book's line
+  walk(node, containerLine(node));
 }
 
 // a chapter fragment is the exact pages the chapter occupies inside a book —
@@ -181,12 +206,26 @@ function chapterFragTex(title: string, abs: string, preamble: string): string {
   ].join('\n');
 }
 
-function partFragTex(title: string, preamble: string): string {
+// a division page (Book/Part folder) stacks the way the printed convention
+// does — the more senior the division, the smaller its type: the enclosing
+// division in small caps, this division's label below it, then the title
+// large. Both upper lines are always present; a bare container (a top-level
+// work) simply contributes its title without a label. The title itself still
+// goes through \part*, so the style's titlesec block owns its size and the
+// air above it.
+function partFragTex(it: FragItem, preamble: string): string {
   return [
     preamble,
     '\\pagestyle{empty}',
     '\\begin{document}',
-    `\\part*{${texEsc(title)}}`,
+    '{',
+    '  \\centering',
+    '  \\vspace*{3.5cm}',
+    `  {\\small\\MakeUppercase{${texEsc(it.above)}}\\par}`,
+    '  \\vspace{2.5em}',
+    `  {\\normalsize ${texEsc(it.label)}\\par}`,
+    '}',
+    `\\part*{${pretty(it.raw)}}`,
     '\\end{document}',
     '',
   ].join('\n');
@@ -361,7 +400,7 @@ export async function ensurePdf(
     if (!force && fs.existsSync(it.file)) continue;
     const tex =
       it.kind === 'part'
-        ? partFragTex(it.title, style.preamble)
+        ? partFragTex(it, style.preamble)
         : chapterFragTex(it.title, it.abs!, style.preamble);
     fs.writeFileSync(it.file, await runLatex(tex, `f${it.key}`, 1));
   }

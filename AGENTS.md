@@ -70,7 +70,8 @@ src/lib/naming.ts    the filename grammar, defined once (parseName, slugify, nat
                      NOTES); pure, imported by server and client bundles
 src/lib/works.ts     works tree: listWorks/readChapter/writeChapter/createEntry/renameEntry/
                      deleteEntry, safePath (traversal + symlink + dotfile protection),
-                     display titles (Node.title: depth-dependent Work/Book/Part/Chapter labels),
+                     display titles (Node.title: depth-dependent Work/Book/Part/Chapter labels,
+                     split into Node.label + Node.raw for print),
                      word counts (Node.words: per-md count, folders sum all descendant mds)
 src/lib/words.ts     countWords() — pure, used client- and server-side
 src/lib/preview.ts   live-preview engine: widgets, buildDeco, focus field, ctrl+click
@@ -304,7 +305,7 @@ fought screen text sizes — deleted) — the `pdf` dock button opens
 beside its source in the works dir (`01_flight.md` → `01_flight.pdf`,
 folder `01_work/` → `01_work.pdf`); LuaLaTeX + the `markdown` package,
 preamble "stylesheets" live in `pdfstyles/` (first line `% label: ...`,
-menu from `GET /api/pdfstyles`, default `academic` = 6.1″×9″; Book/Part folders get a large centered part page of their own (always after a page break); only books take Roman numerals — parts and chapters are Arabic;
+menu from `GET /api/pdfstyles`, default `academic` = 6.1″×9″; Book/Part folders get a division page of their own (always after a page break) stacking the printed convention — the more senior the division, the smaller its type: enclosing division in small caps, own label below, title large via `\part*` (so the style's titlesec block still owns it); only books take Roman numerals — parts and chapters are Arabic; the stack comes from `Node.label`/`Node.raw` (title in print pieces, `title` is their `label: raw` join) and the fragment key covers those lines, so renaming a book rebuilds its parts' pages;
 recompile item + stale-mtime auto-recompile; preset in
 `iauthor.pdf-preset`); folder scopes get title page + `\tableofcontents`
 (real page numbers, two-pass compile), chapters get ruled unnumbered section

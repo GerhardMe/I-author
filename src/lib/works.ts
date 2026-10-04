@@ -15,6 +15,10 @@ export type Node = {
   name: string;
   path: string;
   title: string;
+  // title in print pieces: label is the division ("Part 1", "Book I"), empty
+  // for bare entries (top level, notes.md); raw is the filename's own title
+  label: string;
+  raw: string;
   draft: boolean; // self: carries the draft_ token (owns the (draft) chip)
   inDraft: boolean; // self or any ancestor is a draft (grays titles, no chip)
   words: number; // self (md) or recursive total of all descendant mds
@@ -60,6 +64,8 @@ function scan(absDir: string, relPrefix: string, depth: number, inDraft: boolean
         name: e.name,
         path: rel,
         title: '',
+        label: '',
+        raw: '',
         draft,
         inDraft: inDraft || draft,
         words: children.reduce((sum, c) => sum + c.words, 0),
@@ -70,6 +76,8 @@ function scan(absDir: string, relPrefix: string, depth: number, inDraft: boolean
         name: e.name,
         path: rel,
         title: '',
+        label: '',
+        raw: '',
         draft,
         inDraft: inDraft || draft,
         words: countFile(path.join(absDir, e.name)),
@@ -159,16 +167,20 @@ function maxSubOf(node: Node): number {
 function assignTitles(nodes: Node[], depth: number): void {
   for (const n of nodes) {
     const parsed = parseName(n.name);
+    n.raw = rawTitle(parsed);
     if (depth === 0) {
       // top-level entries are presented bare, without label or number
-      n.title = rawTitle(parsed);
+      n.label = '';
+      n.title = n.raw;
     } else if (n.children === undefined && NOTES.test(n.name)) {
-      n.title = rawTitle(parsed);
+      n.label = '';
+      n.title = n.raw;
     } else {
       const kind: Kind = n.children !== undefined ? folderKind(depth, maxSubOf(n)) : 'chapter';
       // the display number is the entry's own disk prefix; unprefixed -> ?
       const num = parsed.prefix ?? '?';
-      n.title = `${LABEL[kind]} ${kindNumber(kind, num)}: ${rawTitle(parsed)}`;
+      n.label = `${LABEL[kind]} ${kindNumber(kind, num)}`;
+      n.title = `${n.label}: ${n.raw}`;
     }
     if (n.children !== undefined) assignTitles(n.children, depth + 1);
   }

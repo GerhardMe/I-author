@@ -156,6 +156,36 @@ test('display titles follow nesting depth', () => {
   assert.equal(readChapter(c.path), '');
 });
 
+test('print pieces: label and raw split the display title', () => {
+  fs.rmSync(TEST_WORKS_DIR, { recursive: true, force: true });
+
+  const w = createEntry('folder', '', 'Epic');
+  const b = createEntry('folder', w.path, 'Book One');
+  const p = createEntry('folder', b.path, 'Part One');
+  const c = createEntry('file', p.path, 'First Flight');
+  const poem = createEntry('file', '', 'Poems');
+  // notes.md is never auto-prefixed, so it is written directly
+  fs.writeFileSync(path.join(TEST_WORKS_DIR, b.path, 'notes.md'), '# Notes\n', 'utf8');
+
+  const pieces = new Map<string, { label: string; raw: string }>();
+  const walk = (ns: { path: string; label: string; raw: string; children?: unknown[] }[]) => {
+    for (const n of ns) {
+      pieces.set(n.path, { label: n.label, raw: n.raw });
+      if (n.children) walk(n.children as never);
+    }
+  };
+  walk(listWorks());
+
+  // bare entries carry no label; every other entry splits into label + raw,
+  // which is what a division page prints
+  assert.deepEqual(pieces.get(w.path), { label: '', raw: 'Epic' });
+  assert.deepEqual(pieces.get(b.path), { label: 'Book I', raw: 'Book One' });
+  assert.deepEqual(pieces.get(p.path), { label: 'Part 1', raw: 'Part One' });
+  assert.deepEqual(pieces.get(c.path), { label: 'Chapter 1', raw: 'First Flight' });
+  assert.deepEqual(pieces.get(b.path + '/notes.md'), { label: '', raw: 'notes' });
+  assert.deepEqual(pieces.get(poem.path), { label: '', raw: 'Poems' });
+});
+
 test('titles clamp: 4-level chain and mixed sibling kinds', () => {
   fs.rmSync(TEST_WORKS_DIR, { recursive: true, force: true });
 
