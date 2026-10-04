@@ -1030,6 +1030,16 @@ newRow.hidden = true;
           res.headers.get('x-iauthor-error') || (await res.text()) || res.statusText,
         );
       }
+      // the middleware redirects an expired session to /login and fetch follows
+      // it transparently, so a "successful" response that is not a pdf is the
+      // login page. Redirect the tab to it for real — rendering it inside a
+      // blob would strip the app's stylesheets and leave a bare form on an
+      // orphaned blob: url.
+      if (!(res.headers.get('content-type') || '').includes('application/pdf')) {
+        if (tab) tab.location.replace('/login');
+        else location.assign('/login');
+        return;
+      }
       pdfObjectUrl = URL.createObjectURL(await res.blob());
       if (tab) tab.location.replace(pdfObjectUrl);
       else location.assign(pdfObjectUrl); // popups blocked entirely: same tab

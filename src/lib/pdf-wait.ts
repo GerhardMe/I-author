@@ -2,6 +2,11 @@
 // Written into a blank tab with document.write, so it must be one
 // self-contained document: inline styles, no imports, no external assets.
 //
+// The tab is same-origin (a blank tab inherits the opener's origin), so the
+// page resolves the theme exactly like base.astro does — localStorage first,
+// system preference otherwise — and the tokens below mirror global.css. Keep
+// the two in sync when the palette changes.
+//
 // It polls /api/pdfstatus — the server's own view of the fragment cache — so
 // the list is not decoration: entries flip to ready as their fragment pdfs
 // actually land in the scratch dir, and the count line ends on "assembling"
@@ -13,28 +18,39 @@ export function pdfWaitPage(statusUrl: string, force: boolean): string {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>compiling</title>
+<script>
+(() => {
+  try {
+    const stored = localStorage.getItem('theme');
+    const dark = stored
+      ? stored === 'dark'
+      : window.matchMedia('(prefers-color-scheme: dark)').matches;
+    document.documentElement.classList.toggle('dark', dark);
+  } catch {}
+})();
+</script>
 <style>
-:root{--bg:#fbfbfc;--fg:#3f4652;--dim:#8a92a0;--line:#e3e7ed;--acc:#2f6fd0;--err:#b4453c}
-@media (prefers-color-scheme:dark){:root{--bg:#15171b;--fg:#c8cdd7;--dim:#79808e;--line:#2a2e36;--acc:#74a9f7;--err:#e0776c}}
+:root{--bg:#f6f7f8;--fg:#1f2328;--muted:#6e7681;--line:#d9dce1;--card:#fbfbfc;--accent:#1f6feb;--danger:#d1242f}
+.dark{--bg:#101216;--fg:#e2e5e9;--muted:#8a9099;--line:#262b33;--card:#16191e;--accent:#4493f8;--danger:#e5534b}
 *{box-sizing:border-box}
 html,body{margin:0;background:var(--bg);color:var(--fg)}
-body{font:15px/1.6 Literata,Georgia,'Times New Roman',serif}
+body{font:0.95rem/1.6 'Literata Variable',Georgia,'Times New Roman',serif;-webkit-font-smoothing:antialiased}
 main{max-width:33rem;margin:0 auto;padding:11vh 1.5rem 3rem}
 h1{font-size:1.05rem;font-weight:600;margin:0;overflow-wrap:anywhere}
-.meta{color:var(--dim);font-size:.78rem;margin:.3rem 0 1.8rem}
+.meta{color:var(--muted);font-size:.78rem;margin:.3rem 0 1.8rem}
 .bar{height:2px;background:var(--line)}
-.bar i{display:block;height:100%;width:0;background:var(--acc);transition:width .4s ease}
-.count{color:var(--dim);font-size:.78rem;margin:.7rem 0 1.4rem}
-.count.err{color:var(--err)}
+.bar i{display:block;height:100%;width:0;background:var(--accent);transition:width .4s ease}
+.count{color:var(--muted);font-size:.78rem;margin:.7rem 0 1.4rem}
+.count.err{color:var(--danger)}
 ul{list-style:none;margin:0;padding:0}
 li{display:flex;gap:.55rem;align-items:baseline;padding:.26rem 0;border-top:1px solid var(--line)}
-li .g{flex:none;width:.85rem;text-align:center;color:var(--dim);font-size:.72rem;line-height:1.9}
+li .g{flex:none;width:.85rem;text-align:center;color:var(--muted);font-size:.72rem;line-height:1.9}
 li .t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 li.part{border-top-color:transparent;margin-top:.75rem;font-weight:600}
-li.ch .t{color:var(--dim)}
-li.ready .g{color:var(--acc)}
+li.ch .t{color:var(--muted)}
+li.ready .g{color:var(--accent)}
 li.ch.ready .t{color:var(--fg)}
-.spin{display:inline-block;width:.6rem;height:.6rem;border:1.5px solid var(--acc);border-right-color:transparent;border-radius:50%;animation:sp .7s linear infinite;vertical-align:-1px}
+.spin{display:inline-block;width:.6rem;height:.6rem;border:1.5px solid var(--accent);border-right-color:transparent;border-radius:50%;animation:sp .7s linear infinite;vertical-align:-1px}
 @keyframes sp{to{transform:rotate(1turn)}}
 </style>
 </head>
