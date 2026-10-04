@@ -751,14 +751,15 @@ async function showGroup(node: Node): Promise<void> {
     if (!row) return;
     const node = byPath.get(row.dataset.path!);
     if (!node) return;
-    selected = node.path;
     if (node.children !== undefined) {
+      selected = node.path;
       expanded.add(node.path);
       saveExpanded();
+      renderTree();
+      await showGroup(node);
+    } else {
+      await openFile(node.path); // revealPath selects + renders
     }
-    renderTree();
-    if (node.children !== undefined) await showGroup(node);
-    else await openFile(node.path);
   });
 
   async function openFile(p: string) {
