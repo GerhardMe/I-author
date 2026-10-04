@@ -122,7 +122,7 @@ function sha(s: string): string {
   return createHash('sha256').update(s).digest('hex').slice(0, 20);
 }
 
-type FragItem = {
+export type FragItem = {
   kind: 'part' | 'chapter';
   title: string; // fused display title — the toc entry
   label: string; // division label ("Part 1"), '' for a bare container
@@ -148,7 +148,7 @@ function containerLine(n: { label: string; raw: string }): string {
 // page knows the line to print above itself — a book's parts name the book,
 // a work's books name the work. A fragment file that exists is current (the
 // hash covers the style and every printed line), so freshness needs no state
-function collectItems(node: Node, styleHash: string, out: FragItem[]): void {
+export function collectItems(node: Node, styleHash: string, out: FragItem[]): void {
   const walk = (n: Node, above: string): void => {
     if (n.children === undefined) return;
     for (const c of n.children) {
@@ -165,7 +165,7 @@ function collectItems(node: Node, styleHash: string, out: FragItem[]): void {
           file: fragFile(key),
         });
         // the container line of this folder's children is its own
-        walk(c, containerLine(n));
+        walk(c, containerLine(c));
         continue;
       }
       let content = '';

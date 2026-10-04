@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { WORKS_DIR } from './config.ts';
-import { naturalCompare, NOTES, parseName, slugify } from './naming.ts';
+import { MATTER, naturalCompare, NOTES, parseName, slugify } from './naming.ts';
 import { countWords } from './words.ts';
 
 // re-exported for a single import surface (API routes, tests)
@@ -105,14 +105,14 @@ function nextName(parentAbs: string, slug: string): string {
 }
 
 // ---------- display titles ----------
-// Labels are anchored to the top of the deepest folder chain through a node:
-// Work / Book / Part / (Part, Part, ...). Folders on shallower side branches
-// keep the label their own depth implies, and the deepest chain wins. Every
-// md below the top level is a chapter; top-level entries are presented bare.
-type Kind = 'work' | 'book' | 'part' | 'chapter';
+// Depth decides, because depth is the schema: a folder directly under a
+// top-level work is a Book whether or not it happens to contain Parts (a
+// book with none is still a book), anything deeper is a Part, level 4 and
+// below clamps to Part. Every md below the top level is a chapter; top-level
+// entries are presented bare, as are notes.md and the reserved matter names.
+type Kind = 'book' | 'part' | 'chapter';
 
 const LABEL: Record<Kind, string> = {
-  work: 'Work',
   book: 'Book',
   part: 'Part',
   chapter: 'Chapter',
@@ -146,22 +146,8 @@ function kindNumber(kind: Kind, num: number | '?'): string {
   return kind === 'book' ? toRoman(num) : String(num);
 }
 
-function folderKind(depth: number, maxSub: number): Kind {
-  const chain = depth + 1 + maxSub;
-  if (chain <= 1) return 'book';
-  if (chain === 2) return depth === 0 ? 'book' : 'part';
-  if (depth === 0) return 'work';
-  return depth === 1 ? 'book' : 'part';
-}
-
 function rawTitle({ raw }: ParsedName): string {
   return raw;
-}
-
-function maxSubOf(node: Node): number {
-  if (node.children === undefined) return 0;
-  const folders = node.children.filter((c) => c.children !== undefined);
-  return folders.length ? 1 + Math.max(...folders.map(maxSubOf)) : 0;
 }
 
 function assignTitles(nodes: Node[], depth: number): void {
@@ -172,11 +158,13 @@ function assignTitles(nodes: Node[], depth: number): void {
       // top-level entries are presented bare, without label or number
       n.label = '';
       n.title = n.raw;
-    } else if (n.children === undefined && NOTES.test(n.name)) {
+    } else if (n.children === undefined && (NOTES.test(n.name) || MATTER.test(n.name))) {
+      // folder material and reserved front/back matter names: never numbered
       n.label = '';
       n.title = n.raw;
     } else {
-      const kind: Kind = n.children !== undefined ? folderKind(depth, maxSubOf(n)) : 'chapter';
+      const kind: Kind =
+        n.children !== undefined ? (depth === 1 ? 'book' : 'part') : 'chapter';
       // the display number is the entry's own disk prefix; unprefixed -> ?
       const num = parsed.prefix ?? '?';
       n.label = `${LABEL[kind]} ${kindNumber(kind, num)}`;

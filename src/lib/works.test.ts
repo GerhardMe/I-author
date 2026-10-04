@@ -186,6 +186,62 @@ test('print pieces: label and raw split the display title', () => {
   assert.deepEqual(pieces.get(poem.path), { label: '', raw: 'Poems' });
 });
 
+test('a book without parts is still a Book (the Silmarillion shape)', () => {
+  fs.rmSync(TEST_WORKS_DIR, { recursive: true, force: true });
+
+  // one book that has parts, two that have none, all three directly in the work
+  const w = createEntry('folder', '', 'Epic');
+  const b1 = createEntry('folder', w.path, 'The Ages');
+  const p1 = createEntry('folder', b1.path, 'The Dawn');
+  const q1 = createEntry('file', p1.path, 'First Light');
+  const b2 = createEntry('folder', w.path, 'Loose Sketches');
+  createEntry('file', b2.path, 'Map Notes');
+  const b3 = createEntry('folder', w.path, 'Draft Rewrites');
+  createEntry('file', b3.path, 'New Opening');
+
+  const titles = new Map<string, string>();
+  const walk = (ns: { path: string; title: string; children?: unknown[] }[]) => {
+    for (const n of ns) {
+      titles.set(n.path, n.title);
+      if (n.children) walk(n.children as never);
+    }
+  };
+  walk(listWorks());
+
+  assert.equal(titles.get(b1.path), 'Book I: The Ages'); // numbers come from own prefixes
+  assert.equal(titles.get(p1.path), 'Part 1: The Dawn');
+  assert.equal(titles.get(q1.path), 'Chapter 1: First Light');
+  assert.equal(titles.get(b2.path), 'Book II: Loose Sketches'); // no parts, still a Book
+  assert.equal(titles.get(b3.path), 'Book III: Draft Rewrites');
+});
+
+test('reserved matter names print bare; a prefix makes them a chapter again', () => {
+  fs.rmSync(TEST_WORKS_DIR, { recursive: true, force: true });
+
+  const w = createEntry('folder', '', 'Epic');
+  // matter is recognized by a BARE name, so these are written directly
+  for (const name of ['front_matter.md', 'appendix.md', 'afterword.md']) {
+    fs.writeFileSync(path.join(TEST_WORKS_DIR, w.path, name), 'x', 'utf8');
+  }
+  const loose = createEntry('file', w.path, 'Preface'); // -> 01_preface.md
+
+  const titles = new Map<string, string>();
+  const walk = (ns: { path: string; title: string; children?: unknown[] }[]) => {
+    for (const n of ns) {
+      titles.set(n.path, n.title);
+      if (n.children) walk(n.children as never);
+    }
+  };
+  walk(listWorks());
+
+  assert.equal(titles.get(w.path + '/front_matter.md'), 'front matter');
+  assert.equal(titles.get(w.path + '/appendix.md'), 'appendix');
+  assert.equal(titles.get(w.path + '/afterword.md'), 'afterword');
+  // an NN_ prefix is the author asking for chapter numbering — the same word
+  // without a prefix is bare matter
+  assert.equal(titles.get(loose.path), 'Chapter 1: Preface');
+});
+
 test('titles clamp: 4-level chain and mixed sibling kinds', () => {
   fs.rmSync(TEST_WORKS_DIR, { recursive: true, force: true });
 
@@ -213,7 +269,7 @@ test('titles clamp: 4-level chain and mixed sibling kinds', () => {
   assert.equal(titles.get(w.path + '/02_Loose_Top.md'), 'Chapter 2: Loose Top');
 });
 
-test('titles: 2-level chain is book/part, legacy hyphen slugs resolve', () => {
+test('titles: depth decides, a book needs no parts; legacy hyphen slugs resolve', () => {
   fs.rmSync(TEST_WORKS_DIR, { recursive: true, force: true });
 
   const w = createEntry('folder', '', 'Epic');
@@ -231,8 +287,8 @@ test('titles: 2-level chain is book/part, legacy hyphen slugs resolve', () => {
   };
   walk(listWorks());
 
-  assert.equal(titles.get(w.path), 'Epic'); // only 2 levels -> top is a Book
-  assert.equal(titles.get(b.path), 'Part 1: Book One');
+  assert.equal(titles.get(w.path), 'Epic'); // top level: bare, no label at all
+  assert.equal(titles.get(b.path), 'Book I: Book One'); // no parts, still a Book
   assert.equal(titles.get(c.path), 'Chapter 1: First Flight');
   assert.equal(titles.get(shallow.path), 'Just Chapters');
   assert.equal(titles.get(c2.path), 'Chapter 1: Solo');
@@ -315,7 +371,7 @@ test('draft_ prefix marks entries, is stripped from titles, still numbers', () =
 
   assert.equal(nodes.get(b.path)!.draft, true);
   assert.equal(nodes.get(b.path)!.inDraft, true);
-  assert.equal(nodes.get(b.path)!.title, 'Part 1: rewrites');
+  assert.equal(nodes.get(b.path)!.title, 'Book I: rewrites');
   assert.equal(nodes.get(c.path)!.draft, true);
   assert.equal(nodes.get(c.path)!.inDraft, true);
   assert.equal(nodes.get(c.path)!.title, 'Chapter 1: idea2'); // drafts consume chapter numbers

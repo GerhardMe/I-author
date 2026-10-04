@@ -56,3 +56,10 @@ export function slugify(name: string): string {
 
 // folder material appended to the folder's index view, never a chapter
 export const NOTES = /^notes\.md$/i;
+
+// front and back matter: presented bare like a top-level entry, never
+// numbered as a chapter. The name must be bare — an NN_ prefix means the
+// author wants chapter numbering, so 03_front_matter.md is a chapter.
+// Compiled into the book (unlike notes.md), as unnumbered front/back matter.
+export const MATTER =
+  /^(front_matter|appendix|afterword|preface|foreword|epilogue|acknowledgements|colophon|dedication|epigraph|prologue)\.md$/i;

@@ -67,11 +67,11 @@ src/lib/totp.ts      TOTP generate/verify + totpAt(secret, unixSeconds, digits) 
 src/lib/auth/        secrets, pin (scrypt), device tokens (HMAC), idle lock, rate limit,
                      recovery codes, auth.test.ts
 src/lib/naming.ts    the filename grammar, defined once (parseName, slugify, naturalCompare,
-                     NOTES); pure, imported by server and client bundles
+                     NOTES, MATTER); pure, imported by server and client bundles
 src/lib/works.ts     works tree: listWorks/readChapter/writeChapter/createEntry/renameEntry/
                      deleteEntry, safePath (traversal + symlink + dotfile protection),
-                     display titles (Node.title: depth-dependent Work/Book/Part/Chapter labels,
-                     split into Node.label + Node.raw for print),
+                     display titles (Node.title: depth decides — Book/Part/Chapter, top level
+                     bare; split into Node.label + Node.raw for print),
                      word counts (Node.words: per-md count, folders sum all descendant mds)
 src/lib/words.ts     countWords() — pure, used client- and server-side
 src/lib/preview.ts   live-preview engine: widgets, buildDeco, focus field, ctrl+click
@@ -169,10 +169,12 @@ WORKS_DIR (server: /home/server/writing/works)
 ```
 
 - Display labels (header only, sidebar keeps raw names): top-level entries are bare
-  titles; every other md is "Chapter N"; folders get Book/Part/Work anchored to the
-  top of the deepest folder chain (Work/Book/Part, level 4+ clamps to Part; books and
-  parts numbered in Roman numerals, chapters in Arabic; the number comes from each
-  entry's own disk prefix, so gaps are preserved and unprefixed entries show `?`).
+  titles; every other md is "Chapter N"; **depth decides what a folder is** — a
+  folder directly under a top-level work is a Book whether or not it contains Parts,
+  anything deeper is a Part, level 4+ clamps to Part (books numbered in Roman
+  numerals, parts and chapters in Arabic; the number comes from each entry's own
+  disk prefix, so gaps are preserved and unprefixed entries show `?`). Never infer
+  a kind from a folder's shape — that mislabelled part-less books as Parts.
   Computed in `works.ts`, exposed as `Node.title` via `/api/tree`. Clicking a folder
   opens a fully expanded book-style index (TOC with dotted leaders), never an editor.
 - **The filename is the title.** No `# Title` heading is ever written into files
@@ -185,6 +187,13 @@ WORKS_DIR (server: /home/server/writing/works)
   folder material, never a chapter: it consumes no number and its content is appended
   verbatim (rendered markdown) under the folder's index view. Top-level `notes.md`
   would be a normal top-level md.
+- **Matter names** (`MATTER` in `naming.ts`, next to `NOTES`): front and back matter —
+  `front_matter`, `appendix`, `afterword`, `preface`, `foreword`, `epilogue`,
+  `acknowledgements`, `colophon`, `dedication`, `epigraph`, `prologue` — print bare
+  like a top-level entry and consume no number. Two rules: the name must be **bare**
+  (`front_matter.md`; an `NN_` prefix means the author wants chapter numbering, so
+  `03_front_matter.md` is a chapter), and unlike `notes.md` they DO compile into the
+  book, as unnumbered front/back matter in the contents.
 - **Sidebar toolbar is one button**: the drafts toggle ("drafts" + eye glyph,
   👁 open / 🙈 hidden, persisted in localStorage) hides drafts, notes, and empty
   directories from tree and indexes; folders whose children all vanish are dropped;
@@ -305,7 +314,10 @@ fought screen text sizes — deleted) — the `pdf` dock button opens
 beside its source in the works dir (`01_flight.md` → `01_flight.pdf`,
 folder `01_work/` → `01_work.pdf`); LuaLaTeX + the `markdown` package,
 preamble "stylesheets" live in `pdfstyles/` (first line `% label: ...`,
-menu from `GET /api/pdfstyles`, default `academic` = 6.1″×9″; Book/Part folders get a division page of their own (always after a page break) stacking the printed convention — the more senior the division, the smaller its type: enclosing division in small caps, own label below, title large via `\part*` (so the style's titlesec block still owns it); only books take Roman numerals — parts and chapters are Arabic; the stack comes from `Node.label`/`Node.raw` (title in print pieces, `title` is their `label: raw` join) and the fragment key covers those lines, so renaming a book rebuilds its parts' pages;
+menu from `GET /api/pdfstyles`, default `academic` = 6.1″×9″; Book/Part folders get a division page of their own (always after a page break) stacking the printed convention — the more senior the division, the smaller its type: enclosing division in small caps, own label below, title large via `\part*` (so the style's titlesec block still owns it); each page names its
+  **immediate** container — a book's parts print the book, a work's books print the
+  work — and the fragment key covers those lines, so renaming a book rebuilds its
+  parts' pages; only books take Roman numerals — parts and chapters are Arabic;
 recompile item + stale-mtime auto-recompile; preset in
 `iauthor.pdf-preset`); folder scopes get title page + `\tableofcontents`
 (real page numbers, two-pass compile), chapters get ruled unnumbered section
