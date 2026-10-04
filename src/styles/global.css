@@ -497,18 +497,26 @@ input:-webkit-autofill {
 }
 
 /* drag & drop: the whole row is the handle. The row left behind is the ghost —
-   the solid item is the one under the cursor (a drag image is a frozen snapshot,
-   so it cannot blink). The ghost class lands a frame after dragstart, because
-   Chrome rasterizes the drag image lazily and would catch the opacity. */
+   the dragged copy is a .drag-card clone that follows the cursor (global rule:
+   it is created from JS, Astro scoping would not match it). */
 .tree-row.dragging {
   opacity: 0.45;
 }
 
-/* snapshot-only style for the drag image: a solid background turns the dragged
-   copy into a crisp card instead of floating text. Added and removed around
-   setDragImage inside the dragstart handler — it is never painted on screen. */
-.tree-row.drag-src {
-  background: var(--bg);
+/* the floating card that follows the cursor during a tree drag: a clone of the
+   row (it keeps its .tree-row class, so typography and padding come from
+   there) pinned to the viewport and moved with transform. pointer-events: none
+   keeps it from ever blocking a drop target. */
+.drag-card {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 40;
+  pointer-events: none;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
 }
 
 .tw {

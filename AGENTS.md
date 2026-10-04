@@ -113,12 +113,16 @@ renderTree()   rebuilds <nav id=tree>; rows show Node.raw (no prefix) and are
                draggable; `selected` + `expanded` Sets drive the view
 drag & drop     the whole `.tree-row` is the drag handle (draggable=true; native
                drag's own movement threshold keeps a plain click a click). The
-               drag image is an explicit `setDragImage(row)` — the browser's
-               default is a translucent ghost — taken before the `.dragging`
-               class lands so the copy stays opaque, while the row left behind
-               IS the ghost (opacity .45). A drag image is a frozen snapshot
-               and cannot blink, so the animation cannot live on the item under
-               the cursor;
+               dragged copy is a custom `.drag-card` — a solid clone of the row
+               that follows the cursor (`transform` on a document-level
+               `dragover`); the browser's own drag image is suppressed with a
+               1x1 transparent gif. No `setDragImage` snapshot games: engines
+               rasterize it differently (Chrome lazily, at the next paint) and
+               two timing attempts shipped translucent on the author's machine.
+               The row left behind IS the ghost (opacity .45). Cleanup rides on
+               a `dragend` listener attached to the source row itself —
+               `renderTree()` can detach that row mid-drag, and drag events on
+               a detached source no longer bubble to `treeEl`;
                drop posts intent {path,parent,before} to /api/reorder, then
                remapPaths(renumbered) + loadTree, expand the destination and
                select what landed there (desktop only — HTML5 DnD does not fire
@@ -141,8 +145,10 @@ drop preview    ONE `#insert-line` element for both create and move; only the
                draws UNDER its row (the last entry of a folder appends, so the
                line belongs below it, not above).
                Hovering a CLOSED folder expands it (like the
-               `new` preview does on mouseenter) and only folders the drag
-               opened are collapsed again on dragend (`dragExpandPath`);
+               `new` preview does on mouseenter) — but only temporarily: the
+               aim moving off the folder (or a drop landing elsewhere) closes
+               it again (`dragExpandPath` + `closeDragOpened`); only the drop
+               destination stays open, because `reorderTo` expands it.
                `visible()` keeps such an empty folder on screen via `dragPreview`
                (the `keepEmpty` callback in `visibility.ts`), and `isVisibleNode`
                walks the same rule instead of reimplementing it.
