@@ -42,6 +42,7 @@ h1{font-size:1.05rem;font-weight:600;margin:0;overflow-wrap:anywhere}
 .bar i{display:block;height:100%;width:0;background:var(--accent);transition:width .4s ease}
 .count{color:var(--muted);font-size:.78rem;margin:.7rem 0 1.4rem}
 .count.err{color:var(--danger)}
+.count .spin{margin-right:.4rem;vertical-align:-1px}
 ul{list-style:none;margin:0;padding:0}
 li{display:flex;gap:.55rem;align-items:baseline;padding:.26rem 0;border-top:1px solid var(--line)}
 li .g{flex:none;width:.85rem;text-align:center;color:var(--muted);font-size:.72rem;line-height:1.9}
@@ -125,10 +126,15 @@ function tick() {
       metaEl.textContent = p.style + ' \\u00b7 ' + (p.fragments ? 'chapters and part pages' : 'single chapter');
       barEl.style.width = (total ? Math.round((100 * ready) / total) : 0) + '%';
       countEl.className = 'count';
-      countEl.textContent = FORCE
-        ? 'rebuilding all ' + total + ' pieces'
-        : ready + ' of ' + total + ' ready \\u00b7 ' +
-          (total - ready ? total - ready + ' to compile' : 'assembling');
+      if (FORCE) {
+        countEl.textContent = 'rebuilding all ' + total + ' pieces';
+      } else if (total - ready) {
+        countEl.textContent = ready + ' of ' + total + ' ready \\u00b7 ' + (total - ready) + ' to compile';
+      } else {
+        // every fragment is on disk; only the wrapper is left, so the count
+        // line spins like the row that is being worked on
+        countEl.innerHTML = '<span class="spin"></span>assembling';
+      }
       items.forEach(function (i, n) { paint(n, i.cached, n === next); });
       // everything cached: the wrapper is assembling, and the app is about
       // to navigate this tab to the pdf itself
