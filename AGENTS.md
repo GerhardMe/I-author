@@ -450,7 +450,8 @@ the LuaLaTeX invocation (`pdf.ts`); setup response sends `Cache-Control: no-stor
 `git.ts` checks for a trailing newline before appending `*.pdf` (fixed during Tier 1);
 `.gitignore` covers `dist.old/`. The `seen`-map leak was fixed with the idle sweeper.
 
-Still open — each needs a yes/no from the owner:
+Claimed open but **unverified / doubted by the owner (2026-10-04)** — re-check the source
+before acting on any of these; they are hearsay from the audit, not confirmed facts:
 
 - `.md.md`: `slugify` keeps dots (`naming.ts:51`) and `createEntry` appends `.md`
   unconditionally (`works.ts:211`), so typing "notes.md" yields `01_notes.md.md`.
@@ -605,8 +606,7 @@ Phase 2 (shipped): prefixes hidden in the tree, contiguous per directory incl. t
 level (one-time `scripts/migrate-numbering.mjs`, dry-run by default, git-committed),
 `POST /api/reorder` + drag & drop within and across folders, both returning an old→new
 path map so client state (expanded, selection, sessionStorage drafts) remaps.
-Phase 3 (not started): move depth is not restricted (a Book can become a Part by
-dragging it one level down) — worth a guard or a confirmation once the drag UX settles.
+The numbering rework is complete — no further phases.
 
 Next: 6) Encrypted GitHub
 backup: tar+gzip whole tree → AES-256-GCM with master key → one ciphertext blob per
