@@ -94,7 +94,9 @@ src/lib/pdf.ts       PDF compiler: LuaLaTeX + `markdown` package; ensurePdf(rel,
                      styles from pdfstyles/ (first line `% label: L — note` = metadata)
 src/pages/api/       setup, login, session, logout, lock, tree, file (GET/PUT), new, delete,
                      rename, reorder, pdfstyles, pdfstatus
-src/pages/           index.astro (app shell), login.astro, setup.astro, pdf.ts (stream)
+src/pages/           index.astro (app shell), login.astro (PIN is a text field masked
+                     with ● in JS — mobile keyboards echo the last digit of
+                     password fields), setup.astro, pdf.ts (stream)
 pdfstyles/           LaTeX preamble "stylesheets" (a4, a5, academic) — single source
                      of truth for the pdf style menu
 src/layouts/         base.astro (theme pre-paint script, Literata import)
@@ -152,7 +154,9 @@ drop preview    ONE `#insert-line` element for both create and move; only the
                `visible()` keeps such an empty folder on screen via `dragPreview`
                (the `keepEmpty` callback in `visibility.ts`), and `isVisibleNode`
                walks the same rule instead of reimplementing it.
-openFile(p)    GET /api/file → makeEditor(content); restores sessionStorage draft if newer
+openFile(p)    revealPath(p) first — expand ancestors + select the row (the opened md
+               is always visible/highlighted in the tree) — then GET /api/file →
+               makeEditor(content); restores sessionStorage draft if newer
 showGroup(n)   folder index TOC (never an editor); awaits leavingFile() + loadTree()
                first so word totals (Node.words) reflect saves since the last load
 leavingFile()  flushDraft + sync.pushNow if dirty — ALWAYS before switching files
@@ -603,28 +607,6 @@ level (one-time `scripts/migrate-numbering.mjs`, dry-run by default, git-committ
 path map so client state (expanded, selection, sessionStorage drafts) remaps.
 Phase 3 (not started): move depth is not restricted (a Book can become a Part by
 dragging it one level down) — worth a guard or a confirmation once the drag UX settles.
-
-Queued small changes (planned 2026-10-04, not yet built — implement one commit + one
-deploy each, per §Dev workflow):
-
-- **Remove the header delete button.** `#doc-del` in `index.astro` (markup line ~41,
-  the `docDel` const, its click handler, and the two `docDel.hidden = false` lines in
-  `showGroup`/`openFile`). Delete stays available via the tree context menu;
-  `deleteNode` and the pdf button are untouched. Keep `.doc-head .btn-tiny` CSS.
-- **Reveal the opened file in the tree.** Opening an md — from a folder index TOC, a
-  ctrl+click relative link (`openLink`), or the boot-restored last draft — must expand
-  its ancestor folders and highlight it in the sidebar. Add a `revealPath(p)` helper in
-  `index.astro`: split `p` into segments, `expanded.add` each ancestor, set `selected`,
-  `saveExpanded()`, `renderTree()` — and call it from `openFile()` so every entry point
-  gets it. TOC folder clicks already expand themselves.
-- **Mask the PIN on every browser.** On phones, some Android browsers/keyboards
-  (Samsung Internet, GBoard's password echo) briefly show the last typed digit of the
-  `type="password"` PIN field on `login.astro`. Fix: switch `#f-pin` to `type="text"`
-  (add `autocapitalize="none" autocorrect="off" spellcheck="false"`), keep the real PIN
-  in a JS variable in the existing input handler and render `'•'.repeat(len)` in the
-  field; submit and the failed-login reset use the variable. Works everywhere, unlike
-  `-webkit-text-security` (unsupported in Firefox). Known simplification: mid-string
-  caret edits append at the end — fine on a numeric keypad, caret is always last.
 
 Next: 6) Encrypted GitHub
 backup: tar+gzip whole tree → AES-256-GCM with master key → one ciphertext blob per
