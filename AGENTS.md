@@ -128,15 +128,16 @@ drop preview    ONE `#insert-line` element for both create and move; only the
                blue = moving, red row pulse = deleting). Geometry is shared
                too: `placeLineInFolder` draws a slot at child indent for
                "inside this folder", `placeLine` a flush sibling slot. Every row
-               has TWO bands and only the indent distinguishes them: the TOP half
-               means "the row's level, directly above it" — for a plain entry its
-               own folder, for a folder the level ABOVE (shifted one
-               `CHILD_INDENT` left, which is how an entry becomes a folder's
-               sibling; the width stays the row's own so the line does not span
-               past that level); the BOTTOM half means "below it" for a plain
-               entry and "inside it" for a folder. Two bands on facing rows are
-               one zone between them — same result, no ambiguity. The line's
-               indent is what says which level you land on, and a `below` slot
+               has TWO bands: the TOP half is a slot at the row's OWN level,
+               directly above it — for a plain entry its own folder, for a folder
+               a slot in its parent (so an entry becomes a folder's sibling), and
+               because a child sits one `CHILD_INDENT` in, that is exactly where
+               `placeLineInFolder` draws on the parent row: aiming above the
+               first child and aiming below the parent are one and the same line.
+               The BOTTOM half means "below it" for a plain entry and "inside it"
+               for a folder. Two bands on facing rows are
+               one zone between them — same result, no ambiguity. `DropIntent.kind`
+               ('above' | 'inside' | 'below') names the band, and a `below` slot
                draws UNDER its row (the last entry of a folder appends, so the
                line belongs below it, not above).
                Hovering a CLOSED folder expands it (like the

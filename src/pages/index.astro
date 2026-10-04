@@ -52,6 +52,7 @@ import Base from '../layouts/base.astro';
 
   import { countWords } from '../lib/words.ts';
   import { NOTES, parseName } from '../lib/naming.ts';
+  import { visibleNodes } from '../lib/visibility.ts';
   import { marked } from 'marked';
   import { EditorState, type Transaction } from '@codemirror/state';
   import { EditorView } from '@codemirror/view';
@@ -126,26 +127,16 @@ import Base from '../layouts/base.astro';
   }
 
   // hide drafts and notes, plus empty directories; folders whose children
-  // all vanish are dropped too
+  // all vanish are dropped too. The rule itself lives in visibility.ts —
+  // one implementation for the sidebar and the pdf aggregates.
   function visible(nodes: Node[]): Node[] {
-    if (!hideDrafts) return nodes;
-    const out: Node[] = [];
-    for (const n of nodes) {
-      if (n.draft) continue;
-      if (n.children === undefined && NOTES.test(n.name)) continue;
-      if (n.children !== undefined) {
-        // an empty directory is dropped — unless a drag asked to drop INTO it,
-        // in which case it has to be on screen to be aimed at
-        const leaf = n.children.length === 0;
-        if (leaf && !(dragPreview && expanded.has(n.path))) continue;
-        const kids = visible(n.children);
-        if (!kids.length && !leaf) continue;
-        out.push({ ...n, children: kids });
-      } else {
-        out.push(n);
-      }
-    }
-    return out;
+    return visibleNodes(nodes, {
+      drafts: hideDrafts,
+      notes: hideDrafts,
+      empty: hideDrafts,
+      // an empty directory stays on screen while a drag aims a drop INTO it
+      keepEmpty: (n) => !!(dragPreview && expanded.has(n.path)),
+    });
   }
 
   // same rule as visible(), walked — one implementation, so "is this on screen?"
@@ -357,21 +348,20 @@ import Base from '../layouts/base.astro';
   let dragPath: string | null = null;
   let dragExpandPath: string | null = null; // folder the drag opened, to close again
   let dragPreview = false; // a drag asked for the preview: keep empty folders
+  let dropHandled = false; // the drop handler already re-rendered the tree
 
-  // Every row has TWO bands, and only the indent distinguishes them: the TOP
-  // half means "the row's level, directly above it" (for a folder that is the
-  // level ABOVE, which is how an entry becomes a folder's sibling), the BOTTOM
-  // half means "below it" for a plain entry and "inside it" for a folder. Two
-  // bands on facing rows are one zone between them — that is fine, they mean the
-  // same thing; the difference that matters is between levels, and that is what
-  // the line's indent says.
+  // Every row has TWO bands. The TOP half is a slot at the row's OWN level,
+  // directly above it — for a folder, a slot in its parent, which is the very
+  // place its first child's top band draws (a child sits one indent in), so
+  // those two spellings are one and the same line. The BOTTOM half means
+  // "under it" for a plain entry and "inside it" for a folder. Two bands on
+  // facing rows are one zone between them: they mean the same thing, so that
+  // is fine.
   type DropIntent = {
     parent: string;
     before: string | null;
     anchorPath: string;
-    inside: boolean; // drawn below the row, at child indent
-    below: boolean; // drawn below the row, flush
-    up: boolean; // the slot belongs to the level above this row
+    kind: 'above' | 'inside' | 'below'; // which of the two bands was aimed at
   };
 
   const nameOf = (path: string): string => path.slice(path.lastIndexOf('/') + 1);
@@ -392,21 +382,26 @@ import Base from '../layouts/base.astro';
     const isFolder = node.children !== undefined;
     const upper = (e.clientY - box.top) / box.height < 0.5;
     const parent = parentOf(path);
-    // top half of anything: directly above it, at the level above it
+    // top half of anything: directly above it, at its own level
     if (upper) {
-      return { parent, before: nameOf(path), anchorPath: path, inside: false, below: false, up: isFolder };
+      return { parent, before: nameOf(path), anchorPath: path, kind: 'above' };
     }
     // bottom half of a folder: inside it, appended at the end
     if (isFolder) {
-      return { parent: path, before: null, anchorPath: path, inside: true, below: true, up: false };
+      return { parent: path, before: null, anchorPath: path, kind: 'inside' };
     }
     // bottom half of a plain entry: below it, in the same folder. The last
     // entry has no next sibling, which means append — and the line belongs
     // BELOW it, or the preview would claim the slot above.
+    //
+    // The next sibling is looked up in the list WITHOUT the dragged entry: the
+    // server drops the moved name from the list before resolving `before`, so
+    // naming it here would miss and append — a no-op drop (the slot right
+    // below the entry above the dragged one) would teleport it to the end.
     const siblings = parent ? byPath.get(parent)?.children ?? [] : tree;
-    const i = siblings.findIndex((n) => n.path === path);
-    const next = siblings[i + 1];
-    return { parent, before: next ? nameOf(next.path) : null, anchorPath: path, inside: false, below: true, up: false };
+    const rest = siblings.filter((n) => n.path !== dragPath);
+    const next = rest[rest.findIndex((n) => n.path === path) + 1];
+    return { parent, before: next ? nameOf(next.path) : null, anchorPath: path, kind: 'below' };
   }
 
   async function reorderTo(path: string, intent: DropIntent): Promise<void> {
@@ -458,6 +453,7 @@ import Base from '../layouts/base.astro';
     if (!row) return;
     dragPath = row.dataset.path ?? null;
     if (!dragPath) return;
+    dropHandled = false;
     if (e.dataTransfer) {
       e.dataTransfer.effectAllowed = 'move';
       e.dataTransfer.setData('text/plain', dragPath);
@@ -471,7 +467,10 @@ import Base from '../layouts/base.astro';
 
   // One insertion line, one geometry: flush for a sibling slot, at child indent
   // for "inside this folder" — shared by the create preview and the drag
-  // preview, which differ only in colour (green creates, blue moves).
+  // preview, which differ only in colour (green creates, blue moves). The two
+  // agree by construction: a child row's box IS the parent's box shifted one
+  // CHILD_INDENT in, so the flush slot above a first child and the in-folder
+  // slot below its parent land on the same pixels.
   const CHILD_INDENT = 0.9 * parseFloat(getComputedStyle(document.documentElement).fontSize);
 
   function placeLineInFolder(row: HTMLElement): void {
@@ -480,10 +479,11 @@ import Base from '../layouts/base.astro';
 
   function showDropLine(intent: DropIntent): void {
     // A closed folder is opened so it can be aimed inside — the same move the
-    // "new" preview makes on mouseenter (index.astro:819). Rows are rebuilt by
-    // renderTree(), so the anchor has to be looked up again afterwards.
+    // "new" preview makes on mouseenter (showInsertLine, below). Rows are
+    // rebuilt by renderTree(), so the anchor has to be looked up again
+    // afterwards.
     const node = byPath.get(intent.anchorPath);
-    if (intent.inside && node?.children !== undefined && !expanded.has(node.path)) {
+    if (intent.kind === 'inside' && node?.children !== undefined && !expanded.has(node.path)) {
       expanded.add(node.path);
       dragExpandPath = node.path;
       dragPreview = true; // keep an empty folder on screen so it can be aimed at
@@ -494,15 +494,17 @@ import Base from '../layouts/base.astro';
       `.tree-row[data-path="${CSS.escape(intent.anchorPath)}"]`,
     ) as HTMLElement | null;
     if (!row) return;
-    if (intent.inside) {
+    if (intent.kind === 'inside') {
       placeLineInFolder(row);
-    } else if (intent.below) {
+    } else if (intent.kind === 'below') {
       placeLine(row.offsetTop + row.offsetHeight, row.offsetLeft, row.offsetWidth);
     } else {
-      // a slot one level up starts at the parent's indent; the width stays the
-      // row's own so the line does not span past the level it belongs to
-      const shift = intent.up ? CHILD_INDENT : 0;
-      placeLine(row.offsetTop, row.offsetLeft - shift, row.offsetWidth);
+      // the slot above a row is that row's OWN level, so the line is flush with
+      // the row's own box. For a folder that is a slot in its parent, which is
+      // exactly where placeLineInFolder draws on the parent row — so aiming
+      // above the first child and aiming below the parent are one line, and
+      // nothing can look like it lands one level further out than it does.
+      placeLine(row.offsetTop, row.offsetLeft, row.offsetWidth);
     }
     lineEl.classList.add('moving');
   }
@@ -537,6 +539,7 @@ import Base from '../layouts/base.astro';
     dragPath = null;
     dragExpandPath = null;
     dragPreview = false;
+    dropHandled = true;
     void reorderTo(path, intent);
   });
 
@@ -544,6 +547,12 @@ import Base from '../layouts/base.astro';
     dragPath = null;
     clearDropMarks();
     for (const el of treeEl.querySelectorAll('.dragging')) el.classList.remove('dragging');
+    // a drop already handed over to reorderTo, which reloads and re-renders the
+    // tree; dragend would only build it a second time, on the settled result
+    if (dropHandled) {
+      dropHandled = false;
+      return;
+    }
     // only a folder this drag opened is closed again; one the author had
     // collapsed on purpose stays collapsed (the "new" preview keeps the same
     // rule in previewExpandedPath)
