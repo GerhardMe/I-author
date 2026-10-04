@@ -98,7 +98,9 @@ src/pages/           index.astro (app shell), login.astro (PIN is a text field m
                      with ● in JS — mobile keyboards echo the last digit of
                      password fields), setup.astro, pdf.ts (stream)
 pdfstyles/           LaTeX preamble "stylesheets" (a4, a5, academic) — single source
-                     of truth for the pdf style menu
+                     of truth for the pdf style menu. a4.tex and a5.tex share 51 of
+                     54 lines (differences: label, documentclass pt, geometry) and
+                     are kept in sync BY HAND — duplication accepted by design
 src/layouts/         base.astro (theme pre-paint script, Literata import)
 src/styles/global.css  design tokens + shared components + app shell + markdown styles
 src/lib/editor.ts    CodeMirror extension set (editor_extensions assembled once)
@@ -282,19 +284,24 @@ WORKS_DIR (server: /home/server/writing/works)
   the renamed ancestor while the source is a deeper descendant; an exact-key
   lookup returns a path that no longer exists (`invalid parent`).
 - **Rename**: clicking anywhere in the header (except the buttons) swaps the title for
-  an inline raw-name editor (live-preview style: display title ↔ disk name).
-  `POST /api/rename` edits the **title**, not the whole disk name: the typed name
-  (slugified) becomes the entry's title while its numeric prefix and `draft_` token
-  are preserved unless the typed name carries them explicitly (`composeName` in
-  `works.ts`) — otherwise editing a title would silently drop the prefix and send the
-  file to the end of its folder. Duplicates are rejected, and git-commits;
+  an inline raw-name editor (live-preview style: display title ↔ disk name). The
+  editor prefills the **full disk name**, so prefix and `draft_` are visible while
+  editing. `POST /api/rename` edits the **title**, not the whole disk name: the
+  numeric prefix is preserved unless the typed name carries one explicitly
+  (`composeName` in `works.ts`) — un-numbering is impossible by design, and without
+  preservation editing a title would silently drop the prefix and send the file to
+  the end of its folder. The `draft_` token follows the typed name instead: keep it
+  in the prefilled name to stay a draft, delete it to un-draft. Duplicates are
+  rejected, and git-commits;
   sessionStorage drafts move to the
   new path (`moveDraft`) and the sidebar's expanded state is remapped to the new
   prefix (`remapExpanded`) so the subtree stays open. Renaming a folder rewrites all
   descendant paths.
-- `createEntry` slugifies names (spaces → `_`, case preserved), rejects duplicate
-  slugs (case-insensitive, prefix-stripped), and auto-prefixes `NN_` (next number; a
-  user-typed leading `NN-`/`NN_` is kept). Parsers accept both `-` and `_` prefixes
+- `createEntry` slugifies names (spaces → `_`, case preserved, a typed
+  `.md`/`.markdown` extension stripped — typing "notes.md" yields `01_notes.md`),
+  rejects duplicate slugs (case-insensitive, prefix-stripped), and auto-prefixes
+  `NN_` (next number; a user-typed leading `NN-`/`NN_` is kept). Parsers accept
+  both `-` and `_` prefixes
   forever; `scripts/migrate-names.mjs` renamed pre-existing hyphenated entries.
 - `safePath` rejects `..`, empty/hidden segments, and anything whose realpath escapes
   `WORKS_DIR`. Only `.md`/`.markdown` files are readable/writable; 512 KB cap; atomic writes.
@@ -379,11 +386,12 @@ migrations won't be undone by deploys.
 - Never commit secrets or the `.env`. The project repo itself has almost nothing
   committed yet; only commit when explicitly asked.
 
-## Known issues (audit 2026-10-04) — Tiers 1–3 fixed, Tier 4 partly open
+## Known issues (audit 2026-10-04) — all tiers fixed, decisions recorded
 
 A full read-only audit of the project against this file. Everything below was verified in
 the source. Tier 1 was fixed on 2026-10-04 (same day); Tiers 2–4 (the cheap ones) followed
-the same day. What remains open is listed at the bottom. Treat the audit as a work list,
+the same day, and the last Tier 4 items were verified against the source and fixed the
+same day after owner review. Treat the audit as a work list,
 not as spec — where the two disagree, the code is current and the prose above is stale.
 
 **Tier 1 — real bugs, small fixes, no API change — FIXED 2026-10-04:**
@@ -450,24 +458,33 @@ the LuaLaTeX invocation (`pdf.ts`); setup response sends `Cache-Control: no-stor
 `git.ts` checks for a trailing newline before appending `*.pdf` (fixed during Tier 1);
 `.gitignore` covers `dist.old/`. The `seen`-map leak was fixed with the idle sweeper.
 
-Claimed open but **unverified / doubted by the owner (2026-10-04)** — re-check the source
-before acting on any of these; they are hearsay from the audit, not confirmed facts:
+Verified against the source (2026-10-04) and **all resolved** — each with a decision:
 
-- `.md.md`: `slugify` keeps dots (`naming.ts:51`) and `createEntry` appends `.md`
-  unconditionally (`works.ts:211`), so typing "notes.md" yields `01_notes.md.md`.
-  `renameEntry` strips the extension first, so the two entry points disagree.
-- **There is no way to un-draft or un-number an entry.** `composeName` (`works.ts:400`)
-  preserves the prefix and ORs the draft flag with no way to clear either. That matches
-  §Data & naming as written — but it makes `NN_`/`draft_` permanent once set.
-- `git.commit()` swallows every failure and returns `false`, and all four mutation routes
-  ignore the return value — a save can land with no history and no user-visible signal,
-  while the UI promises "Git history keeps a copy on the server". Concurrent commits can
-  also collide on `.git/index.lock` and vanish silently.
-- Oversized files (>512 KB) report **0 words** in the tree (`works.ts:45`) while being
-  unreadable (`works.ts:229`) — the header chip silently lies. Also `listWorks`
-  `mkdirSync`s the works dir on every `GET /api/tree` (a GET with a side effect).
-- `pdfstyles/a4.tex` vs `a5.tex` are byte-identical but for two lines — two
-  hand-maintained copies of one preamble.
+- `.md.md`: confirmed real — `slugify` kept dots and `createEntry` appended `.md`
+  unconditionally, so typing "notes.md" yielded `01_notes.md.md`, while `renameEntry`
+  stripped the extension first. Fixed in the grammar once: `slugify` strips a trailing
+  `.md`/`.markdown` (typing "notes.md" now yields `01_notes.md`); `renameEntry`'s own
+  strip became redundant and was removed.
+- **Un-drafting vs un-numbering** (owner decisions): un-numbering stays impossible by
+  design — the prefix is preserved unless the typed name carries one explicitly
+  (`composeName`). Un-drafting was added: the `draft_` token now FOLLOWS the typed
+  name (`draft = t.draft`, not `t.draft || old.draft`) — the rename editor prefills
+  the full disk name, so deleting the token is a deliberate act.
+- `git.commit()` swallowed every failure and the five mutation routes ignored the
+  return value. Fixed by serializing commits through a module-level promise queue in
+  `git.ts` (two rapid saves can no longer race on `.git/index.lock`) plus one retry
+  after 250 ms before the `console.warn` + `return false`. Owner decision: failures
+  stay **server-log only** (no UI signal) — the localStorage draft already protects
+  the text itself.
+- Oversized files reported **0 words** while unreadable. Fixed by giving the word
+  counter its own cap (`MAX_COUNT = 4 × MAX_FILE` in `works.ts`) — the app can't
+  create such files anyway (`writeChapter` enforces 512 KB). Also `listWorks`
+  `mkdirSync`ed the works dir on every `GET /api/tree` — removed; `scan()` returns
+  `[]` on ENOENT and `ensureRepo` owns dir creation.
+- `pdfstyles/a4.tex` vs `a5.tex` share 51 of 54 lines. Owner decision: **duplication
+  accepted**, kept in sync by hand (noted in §Repository layout; an `\input`-shared
+  base was rejected because it would complicate the pdf cache's style-hash freshness
+  for 3 lines of divergence).
 
 **Claims that look like drift but are NOT — don't "fix" these:**
 

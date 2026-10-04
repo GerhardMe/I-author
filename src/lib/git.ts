@@ -22,20 +22,42 @@ export async function ensureRepo(): Promise<void> {
   }
 }
 
+async function runCommit(msg: string): Promise<boolean> {
+  await ensureRepo();
+  await run('git', ['add', '-A'], { cwd: WORKS_DIR });
+  const status = await run('git', ['status', '--porcelain'], { cwd: WORKS_DIR });
+  if (!status.stdout.trim()) return false;
+  await run(
+    'git',
+    ['-c', 'user.name=iauthor', '-c', 'user.email=iauthor@local', 'commit', '-q', '-m', msg],
+    { cwd: WORKS_DIR },
+  );
+  return true;
+}
+
+// Commits are serialized: two rapid saves would otherwise race on
+// .git/index.lock and one would vanish. The queue keeps the single-user
+// server's mutating routes from ever running git concurrently.
+let queue: Promise<unknown> = Promise.resolve();
+
 export async function commit(msg: string): Promise<boolean> {
+  const next = queue.then(() => attempt(msg));
+  queue = next.catch(() => {}); // a failed commit must not poison the queue
+  return next as Promise<boolean>;
+}
+
+async function attempt(msg: string): Promise<boolean> {
   try {
-    await ensureRepo();
-    await run('git', ['add', '-A'], { cwd: WORKS_DIR });
-    const status = await run('git', ['status', '--porcelain'], { cwd: WORKS_DIR });
-    if (!status.stdout.trim()) return false;
-    await run(
-      'git',
-      ['-c', 'user.name=iauthor', '-c', 'user.email=iauthor@local', 'commit', '-q', '-m', msg],
-      { cwd: WORKS_DIR },
-    );
-    return true;
-  } catch (err) {
-    console.warn('[iauthor] git commit failed:', err);
-    return false;
+    return await runCommit(msg);
+  } catch {
+    // one retry: a transient failure (EBUSY on a mounted volume, an external
+    // git process holding the lock) usually clears in a blink
+    await new Promise((r) => setTimeout(r, 250));
+    try {
+      return await runCommit(msg);
+    } catch (err) {
+      console.warn('[iauthor] git commit failed:', err);
+      return false;
+    }
   }
 }

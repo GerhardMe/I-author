@@ -37,6 +37,10 @@ test('slugify strips dangerous characters', () => {
   assert.equal(slugify('.hidden'), 'hidden');
   assert.equal(slugify('..'), '');
   assert.equal(slugify('a-b'), 'a-b'); // legacy hyphens still allowed
+  // a typed extension is the name, not a doubled extension
+  assert.equal(slugify('notes.md'), 'notes');
+  assert.equal(slugify('Story.markdown'), 'Story');
+  assert.equal(slugify('My.Notes.md'), 'My.Notes');
 });
 
 test('roman numerals', () => {
@@ -72,6 +76,10 @@ test('create + tree + read + write + delete round trip', async () => {
   assert.match(poem.path, /^\d+_Poems\.md$/);
   // legacy hyphenated names keep working
   assert.equal(createEntry('file', w.path, 'old-note').path, '01_My_Novel/02_old-note.md');
+
+  // typing the extension must not double it
+  const typed = createEntry('file', '', 'notes.md');
+  assert.equal(typed.path, '03_notes.md');
 });
 
 test('create rejects duplicates and invalid parents', () => {
@@ -446,6 +454,12 @@ test('renameEntry edits the title: prefix and draft token are kept', () => {
   const top = listWorks().find((n) => n.path === '02_draft_thing.md');
   assert.ok(top);
   assert.equal(top!.draft, true);
+
+  // deleting draft_ from the typed name un-drafts (the editor prefills the
+  // full disk name, so removing the token is a deliberate act)
+  const und = renameEntry('02_draft_thing.md', '02_thing');
+  assert.equal(und.path, '02_thing.md');
+  assert.equal(listWorks().find((n) => n.path === '02_thing.md')!.draft, false);
 
   // duplicates rejected — against the name the sibling actually has now, since
   // creating an entry renumbers the directory

@@ -8,6 +8,10 @@ import { countWords } from './words.ts';
 export { naturalCompare, slugify, NOTES } from './naming.ts';
 
 const MAX_FILE = 512 * 1024;
+// word counting is allowed a much bigger read than the editor (writeChapter
+// caps content at MAX_FILE, so only externally written files exceed it) —
+// the tree chip must not lie about words a real file contains
+const MAX_COUNT = 4 * MAX_FILE;
 const MD = /\.(md|markdown)$/i;
 
 export type Node = {
@@ -38,10 +42,10 @@ export function safePath(rel: string): string | null {
   return null;
 }
 
-// word count for one md; unreadable or oversized files count as 0
+// word count for one md; unreadable files count as 0
 function countFile(abs: string): number {
   try {
-    if (fs.statSync(abs).size > MAX_FILE) return 0;
+    if (fs.statSync(abs).size > MAX_COUNT) return 0;
     return countWords(fs.readFileSync(abs, 'utf8'));
   } catch {
     return 0;
@@ -95,7 +99,8 @@ function scan(absDir: string, relPrefix: string, inDraft: boolean): Node[] {
 }
 
 export function listWorks(): Node[] {
-  fs.mkdirSync(WORKS_DIR, { recursive: true });
+  // no mkdirSync here: a GET must not create anything; scan() returns [] on
+  // ENOENT and ensureRepo (commit time) owns creating the works dir
   const tree = scan(WORKS_DIR, '', false);
   assignTitles(tree, 0);
   return tree;
@@ -389,14 +394,17 @@ export function moveEntry(
 
 // The typed name is the TITLE, not the whole disk name: the entry keeps its
 // numeric prefix (which is order only, and app-managed) unless the typed name
-// carries one explicitly, and keeps its draft_ token the same way. Without
-// this, editing a title in a tree that hides prefixes would silently drop the
-// prefix and send the file to the end of its folder.
+// carries one explicitly — un-numbering is impossible by design. The draft_
+// token follows the typed name instead: the rename editor prefills the full
+// disk name, so keeping it keeps the draft and deleting it un-drafts.
+// Without the prefix preservation, editing a title in a tree that hides
+// prefixes would silently drop the prefix and send the file to the end of
+// its folder.
 function composeName(oldName: string, typed: string, isFile: boolean): string {
   const old = parseName(oldName);
   const t = parseName(typed);
   const prefix = t.prefix !== null ? t.prefix : old.prefix;
-  const draft = t.draft || old.draft;
+  const draft = t.draft;
   const titleStem = t.stem.replace(/^draft_/, '');
   return (
     `${prefix !== null ? `${String(prefix).padStart(2, '0')}_` : ''}` +
@@ -411,13 +419,13 @@ export function renameEntry(rel: string, name: string): { path: string; renumber
   if (!slug) throw new Error('invalid name');
   const isFile = MD.test(rel);
   const parentAbs = path.dirname(abs);
-  const target = composeName(path.basename(rel), isFile ? slug.replace(MD, '') : slug, isFile);
+  const target = composeName(path.basename(rel), slug, isFile);
   const targetAbs = path.join(parentAbs, target);
   if (targetAbs === abs) return { path: rel, renumbered: renumberDir(parentOf(rel)) };
   // same collision rule create uses: case-insensitive, prefix-stripped — an
   // exact-name check would let a case-variant through (and then renumberDir
   // would happily sit two same-stem siblings next to each other)
-  if (fs.existsSync(targetAbs) || findExisting(parentAbs, isFile ? slug.replace(MD, '') : slug))
+  if (fs.existsSync(targetAbs) || findExisting(parentAbs, slug))
     throw new Error('already exists');
   fs.renameSync(abs, targetAbs);
   // carry the compiled pdf to the new name, if one was built

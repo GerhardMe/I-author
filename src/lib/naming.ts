@@ -51,6 +51,8 @@ export function slugify(name: string): string {
     .replace(/[^A-Za-z0-9._-]/g, '')
     .replace(/^\.+/, '')
     .replace(/^[-_]+/, '')
+    // users type "notes.md" and mean the name, not a doubled extension
+    .replace(/\.(md|markdown)$/i, '')
     .slice(0, 80);
 }
 
