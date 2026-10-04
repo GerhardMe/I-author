@@ -74,11 +74,12 @@ import Base from '../layouts/base.astro';
     const v = pinInput.value;
     if (v.length > pinValue.length) {
       // inserted: the non-bullet characters are the new digits (paste = many)
-      pinValue = (pinValue + v.replace(/•/g, '')).replace(/[^0-9]/g, '').slice(0, 12);
+      pinValue = (pinValue + v.replace(/[•●]/g, '')).replace(/[^0-9]/g, '').slice(0, 12);
     } else if (v.length < pinValue.length) {
       pinValue = pinValue.slice(0, v.length);
     }
-    pinInput.value = '•'.repeat(pinValue.length);
+    // U+25CF big circle: same size class as a password field's dots
+    pinInput.value = '●'.repeat(pinValue.length);
   });
 
   totpInput.addEventListener('input', () => {
