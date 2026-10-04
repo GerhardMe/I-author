@@ -16,7 +16,7 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { WORKS_DIR } from './config.ts';
-import { parseName } from './naming.ts';
+import { parseName, slugify } from './naming.ts';
 import { NOTES, type Node, listWorks, readChapter, safePath } from './works.ts';
 import { ensureRepo } from './git.ts';
 
@@ -345,7 +345,10 @@ export async function ensurePdf(
   }
 
   const targetAbs = isFile ? abs.replace(MD, '.pdf') : `${abs}.pdf`;
-  const name = path.basename(targetAbs);
+  // the artifact keeps its place beside the source, but the name it presents
+  // (download filename, title page, loader heading) is the entry's own title:
+  // disk prefixes are order only and must never reach paper
+  const name = `${slugify(scopeTitle(rel))}.pdf`;
   const style = resolveStyle(styleId);
   const styleHash = sha(style.preamble);
 
@@ -407,7 +410,7 @@ export async function ensurePdf(
 
   // assemble: 2 passes so the toc settles around the fragments it fronts
   const data = await runLatex(
-    bookTex(path.basename(rel), items, style.preamble),
+    bookTex(scopeTitle(rel), items, style.preamble),
     'book',
     2,
   );
@@ -425,6 +428,15 @@ async function writeArtifact(targetAbs: string, data: Buffer): Promise<void> {
   const tmp = `${targetAbs}.tmp-${process.pid}`;
   fs.writeFileSync(tmp, data);
   fs.renameSync(tmp, targetAbs);
+}
+
+// the print title of a scope: its own raw title, prefixes and draft token
+// stripped. Looked up in the UNCLEANED tree (a directly requested draft still
+// compiles), with a filename fallback for a tree-stale path.
+function scopeTitle(rel: string): string {
+  const node = findNode(listWorks(), rel);
+  if (node) return node.raw;
+  return parseName(path.basename(rel).replace(MD, '')).raw;
 }
 
 // display title of a single chapter. Looked up in the UNCLENED tree: a
@@ -473,7 +485,7 @@ export function pdfPlan(
       art.src === fs.statSync(abs).mtimeMs &&
       fs.existsSync(abs.replace(MD, '.pdf'));
     return {
-      scope: path.basename(rel, path.extname(rel)),
+      scope: scopeTitle(rel),
       style: style.id,
       fragments: false,
       items: [{ kind: 'chapter', title: chapterTitle(rel), cached }],
@@ -486,7 +498,7 @@ export function pdfPlan(
   collectItems(node, styleHash, items);
   if (!items.length) throw new Error('not found');
   return {
-    scope: path.basename(rel),
+    scope: scopeTitle(rel),
     style: style.id,
     fragments: true,
     items: items.map((i) => ({ kind: i.kind, title: i.title, cached: fs.existsSync(i.file) })),

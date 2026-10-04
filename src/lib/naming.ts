@@ -58,8 +58,8 @@ export function slugify(name: string): string {
 export const NOTES = /^notes\.md$/i;
 
 // front and back matter: presented bare like a top-level entry, never
-// numbered as a chapter. The name must be bare — an NN_ prefix means the
-// author wants chapter numbering, so 03_front_matter.md is a chapter.
-// Compiled into the book (unlike notes.md), as unnumbered front/back matter.
+// numbered. An optional NN_ prefix orders the file WITHOUT giving it a
+// number, so matter can sit between two books. Compiled into the book
+// (unlike notes.md), as unnumbered front/back matter in the contents.
 export const MATTER =
-  /^(front_matter|appendix|afterword|preface|foreword|epilogue|acknowledgements|colophon|dedication|epigraph|prologue)\.md$/i;
+  /^(?:\d{1,4}[-_])?(front_matter|appendix|afterword|preface|foreword|epilogue|acknowledgements|colophon|dedication|epigraph|prologue)\.md$/i;

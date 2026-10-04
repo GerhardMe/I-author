@@ -4,16 +4,20 @@
 // its grandparent's line, so a book's parts were handed the work title), and
 // nothing caught it — hence the explicit expectations here.
 //
-// The tree is built in memory: collectItems only reads chapter bodies through
-// a guarded readChapter, so no LaTeX and no disk writes are involved.
+// Most trees here are built in memory (collectItems only reads chapter bodies
+// through
+// a guarded readChapter, so no LaTeX and no disk writes are involved); the last
+// test needs a real tree, so it uses the temp works dir.
 import './test-setup.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { collectItems, type FragItem } from './pdf.ts';
-import type { Node } from './works.ts';
+import fs from 'node:fs';
+import { collectItems, pdfPlan, type FragItem } from './pdf.ts';
+import { createEntry, type Node } from './works.ts';
+import { TEST_WORKS_DIR } from './test-setup.ts';
 
-function leaf(path: string, title: string, label = ''): Node {
-  return { name: path.split('/').pop()!, path, title, label, raw: title, draft: false, inDraft: false, words: 0 };
+function leaf(path: string, label: string, raw: string): Node {
+  return { name: path.split('/').pop()!, path, title: label ? `${label}: ${raw}` : raw, label, raw, draft: false, inDraft: false, words: 0 };
 }
 
 function folder(path: string, title: string, label: string, raw: string, children: Node[]): Node {
@@ -34,12 +38,12 @@ const work = folder(
       'the ages',
       [
         folder('The_silmarillion/01_the_ages/01_the_dawn', 'Part 1: the dawn', 'Part 1', 'the dawn', [
-          leaf('The_silmarillion/01_the_ages/01_the_dawn/01_first.md', 'Chapter 1: first'),
+          leaf('The_silmarillion/01_the_ages/01_the_dawn/01_first.md', 'Chapter 1', 'first'),
         ]),
       ],
     ),
     folder('The_silmarillion/02_loose_sketches', 'Book II: loose sketches', 'Book II', 'loose sketches', [
-      leaf('The_silmarillion/02_loose_sketches/01_map.md', 'Chapter 1: map'),
+      leaf('The_silmarillion/02_loose_sketches/01_map.md', 'Chapter 1', 'map'),
     ]),
   ],
 );
@@ -79,7 +83,9 @@ test('compiling a book: its parts name the book, and it prints no page itself', 
     items.map((i) => [i.kind, i.label, i.raw, i.above]),
     [
       ['part', 'Part 1', 'the dawn', 'Book I: the ages'],
-      ['chapter', 'Chapter 1', 'first', 'Book I: the ages'],
+      // a chapter's `above` is its immediate division too; chapter pages never
+      // print a container line, so nothing reaches paper here
+      ['chapter', 'Chapter 1', 'first', 'Part 1: the dawn'],
     ],
   );
 });
@@ -94,10 +100,20 @@ test('the fragment key covers the printed lines, so a rename rebuilds', () => {
     [
       folder('The_silmarillion/01_the_ages', 'Book I: the ages', 'Book I', 'the ages', [
         folder('The_silmarillion/01_the_ages/01_the_dawn', 'Part 1: the dawn renamed', 'Part 1', 'the dawn renamed', [
-          leaf('The_silmarillion/01_the_ages/01_the_dawn/01_first.md', 'Chapter 1: first'),
+          leaf('The_silmarillion/01_the_ages/01_the_dawn/01_first.md', 'Chapter 1', 'first'),
         ]),
       ]),
     ],
   );
   assert.notEqual(plan(renamed)[1]!.key, before);
+});
+test('the scope title is the entry title, never the disk prefix', () => {
+  // what reaches paper — title page, artifact name, loader heading — comes
+  // from the tree's raw title, so a prefixed work prints as itself
+  fs.rmSync(TEST_WORKS_DIR, { recursive: true, force: true });
+  const w = createEntry('folder', '', 'The Silmarillion');
+  const p = createEntry('file', w.path, 'Front Light'); // an empty folder is not compilable
+
+  assert.equal(pdfPlan(w.path, 'academic').scope, 'The Silmarillion');
+  assert.equal(pdfPlan(p.path, 'academic').scope, 'Front Light');
 });

@@ -105,11 +105,12 @@ function nextName(parentAbs: string, slug: string): string {
 }
 
 // ---------- display titles ----------
-// Depth decides, because depth is the schema: a folder directly under a
-// top-level work is a Book whether or not it happens to contain Parts (a
-// book with none is still a book), anything deeper is a Part, level 4 and
-// below clamps to Part. Every md below the top level is a chapter; top-level
-// entries are presented bare, as are notes.md and the reserved matter names.
+// Depth decides what a folder is, because depth is the schema: a folder
+// directly under a top-level work is a Book whether or not it happens to
+// contain Parts (a book with none is still a book), anything deeper is a
+// Part, level 4 and below clamps to Part. Every md below the top level is a
+// chapter; top-level entries are presented bare, as are notes.md and the
+// reserved matter names.
 type Kind = 'book' | 'part' | 'chapter';
 
 const LABEL: Record<Kind, string> = {
@@ -151,6 +152,12 @@ function rawTitle({ raw }: ParsedName): string {
 }
 
 function assignTitles(nodes: Node[], depth: number): void {
+  // The disk prefix is ORDER ONLY; the printed number is the entry's position
+  // among same-kind siblings, so a book's label is "Book II" whenever it is
+  // the second book, whatever its prefix says. Counted over the whole sibling
+  // list, drafts included, so hiding drafts never renumbers anything — and
+  // notes.md and matter, which print bare, consume no number.
+  const pos: Record<Kind, number> = { book: 0, part: 0, chapter: 0 };
   for (const n of nodes) {
     const parsed = parseName(n.name);
     n.raw = rawTitle(parsed);
@@ -159,15 +166,14 @@ function assignTitles(nodes: Node[], depth: number): void {
       n.label = '';
       n.title = n.raw;
     } else if (n.children === undefined && (NOTES.test(n.name) || MATTER.test(n.name))) {
-      // folder material and reserved front/back matter names: never numbered
+      // folder material and front/back matter: ordered by prefix, never numbered
       n.label = '';
       n.title = n.raw;
     } else {
       const kind: Kind =
         n.children !== undefined ? (depth === 1 ? 'book' : 'part') : 'chapter';
-      // the display number is the entry's own disk prefix; unprefixed -> ?
-      const num = parsed.prefix ?? '?';
-      n.label = `${LABEL[kind]} ${kindNumber(kind, num)}`;
+      pos[kind] += 1;
+      n.label = `${LABEL[kind]} ${kindNumber(kind, pos[kind])}`;
       n.title = `${n.label}: ${n.raw}`;
     }
     if (n.children !== undefined) assignTitles(n.children, depth + 1);
@@ -238,6 +244,23 @@ function pdfSibling(rel: string, abs: string): string {
   return MD.test(rel) ? abs.replace(MD, '.pdf') : `${abs}.pdf`;
 }
 
+// The typed name is the TITLE, not the whole disk name: the entry keeps its
+// numeric prefix (which is order only, and app-managed) unless the typed name
+// carries one explicitly, and keeps its draft_ token the same way. Without
+// this, editing a title in a tree that hides prefixes would silently drop the
+// prefix and send the file to the end of its folder.
+function composeName(oldName: string, typed: string, isFile: boolean): string {
+  const old = parseName(oldName);
+  const t = parseName(typed);
+  const prefix = t.prefix !== null ? t.prefix : old.prefix;
+  const draft = t.draft || old.draft;
+  const titleStem = t.stem.replace(/^draft_/, '');
+  return (
+    `${prefix !== null ? `${String(prefix).padStart(2, '0')}_` : ''}` +
+    `${draft ? 'draft_' : ''}${titleStem}${isFile ? '.md' : ''}`
+  );
+}
+
 export function renameEntry(rel: string, name: string): { path: string } {
   const abs = safePath(rel);
   if (!abs || rel === '') throw new Error('invalid path');
@@ -245,9 +268,7 @@ export function renameEntry(rel: string, name: string): { path: string } {
   if (!slug) throw new Error('invalid name');
   const isFile = MD.test(rel);
   const parentAbs = path.dirname(abs);
-  // what you type is the name: numeric prefixes exist only when typed
-  const base = isFile ? slug.replace(/\.(md|markdown)$/i, '') : slug;
-  const target = `${base}${isFile ? '.md' : ''}`;
+  const target = composeName(path.basename(rel), isFile ? slug.replace(MD, '') : slug, isFile);
   const targetAbs = path.join(parentAbs, target);
   if (targetAbs === abs) return { path: rel };
   if (fs.existsSync(targetAbs)) throw new Error('already exists');

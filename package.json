@@ -6,7 +6,7 @@
     "dev": "astro dev",
     "build": "astro build",
     "preview": "astro preview",
-    "test": "node --experimental-strip-types src/lib/auth.test.ts && node --experimental-strip-types src/lib/totp.test.ts && node --experimental-strip-types src/lib/works.test.ts"
+    "test": "node --experimental-strip-types --test src/lib/*.test.ts"
   },
   "dependencies": {
     "@astrojs/node": "^9.0.0",

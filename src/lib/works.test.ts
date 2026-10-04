@@ -149,7 +149,7 @@ test('display titles follow nesting depth', () => {
   assert.equal(titles.get(b.path), 'Book I: Book One');
   assert.equal(titles.get(p.path), 'Part 1: Part One');
   assert.equal(titles.get(c.path), 'Chapter 1: First Flight');
-  assert.equal(titles.get(loose.path), 'Chapter 2: Loose'); // number comes from its own 02_ prefix
+  assert.equal(titles.get(loose.path), 'Chapter 1: Loose'); // only chapter in the book
   assert.equal(titles.get(poem.path), 'Poems');
 
   // new files start empty: the filename is the title, no duplicate heading
@@ -215,15 +215,17 @@ test('a book without parts is still a Book (the Silmarillion shape)', () => {
   assert.equal(titles.get(b3.path), 'Book III: Draft Rewrites');
 });
 
-test('reserved matter names print bare; a prefix makes them a chapter again', () => {
+test('reserved matter names print bare, prefixed or not, and consume no number', () => {
   fs.rmSync(TEST_WORKS_DIR, { recursive: true, force: true });
 
   const w = createEntry('folder', '', 'Epic');
-  // matter is recognized by a BARE name, so these are written directly
+  // matter is recognized by its NAME, so these are written directly
   for (const name of ['front_matter.md', 'appendix.md', 'afterword.md']) {
     fs.writeFileSync(path.join(TEST_WORKS_DIR, w.path, name), 'x', 'utf8');
   }
-  const loose = createEntry('file', w.path, 'Preface'); // -> 01_preface.md
+  // a prefix orders matter without giving it a number: place it first
+  const prefixed = createEntry('file', w.path, 'Preface');
+  const chapter = createEntry('file', w.path, 'Chapter One');
 
   const titles = new Map<string, string>();
   const walk = (ns: { path: string; title: string; children?: unknown[] }[]) => {
@@ -237,9 +239,8 @@ test('reserved matter names print bare; a prefix makes them a chapter again', ()
   assert.equal(titles.get(w.path + '/front_matter.md'), 'front matter');
   assert.equal(titles.get(w.path + '/appendix.md'), 'appendix');
   assert.equal(titles.get(w.path + '/afterword.md'), 'afterword');
-  // an NN_ prefix is the author asking for chapter numbering — the same word
-  // without a prefix is bare matter
-  assert.equal(titles.get(loose.path), 'Chapter 1: Preface');
+  assert.equal(titles.get(prefixed.path), 'Preface'); // 01_ prefix, still bare
+  assert.equal(titles.get(chapter.path), 'Chapter 1: Chapter One'); // matter took no number
 });
 
 test('titles clamp: 4-level chain and mixed sibling kinds', () => {
@@ -266,7 +267,7 @@ test('titles clamp: 4-level chain and mixed sibling kinds', () => {
   assert.equal(titles.get(p.path), 'Part 1: Part One');
   assert.equal(titles.get(sub.path), 'Part 1: Deeper'); // level 4 clamps to Part
   assert.equal(titles.get(deep.path), 'Chapter 1: Buried');
-  assert.equal(titles.get(w.path + '/02_Loose_Top.md'), 'Chapter 2: Loose Top');
+  assert.equal(titles.get(w.path + '/02_Loose_Top.md'), 'Chapter 1: Loose Top'); // only chapter in the work
 });
 
 test('titles: depth decides, a book needs no parts; legacy hyphen slugs resolve', () => {
@@ -321,10 +322,10 @@ test('notes.md is folder material, unprefixed mds still number as chapters', () 
   assert.equal(titles.get(a.path), 'Chapter 1: Alpha');
   assert.equal(titles.get(beta.path), 'Chapter 2: Beta'); // notes.md consumed no number
   assert.equal(titles.get(b.path + '/notes.md'), 'notes');
-  assert.equal(titles.get(b.path + '/title.md'), 'Chapter ?: title'); // unprefixed
+  assert.equal(titles.get(b.path + '/title.md'), 'Chapter 3: title'); // unprefixed, numbered by position
 });
 
-test('display numbers come from the disk prefix, gaps preserved', () => {
+test('display numbers are positional; the disk prefix only orders', () => {
   fs.rmSync(TEST_WORKS_DIR, { recursive: true, force: true });
 
   const w = createEntry('folder', '', 'Epic');
@@ -342,7 +343,8 @@ test('display numbers come from the disk prefix, gaps preserved', () => {
   walk(listWorks());
 
   assert.equal(titles.get(a.path), 'Chapter 1: Alpha');
-  assert.equal(titles.get(b.path + '/07_gap.md'), 'Chapter 7: gap'); // not positional 2
+  // 07_ sorts it second, so it prints Chapter 2 — the prefix is not the number
+  assert.equal(titles.get(b.path + '/07_gap.md'), 'Chapter 2: gap');
 });
 
 test('draft_ prefix marks entries, is stripped from titles, still numbers', () => {
@@ -420,27 +422,27 @@ test('tree word counts: folders sum every nested md', () => {
   assert.equal(words.get(w.path), 9); // 3 (part) + 3 (Two) + 1 (notes) + 2 (Coder)
 });
 
-test('renameEntry is literal: typed name wins, prefixes only when typed', () => {
+test('renameEntry edits the title: prefix and draft token are kept', () => {
   fs.rmSync(TEST_WORKS_DIR, { recursive: true, force: true });
 
   const w = createEntry('folder', '', 'Epic');
   const b = createEntry('folder', w.path, 'Book One');
   const c = createEntry('file', b.path, 'First Flight');
 
-  // no prefix typed -> prefix dropped (file sorts last, displays Chapter ?)
+  // no prefix typed -> the entry keeps its place (the prefix is order only)
   const r1 = renameEntry(c.path, 'Second Flight');
-  assert.equal(r1.path, '01_Epic/01_Book_One/Second_Flight.md');
+  assert.equal(r1.path, '01_Epic/01_Book_One/01_Second_Flight.md');
   assert.equal(readChapter(r1.path), '');
 
   // a typed prefix wins
   const r2 = renameEntry(r1.path, '03_Third');
   assert.equal(r2.path, '01_Epic/01_Book_One/03_Third.md');
 
-  // removing the prefix from a draft entry keeps the draft token working
+  // a title edit does not drop the draft token
   const dr = createEntry('file', '', 'draft thing');
   const r4 = renameEntry(dr.path, 'draft thing');
-  assert.equal(r4.path, 'draft_thing.md');
-  const top = listWorks().find((n) => n.path === 'draft_thing.md');
+  assert.equal(r4.path, '02_draft_thing.md');
+  const top = listWorks().find((n) => n.path === '02_draft_thing.md');
   assert.ok(top);
   assert.equal(top!.draft, true);
 
@@ -450,8 +452,8 @@ test('renameEntry is literal: typed name wins, prefixes only when typed', () => 
 
   // folder rename cascades to children
   const r3 = renameEntry(w.path, 'Legend');
-  assert.equal(r3.path, 'Legend');
-  assert.equal(readChapter('Legend/01_Book_One/03_Third.md'), '');
+  assert.equal(r3.path, '01_Legend');
+  assert.equal(readChapter('01_Legend/01_Book_One/03_Third.md'), '');
 
   // no-op rename and invalid names
   assert.equal(renameEntry(r3.path, 'Legend').path, r3.path);
