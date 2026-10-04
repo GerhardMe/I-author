@@ -109,10 +109,11 @@ renderTree()   rebuilds <nav id=tree>; rows show Node.raw (no prefix) and are
 drag & drop     the whole `.tree-row` is the drag handle (draggable=true; native
                drag's own movement threshold keeps a plain click a click). The
                drag image is an explicit `setDragImage(row)` — the browser's
-               default is a translucent ghost — taken before the pulse class
-               lands, and the row left behind pulses blue (`drag-pulse`,
-               `--move-tint`) like the delete preview instead of being faded
-               out;
+               default is a translucent ghost — taken before the `.dragging`
+               class lands so the copy stays opaque, while the row left behind
+               IS the ghost (opacity .45). A drag image is a frozen snapshot
+               and cannot blink, so the animation cannot live on the item under
+               the cursor;
                drop posts intent {path,parent,before} to /api/reorder, then
                remapPaths(renumbered) + loadTree, expand the destination and
                select what landed there (desktop only — HTML5 DnD does not fire
@@ -254,6 +255,13 @@ WORKS_DIR (server: /home/server/writing/works)
   directories from tree and indexes; folders whose children all vanish are dropped;
   notes render normally in indexes, they are only hidden together with drafts.
   Create/delete happen via the right-click context menu on the tree.
+- **Ordering gotcha**: `moveEntry` moves the entry out of its source FIRST and
+  only then renumbers the destination, because the destination is often an
+  ancestor of the source — renumbering the root after a drop can rename the very
+  folder the entry came from. The source path is then resolved through the
+  destination's map by **longest prefix** (`remapPath`), because the map carries
+  the renamed ancestor while the source is a deeper descendant; an exact-key
+  lookup returns a path that no longer exists (`invalid parent`).
 - **Rename**: clicking anywhere in the header (except the buttons) swaps the title for
   an inline raw-name editor (live-preview style: display title ↔ disk name).
   `POST /api/rename` edits the **title**, not the whole disk name: the typed name

@@ -546,3 +546,31 @@ test('moveEntry reorders and crosses folders, renumbering both', () => {
   // a folder cannot move inside itself
   assert.throws(() => moveEntry(w.path, w.path + '/x', null), /invalid move/);
 });
+
+test('moveEntry out of a folder that the destination renumber renames', () => {
+  // the reported failure: dropping a chapter on the top half of its own
+  // work folder sends it to the works root, where renumbering gives the
+  // incoming entry slot 01 and shifts the work folder itself. Renumbering the
+  // source before/after with a stale path threw "invalid parent".
+  fs.rmSync(TEST_WORKS_DIR, { recursive: true, force: true });
+
+  const work = createEntry('folder', '', 'Epic');
+  const book = createEntry('folder', work.path, 'Book One');
+  const c1 = createEntry('file', book.path, 'Alpha');
+  createEntry('file', book.path, 'Beta');
+
+  // the gesture: top half of the work folder row = its own level, above it
+  const r = moveEntry(c1.path, '', work.path.split('/').pop());
+  assert.equal(r.moved.to, '01_Alpha.md');
+  // the work folder moved down a slot because the incoming entry took 01, and
+  // the source's remaining chapter must be reported under its NEW path
+  assert.equal(r.renumbered[work.path], '02_Epic');
+  assert.equal(r.renumbered['02_Epic/01_Book_One/02_Beta.md'], '02_Epic/01_Book_One/01_Beta.md');
+
+  // and the tree agrees with the map
+  assert.deepEqual(listWorks().map((n) => n.name), ['01_Alpha.md', '02_Epic']);
+  assert.deepEqual(
+    listWorks().find((n) => n.name === '02_Epic')!.children!.map((n) => n.name),
+    ['01_Book_One'],
+  );
+});

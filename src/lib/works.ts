@@ -315,6 +315,22 @@ function applyOrder(parentAbs: string, parentRel: string, ordered: string[]): Re
 
 const relIn = (parent: string, name: string): string => (parent === '' ? name : `${parent}/${name}`);
 
+// Apply an old->new path map to ONE path, matching the LONGEST prefix: a
+// directory rename renames everything inside it, so the map carries the ancestor
+// while the path being fixed is some descendant of it. Exact-key lookup finds
+// nothing there and returns a path that no longer exists.
+function remapPath(map: Record<string, string>, p: string): string {
+  let best = '';
+  let to = '';
+  for (const [from, dest] of Object.entries(map)) {
+    if ((p === from || p.startsWith(from + '/')) && from.length > best.length) {
+      best = from;
+      to = dest;
+    }
+  }
+  return to ? to + p.slice(best.length) : p;
+}
+
 // close the gaps in a directory (prefix top-level works, tidy what is inside)
 export function renumberDir(parent: string): Record<string, string> {
   const parentAbs = dirFor(parent);
@@ -336,6 +352,13 @@ export function moveEntry(
   const name = path.basename(rel);
 
   const dstAbs = dirFor(parent);
+  const renumbered: Record<string, string> = {};
+  // Move the entry out FIRST. Renumbering the destination afterwards can rename
+  // the source's own ancestors — the source directory included — because the
+  // destination may be an ancestor of it (dropping an entry above the folder it
+  // came from lands it in that folder's parent, and the incoming entry then
+  // takes a slot that shifts every sibling). Renumbering first left the source
+  // path dangling and the drop failed with "invalid parent".
   if (src !== parent) {
     const into = path.join(dstAbs, name);
     if (fs.existsSync(into)) throw new Error('already exists');
@@ -347,12 +370,17 @@ export function moveEntry(
   const siblings = movableNames(dstAbs).filter((n) => n !== name);
   const at = before && siblings.includes(before) ? siblings.indexOf(before) : siblings.length;
   siblings.splice(at, 0, name);
-  const renumbered = applyOrder(dstAbs, parent, siblings);
+  Object.assign(renumbered, applyOrder(dstAbs, parent, siblings));
+
   if (src !== parent) {
-    const srcAbs = dirFor(src);
-    Object.assign(renumbered, applyOrder(srcAbs, src, movableNames(srcAbs)));
+    // resolve the source through the destination's map: it may have been
+    // renamed by that renumber, and the map is what the client remaps with too,
+    // so the source's entries must be reported under their new ancestor
+    const srcNow = remapPath(renumbered, src);
+    const srcAbs = dirFor(srcNow);
+    Object.assign(renumbered, applyOrder(srcAbs, srcNow, movableNames(srcAbs)));
   }
-  const to = renumbered[relIn(parent, name)] ?? relIn(parent, name);
+  const to = remapPath(renumbered, relIn(parent, name));
   return { moved: { from: rel, to }, renumbered };
 }
 

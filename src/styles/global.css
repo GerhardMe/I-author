@@ -7,7 +7,6 @@
   --card: #fbfbfc;
   --accent: #1f6feb;
   --accent-ink: #ffffff;
-  --move-tint: rgba(31, 111, 235, 0.2);
   --danger: #d1242f;
   --ok: #1a7f37;
   --tint: rgba(31, 111, 235, 0.08);
@@ -21,7 +20,6 @@
   --card: #16191e;
   --accent: #4493f8;
   --accent-ink: #101216;
-  --move-tint: rgba(68, 147, 248, 0.22);
   --danger: #e5534b;
   --ok: #3fb950;
   --tint: rgba(68, 147, 248, 0.14);
@@ -498,21 +496,12 @@ input:-webkit-autofill {
   color: var(--accent);
 }
 
-/* drag & drop: the whole row is the handle. While dragging, the row left
-   behind pulses blue — the delete preview's treatment in the accent colour,
-   so it stays fully legible instead of ghosted. */
+/* drag & drop: the whole row is the handle. The row left behind is the ghost —
+   the solid item is the one under the cursor (a drag image is a frozen snapshot,
+   so it cannot blink). The image is taken before this class lands, which is what
+   keeps the dragged copy opaque. */
 .tree-row.dragging {
-  animation: drag-pulse 1.1s ease-in-out infinite;
-}
-
-@keyframes drag-pulse {
-  0%,
-  100% {
-    background: transparent;
-  }
-  50% {
-    background: var(--move-tint);
-  }
+  opacity: 0.45;
 }
 
 .tw {
