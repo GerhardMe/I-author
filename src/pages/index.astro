@@ -358,17 +358,19 @@ import Base from '../layouts/base.astro';
   let dragExpandPath: string | null = null; // folder the drag opened, to close again
   let dragPreview = false; // a drag asked for the preview: keep empty folders
 
-  // Two bands per row, one line, one placement. The TOP half always means "the
-  // row's level, directly above it" — for a plain entry that is its own folder,
-  // for a folder it is the level ABOVE, which is how an entry becomes a sibling
-  // of a folder at all. The BOTTOM half means "below it" for a plain entry and
-  // "inside it" for a folder, drawn at child indent. So the line's indent is
-  // what tells you which level you are landing on.
+  // Every row has TWO bands, and only the indent distinguishes them: the TOP
+  // half means "the row's level, directly above it" (for a folder that is the
+  // level ABOVE, which is how an entry becomes a folder's sibling), the BOTTOM
+  // half means "below it" for a plain entry and "inside it" for a folder. Two
+  // bands on facing rows are one zone between them — that is fine, they mean the
+  // same thing; the difference that matters is between levels, and that is what
+  // the line's indent says.
   type DropIntent = {
     parent: string;
     before: string | null;
     anchorPath: string;
-    inside: boolean;
+    inside: boolean; // drawn below the row, at child indent
+    below: boolean; // drawn below the row, flush
     up: boolean; // the slot belongs to the level above this row
   };
 
@@ -389,20 +391,22 @@ import Base from '../layouts/base.astro';
     const box = row.getBoundingClientRect();
     const isFolder = node.children !== undefined;
     const upper = (e.clientY - box.top) / box.height < 0.5;
-    // bottom half of a folder: inside it, appended at the end
-    if (isFolder && !upper) {
-      return { parent: path, before: null, anchorPath: path, inside: true, up: false };
-    }
-    // top half of anything: directly above it, in the folder above it
     const parent = parentOf(path);
+    // top half of anything: directly above it, at the level above it
     if (upper) {
-      return { parent, before: nameOf(path), anchorPath: path, inside: false, up: isFolder };
+      return { parent, before: nameOf(path), anchorPath: path, inside: false, below: false, up: isFolder };
     }
-    // bottom half of a plain entry: below it, in the same folder
+    // bottom half of a folder: inside it, appended at the end
+    if (isFolder) {
+      return { parent: path, before: null, anchorPath: path, inside: true, below: true, up: false };
+    }
+    // bottom half of a plain entry: below it, in the same folder. The last
+    // entry has no next sibling, which means append — and the line belongs
+    // BELOW it, or the preview would claim the slot above.
     const siblings = parent ? byPath.get(parent)?.children ?? [] : tree;
     const i = siblings.findIndex((n) => n.path === path);
     const next = siblings[i + 1];
-    return { parent, before: next ? nameOf(next.path) : null, anchorPath: path, inside: false, up: false };
+    return { parent, before: next ? nameOf(next.path) : null, anchorPath: path, inside: false, below: true, up: false };
   }
 
   async function reorderTo(path: string, intent: DropIntent): Promise<void> {
@@ -454,13 +458,15 @@ import Base from '../layouts/base.astro';
     if (!row) return;
     dragPath = row.dataset.path ?? null;
     if (!dragPath) return;
-    row.classList.add('dragging');
     if (e.dataTransfer) {
       e.dataTransfer.effectAllowed = 'move';
       e.dataTransfer.setData('text/plain', dragPath);
-      // no setDragImage: the row is the draggable element, so the browser's
-      // default drag image already is the row
+      // an explicit image, because the browser's default rendering of the row
+      // is a translucent ghost; this one is the whole row, solid. Taken before
+      // the pulse class lands, so the snapshot never catches the animation.
+      e.dataTransfer.setDragImage(row, 24, 10);
     }
+    row.classList.add('dragging');
   });
 
   // One insertion line, one geometry: flush for a sibling slot, at child indent
@@ -490,10 +496,13 @@ import Base from '../layouts/base.astro';
     if (!row) return;
     if (intent.inside) {
       placeLineInFolder(row);
+    } else if (intent.below) {
+      placeLine(row.offsetTop + row.offsetHeight, row.offsetLeft, row.offsetWidth);
     } else {
-      // a slot one level up sits at the parent's indent, not the row's
+      // a slot one level up starts at the parent's indent; the width stays the
+      // row's own so the line does not span past the level it belongs to
       const shift = intent.up ? CHILD_INDENT : 0;
-      placeLine(row.offsetTop, row.offsetLeft - shift, row.offsetWidth + shift);
+      placeLine(row.offsetTop, row.offsetLeft - shift, row.offsetWidth);
     }
     lineEl.classList.add('moving');
   }

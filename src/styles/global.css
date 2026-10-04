@@ -7,6 +7,7 @@
   --card: #fbfbfc;
   --accent: #1f6feb;
   --accent-ink: #ffffff;
+  --move-tint: rgba(31, 111, 235, 0.2);
   --danger: #d1242f;
   --ok: #1a7f37;
   --tint: rgba(31, 111, 235, 0.08);
@@ -20,6 +21,7 @@
   --card: #16191e;
   --accent: #4493f8;
   --accent-ink: #101216;
+  --move-tint: rgba(68, 147, 248, 0.22);
   --danger: #e5534b;
   --ok: #3fb950;
   --tint: rgba(68, 147, 248, 0.14);
@@ -496,9 +498,21 @@ input:-webkit-autofill {
   color: var(--accent);
 }
 
-/* drag & drop: the whole row is the handle, dimmed while it is being dragged */
+/* drag & drop: the whole row is the handle. While dragging, the row left
+   behind pulses blue — the delete preview's treatment in the accent colour,
+   so it stays fully legible instead of ghosted. */
 .tree-row.dragging {
-  opacity: 0.45;
+  animation: drag-pulse 1.1s ease-in-out infinite;
+}
+
+@keyframes drag-pulse {
+  0%,
+  100% {
+    background: transparent;
+  }
+  50% {
+    background: var(--move-tint);
+  }
 }
 
 .tw {
@@ -545,10 +559,10 @@ input:-webkit-autofill {
    with a deeper swing so it reads as a move even without colour */
 #insert-line.moving {
   background: var(--accent);
-  animation-name: move-pulse;
+  animation-name: line-move-pulse;
 }
 
-@keyframes move-pulse {
+@keyframes line-move-pulse {
   0%,
   100% {
     opacity: 0.15;

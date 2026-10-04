@@ -107,7 +107,12 @@ loadTree()     GET /api/tree → `tree` + `byPath` Map (path → Node) → rende
 renderTree()   rebuilds <nav id=tree>; rows show Node.raw (no prefix) and are
                draggable; `selected` + `expanded` Sets drive the view
 drag & drop     the whole `.tree-row` is the drag handle (draggable=true; native
-               drag's own movement threshold keeps a plain click a click);
+               drag's own movement threshold keeps a plain click a click). The
+               drag image is an explicit `setDragImage(row)` — the browser's
+               default is a translucent ghost — taken before the pulse class
+               lands, and the row left behind pulses blue (`drag-pulse`,
+               `--move-tint`) like the delete preview instead of being faded
+               out;
                drop posts intent {path,parent,before} to /api/reorder, then
                remapPaths(renumbered) + loadTree, expand the destination and
                select what landed there (desktop only — HTML5 DnD does not fire
@@ -116,13 +121,18 @@ drop preview    ONE `#insert-line` element for both create and move; only the
                colour differs (`--ok` green = creating, `.moving` `--accent`
                blue = moving, red row pulse = deleting). Geometry is shared
                too: `placeLineInFolder` draws a slot at child indent for
-               "inside this folder", `placeLine` a flush sibling slot. Two bands
-               per row, one placement each: the TOP half always means "the row's
-               level, directly above it" — for a plain entry its own folder, for
-               a folder the level ABOVE (shifted one `CHILD_INDENT` left, which
-               is how an entry becomes a folder's sibling); the BOTTOM half means
-               "below it" for a plain entry and "inside it" for a folder. The
-               line's indent is what says which level you are landing on.
+               "inside this folder", `placeLine` a flush sibling slot. Every row
+               has TWO bands and only the indent distinguishes them: the TOP half
+               means "the row's level, directly above it" — for a plain entry its
+               own folder, for a folder the level ABOVE (shifted one
+               `CHILD_INDENT` left, which is how an entry becomes a folder's
+               sibling; the width stays the row's own so the line does not span
+               past that level); the BOTTOM half means "below it" for a plain
+               entry and "inside it" for a folder. Two bands on facing rows are
+               one zone between them — same result, no ambiguity. The line's
+               indent is what says which level you land on, and a `below` slot
+               draws UNDER its row (the last entry of a folder appends, so the
+               line belongs below it, not above).
                Hovering a CLOSED folder expands it (like the
                `new` preview does on mouseenter) and only folders the drag
                opened are collapsed again on dragend (`dragExpandPath`);
