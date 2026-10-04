@@ -121,6 +121,7 @@ export type FragItem = {
   key: string; // content hash: style + the printed lines (+ md content)
   file: string; // cached fragment pdf path
   abs?: string; // chapter md path
+  content?: string; // chapter md content (read for the hash; reused for the opener)
 };
 
 function fragFile(key: string): string {
@@ -172,6 +173,7 @@ export function collectItems(node: Node, styleHash: string, out: FragItem[]): vo
         key,
         file: fragFile(key),
         abs: safePath(c.path) ?? undefined,
+        content,
       });
     }
   };
@@ -180,17 +182,80 @@ export function collectItems(node: Node, styleHash: string, out: FragItem[]): vo
   walk(node, containerLine(node));
 }
 
+// ---------- chapter opener ----------
+// The compiler emits two hooks the style may render: \chapterlabel (the
+// small-caps "Chapter 3" line above the title) and \chapterdropcap (the
+// first word as a two-line versal). Styles that don't define them — a4, a5 —
+// get no-op/word-preserving fallbacks here, so every style keeps compiling.
+function openerFallbacks(): string[] {
+  return [
+    '\\providecommand{\\chapterlabel}[1]{}',
+    '\\providecommand{\\chapterdropcap}[2]{#1#2}',
+  ];
+}
+
+// the chapter's small-caps label comes from the same positional numbering the
+// sidebar shows; bare entries (top level, notes, matter) have none. Looked up
+// in the UNCLEANED tree, like chapterTitle.
+function chapterLabel(rel: string): string {
+  const node = findNode(listWorks(), rel);
+  return node ? node.label : '';
+}
+
+// the chapter's print piece: the bare title (no "Chapter N:" fusion — the
+// label prints as its own line above it), with the tree-stale fallback
+// (exported for tests)
+export function chapterPiece(rel: string): { label: string; title: string } {
+  const node = findNode(listWorks(), rel);
+  if (node) return { label: node.label, title: node.raw };
+  return { label: '', title: parseName(path.basename(rel).replace(MD, '')).raw };
+}
+
+// the first word of the chapter's prose, split into initial + rest for
+// \chapterdropcap{I}{nit}, plus the markdown with that word removed (the
+// compiler inputs the remainder instead of the file). Conservative: leading
+// blank lines and headings are skipped, but anything else opening the file —
+// fences, quotes, lists, emphasis, punctuation — compiles without a versal
+// rather than guessing.
+export function dropcapOf(
+  md: string,
+): { initial: string; rest: string; remainder: string } | null {
+  const lines = md.split('\n');
+  let i = 0;
+  while (i < lines.length && (lines[i].trim() === '' || /^#{1,6}\s/.test(lines[i].trim()))) i++;
+  if (i >= lines.length) return null;
+  const m = /^([A-Za-z\u00C0-\u024F\u0370-\u1FFF])(\S*)/.exec(lines[i]);
+  if (!m) return null;
+  const remainder = [...lines];
+  remainder[i] = lines[i].slice(m[0].length);
+  return { initial: m[1], rest: m[2], remainder: remainder.join('\n') };
+}
+
+// the chapter body after a drop cap: the remainder goes into the compile's
+// temp dir (runLatex's extra files) and is input right after the versal, so
+// it continues the same paragraph
+function dropcapInput(
+  dc: { initial: string; rest: string; remainder: string },
+  files: Record<string, string>,
+): string {
+  files['body.md'] = dc.remainder;
+  return `\\chapterdropcap{${texEsc(dc.initial)}}{${texEsc(dc.rest)}}\\markdownInput{body.md}`;
+}
+
 // a chapter fragment is the exact pages the chapter occupies inside a book —
 // same heading, same style — with pagestyle empty so the wrapper's footer
 // numbering is the only one. One pass: fragments carry no TOC.
-function chapterFragTex(title: string, abs: string, preamble: string): string {
+function chapterFragTex(it: FragItem, preamble: string, files: Record<string, string>): string {
+  const dc = dropcapOf(it.content ?? '');
   return [
     preamble,
     '\\markdownSetup{shiftHeadings=1}',
+    ...openerFallbacks(),
     '\\pagestyle{empty}',
     '\\begin{document}',
-    `\\section*{${texEsc(title)}}`,
-    `\\markdownInput{${abs}}`,
+    ...(it.label ? [`\\chapterlabel{${texEsc(it.label)}}`] : []),
+    `\\section*{${texEsc(it.raw)}}`,
+    dc ? dropcapInput(dc, files) : `\\markdownInput{${it.abs}}`,
     '\\end{document}',
     '',
   ].join('\n');
@@ -247,11 +312,20 @@ function bookTex(scopeTitle: string, items: FragItem[], preamble: string): strin
 }
 
 // ---------- compile ----------
-async function runLatex(tex: string, jobname: string, passes: number): Promise<Buffer> {
+async function runLatex(
+  tex: string,
+  jobname: string,
+  passes: number,
+  files: Record<string, string> = {},
+): Promise<Buffer> {
   fs.mkdirSync(TEXBUILD, { recursive: true });
   const dir = fs.mkdtempSync(path.join(TEXBUILD, 'j-'));
   try {
     fs.writeFileSync(path.join(dir, `${jobname}.tex`), tex);
+    // side inputs (the drop cap's remainder md) live beside the job
+    for (const [name, content] of Object.entries(files)) {
+      fs.writeFileSync(path.join(dir, name), content);
+    }
     // no --shell-escape: nothing in pdfstyles/ needs it, and it hands a
     // compiled document \write18 — pure attack surface on a server
     const args = ['-interaction=nonstopmode', `-jobname=${jobname}`, `${jobname}.tex`];
@@ -284,7 +358,7 @@ function latexError(dir: string, jobname: string): Error {
 // signature of their last assembly. Everything else (fragments) is fresh
 // purely by file existence.
 type Store = {
-  chapters: Record<string, { style: string; src: number }>;
+  chapters: Record<string, { style: string; hash: string; src: number }>;
   books: Record<string, string>;
 };
 
@@ -340,7 +414,9 @@ export async function ensurePdf(
   const styleHash = sha(style.preamble);
 
   if (isFile) {
-    // single chapter artifact: footer numbering starts at 1, one pass
+    // single chapter artifact: footer numbering starts at 1, one pass.
+    // The cache keys on the style's CONTENT hash too — editing a style file
+    // must recompile the chapters already built with the old one.
     const srcMtime = fs.statSync(abs).mtimeMs;
     const store = readStore();
     const art = store.chapters[rel];
@@ -348,24 +424,34 @@ export async function ensurePdf(
       !force &&
       art &&
       art.style === style.id &&
+      art.hash === styleHash &&
       art.src === srcMtime &&
       fs.existsSync(targetAbs)
     ) {
       return { abs: targetAbs, name };
     }
+    const piece = chapterPiece(rel);
+    let content = '';
+    try {
+      content = readChapter(rel);
+    } catch {}
+    const dc = dropcapOf(content);
+    const files: Record<string, string> = {};
     const tex = [
       style.preamble,
       '\\markdownSetup{shiftHeadings=1}',
+      ...openerFallbacks(),
       '\\begin{document}',
-      `\\section*{${texEsc(chapterTitle(rel))}}`,
-      `\\markdownInput{${abs}}`,
+      ...(piece.label ? [`\\chapterlabel{${texEsc(piece.label)}}`] : []),
+      `\\section*{${texEsc(piece.title)}}`,
+      dc ? dropcapInput(dc, files) : `\\markdownInput{${abs}}`,
       '\\end{document}',
       '',
     ].join('\n');
-    const data = await runLatex(tex, path.basename(abs, path.extname(abs)), 1);
+    const data = await runLatex(tex, path.basename(abs, path.extname(abs)), 1, files);
     await writeArtifact(targetAbs, data);
     const fresh = readStore();
-    fresh.chapters[rel] = { style: style.id, src: srcMtime };
+    fresh.chapters[rel] = { style: style.id, hash: styleHash, src: srcMtime };
     writeStore(fresh);
     return { abs: targetAbs, name };
   }
@@ -388,11 +474,12 @@ export async function ensurePdf(
   fs.mkdirSync(FRAG_DIR, { recursive: true });
   for (const it of items) {
     if (!force && fs.existsSync(it.file)) continue;
+    const files: Record<string, string> = {};
     const tex =
       it.kind === 'part'
         ? partFragTex(it, style.preamble)
-        : chapterFragTex(it.title, it.abs!, style.preamble);
-    fs.writeFileSync(it.file, await runLatex(tex, `f${it.key}`, 1));
+        : chapterFragTex(it, style.preamble, files);
+    fs.writeFileSync(it.file, await runLatex(tex, `f${it.key}`, 1, files));
   }
 
   // assemble: 2 passes so the toc settles around the fragments it fronts

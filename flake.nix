@@ -37,6 +37,8 @@
                 framed
                 pdfpages
                 pdfcol
+                lettrine
+                fancyhdr
                 ;
             })
           ];

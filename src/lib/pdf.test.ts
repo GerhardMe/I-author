@@ -12,7 +12,8 @@ import './test-setup.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { chapterTitle, collectItems, pdfPlan, type FragItem } from './pdf.ts';
+import path from 'node:path';
+import { chapterPiece, chapterTitle, collectItems, dropcapOf, pdfPlan, type FragItem } from './pdf.ts';
 import { createEntry, type Node } from './works.ts';
 import { TEST_WORKS_DIR } from './test-setup.ts';
 
@@ -124,4 +125,41 @@ test('a tree-stale chapter path falls back to its bare raw title', () => {
   assert.equal(chapterTitle('01_work/01_part/01_first_flight.md'), 'first flight');
   assert.equal(chapterTitle('02_poems.md'), 'poems');
   assert.equal(chapterTitle('01_work/01_part/03_no_prefix_yet.md'), 'no prefix yet');
+});
+
+// ---------- chapter opener ----------
+
+test('dropcapOf: the first prose word splits for the versal', () => {
+  const dc = dropcapOf('The quick brown fox')!;
+  assert.equal(dc.initial, 'T');
+  assert.equal(dc.rest, 'he');
+  assert.equal(dc.remainder, ' quick brown fox');
+});
+
+test('dropcapOf: leading headings and blanks are skipped, not consumed', () => {
+  const dc = dropcapOf('# The Flight\n\nOnce upon a time')!;
+  assert.equal(dc.initial, 'O');
+  assert.equal(dc.rest, 'nce');
+  // the heading stays intact; only the word vanishes
+  assert.equal(dc.remainder, '# The Flight\n\n upon a time');
+});
+
+test('dropcapOf: anything but plain prose compiles without a versal', () => {
+  assert.equal(dropcapOf('"Quoted" opening'), null);
+  assert.equal(dropcapOf('*Emphasised* opening'), null);
+  assert.equal(dropcapOf('- a list first'), null);
+  assert.equal(dropcapOf(''), null);
+  assert.equal(dropcapOf('\n\n   \n'), null);
+  assert.equal(dropcapOf('# Only a heading'), null);
+});
+
+test('the chapter piece: the label is the sidebar label, the title is bare', () => {
+  fs.rmSync(TEST_WORKS_DIR, { recursive: true, force: true });
+  const w = createEntry('folder', '', 'Footnote Tests');
+  const c = createEntry('file', w.path, 'First Flight');
+  fs.writeFileSync(path.join(TEST_WORKS_DIR, w.path, 'notes.md'), 'x', 'utf8');
+
+  assert.deepEqual(chapterPiece(c.path), { label: 'Chapter 1', title: 'First Flight' });
+  // folder material prints bare — no label line above it
+  assert.deepEqual(chapterPiece(w.path + '/notes.md'), { label: '', title: 'notes' });
 });

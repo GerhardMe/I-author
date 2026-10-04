@@ -3,27 +3,43 @@
 
 % Academic style: the Mariner paperback trim (6.1″ × 9″); footer margin
 % slightly larger than the head
-\usepackage[paperwidth=6.125in, paperheight=9in, margin=0.9in, top=0.85in]{geometry}
+\usepackage[paperwidth=6.125in, paperheight=9in, margin=1.0in, top=0.95in]{geometry}
 \usepackage[T1]{fontenc}
 \usepackage{amsmath}
 \usepackage[hashEnumerators, smartEllipses, hybrid, pipeTables, taskLists, texMathDollars, notes, inlineNotes]{markdown}
 \usepackage{palatino}
 \usepackage{microtype}
+\usepackage{lettrine}
+\usepackage{fancyhdr}
 
 % No numbered headings — the compiler emits starred sectioning
 \setcounter{secnumdepth}{-2}
 
-% Blockquotes as indented italic
+% Blockquotes: symmetric margins on both sides, slightly smaller text
 \renewenvironment{quote}{%
-  \list{}{\leftmargin=1.5em\rightmargin=1.5em}%
-  \item\relax\itshape
+  \list{}{\leftmargin=2em\rightmargin=2em}%
+  \item\relax\small\itshape
 }{%
   \endlist
 }
 
-\setlength{\parskip}{0.5em}
-\setlength{\parindent}{0pt}
+% Book paragraphing: no space between paragraphs, a 1.5em first-line indent
+% instead (the first paragraph after a heading stays flush, LaTeX default)
+\setlength{\parskip}{0pt}
+\setlength{\parindent}{1.5em}
 \linespread{1.15}
+
+% Page numbers: top right. plain is redefined because both compile paths use
+% it — the book wrapper's pagecommand and the single-chapter compile's default
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[R]{\thepage}
+\renewcommand{\headrulewidth}{0pt}
+\fancypagestyle{plain}{%
+  \fancyhf{}%
+  \fancyhead[R]{\thepage}%
+  \renewcommand{\headrulewidth}{0pt}%
+}
 
 % Section formatting — ruled block heading (house style)
 \usepackage{titlesec}
@@ -51,6 +67,13 @@
 \titlespacing*{\section}{0pt}{1.5em}{0.6em}
 \titlespacing*{\subsection}{0pt}{1em}{0.3em}
 \titlespacing*{\part}{0pt}{4em}{2em}
+
+% Chapter opener: a small-caps label line above the ruled title, and the
+% first word of the chapter as a two-line drop cap. pdf.ts emits
+% \chapterlabel / \chapterdropcap; styles that don't define them get no-op
+% fallbacks from the compiler, so these names are an interface.
+\newcommand{\chapterlabel}[1]{{\scshape #1\par}}
+\newcommand{\chapterdropcap}[2]{\lettrine[lines=2]{#1}{#2}}
 
 \usepackage{hyperref}
 \hypersetup{hidelinks}
