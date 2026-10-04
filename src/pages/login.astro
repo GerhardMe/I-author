@@ -13,9 +13,12 @@ import Base from '../layouts/base.astro';
             <input
               id="f-pin"
               name="password"
-              type="password"
+              type="text"
               inputmode="numeric"
               autocomplete="off"
+              autocapitalize="none"
+              autocorrect="off"
+              spellcheck="false"
               data-1p-ignore
               data-lpignore="true"
               data-bwignore
@@ -62,8 +65,20 @@ import Base from '../layouts/base.astro';
   let mode: Mode = 'totp';
   let unlocked = false; // trusted device: PIN only
 
+  // the real PIN lives here; the field only ever shows bullets. Some mobile
+  // browsers/keyboards briefly echo the last digit of type="password" fields —
+  // a text field we mask ourselves is bulletproof everywhere.
+  let pinValue = '';
+
   pinInput.addEventListener('input', () => {
-    pinInput.value = pinInput.value.replace(/[^0-9]/g, '').slice(0, 12);
+    const v = pinInput.value;
+    if (v.length > pinValue.length) {
+      // inserted: the non-bullet characters are the new digits (paste = many)
+      pinValue = (pinValue + v.replace(/•/g, '')).replace(/[^0-9]/g, '').slice(0, 12);
+    } else if (v.length < pinValue.length) {
+      pinValue = pinValue.slice(0, v.length);
+    }
+    pinInput.value = '•'.repeat(pinValue.length);
   });
 
   totpInput.addEventListener('input', () => {
@@ -97,7 +112,7 @@ import Base from '../layouts/base.astro';
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     err.hidden = true;
-    const body: Record<string, string> = { pin: pinInput.value };
+    const body: Record<string, string> = { pin: pinValue };
     if (!unlocked) {
       if (mode === 'totp') body.totp = totpInput.value;
       else body.recovery = totpInput.value;
@@ -115,6 +130,7 @@ import Base from '../layouts/base.astro';
       showError(
         res.status === 429 ? 'Too many attempts. Wait a bit and try again.' : 'Wrong PIN or code.',
       );
+      pinValue = '';
       pinInput.value = '';
       totpInput.value = '';
       pinInput.focus();
