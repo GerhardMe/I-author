@@ -38,7 +38,6 @@ import Base from '../layouts/base.astro';
             <span class="chip" id="doc-words"></span>
             <button class="btn-tiny pdf-btn" id="pdf-toggle" hidden
                     title="pdf — compile this scope, right-click for sizes">pdf</button>
-            <button class="btn-tiny" id="doc-del">delete</button>
         </div>
         </header>
         <div class="md-body" id="doc-body" hidden></div>
@@ -89,7 +88,6 @@ import Base from '../layouts/base.astro';
   const docBody = document.getElementById('doc-body')!;
   const docWords = document.getElementById('doc-words')!;
   const docDraft = document.getElementById('doc-draft')!;
-  const docDel = document.getElementById('doc-del')!;
   const renameInput = document.getElementById('doc-rename') as HTMLInputElement;
   const hideBtn = document.getElementById('hide-drafts') as HTMLButtonElement;
   const hideEye = document.getElementById('hide-drafts-eye')!;
@@ -701,7 +699,6 @@ async function showGroup(node: Node): Promise<void> {
     docTitle.textContent = cur.title;
     docWords.hidden = false;
     docWords.textContent = `${cur.words ?? 0} words`;
-    docDel.hidden = false;
     editorHost.hidden = true;
     docBody.hidden = false;
     currentGroup = node.path;
@@ -767,7 +764,6 @@ async function showGroup(node: Node): Promise<void> {
       docTitle.textContent = node.title;
       docWords.hidden = false;
       docWords.textContent = `${countWords(content)} words`;
-      docDel.hidden = false;
       pdfBtn.hidden = false;
       currentFile = p;
       sync.setBaseline(content, content.length);
@@ -1089,12 +1085,6 @@ newRow.hidden = true;
       alert((err as Error).message);
     }
   }
-
-  docDel.addEventListener('click', async () => {
-    const node = selected ? byPath.get(selected) : null;
-    if (!node) return;
-    await deleteNode(node);
-  });
 
   // ---------- rename via header title click (live-preview style: display <-> raw) ----------
   // clicking anywhere in the header (except the buttons) opens the raw-name editor
