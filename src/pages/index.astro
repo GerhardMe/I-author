@@ -379,12 +379,6 @@ import Base from '../layouts/base.astro';
     };
   }
 
-  function clearDropMarks(): void {
-    for (const el of treeEl.querySelectorAll('.drop-before, .drop-after, .drop-into')) {
-      el.classList.remove('drop-before', 'drop-after', 'drop-into');
-    }
-  }
-
   async function reorderTo(path: string, intent: DropIntent): Promise<void> {
     const open = currentFile;
     try {
@@ -447,6 +441,21 @@ import Base from '../layouts/base.astro';
     }
   });
 
+  // dropping into a folder reuses the very same insertion line as the
+  // right-click "new" preview: shorter than the row, sitting directly under it
+  // at the same indent as its children
+  function showDropLine(row: HTMLElement): void {
+    const indent = 0.9 * parseFloat(getComputedStyle(document.documentElement).fontSize);
+    placeLine(row.offsetTop + row.offsetHeight, row.offsetLeft + indent, row.offsetWidth - indent);
+  }
+
+  function clearDropMarks(): void {
+    lineEl.hidden = true;
+    for (const el of treeEl.querySelectorAll('.drop-before, .drop-after')) {
+      el.classList.remove('drop-before', 'drop-after');
+    }
+  }
+
   treeEl.addEventListener('dragover', (e) => {
     if (!dragPath) return;
     const intent = dropIntent(e);
@@ -454,7 +463,8 @@ import Base from '../layouts/base.astro';
     if (!intent) return;
     e.preventDefault();
     if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
-    intent.row.classList.add(intent.how);
+    if (intent.how === 'drop-into') showDropLine(intent.row);
+    else intent.row.classList.add(intent.how);
   });
 
   treeEl.addEventListener('dragleave', (e) => {
