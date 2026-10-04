@@ -177,11 +177,13 @@ deploy               # test locally, push main to GitHub; the server pulls, inst
                      # builds, restarts and health-checks (see §Deployment)
 ```
 
-- **Test on the deployed server, not locally.** The user tests UI changes against the
-  live VPS after `deploy`. Local verification stops at: `pnpm test` + `pnpm build`
-  succeed (both run inside `nix develop -c`; bare `pnpm` doesn't exist outside the
-  shell). Don't spin up local servers or complete local setup to "verify" pages —
-  it wastes time and the local env has no secrets anyway.
+- **Minimal local testing, deploy always.** After every finished feature or fix:
+  commit with a SHORT message, push, and immediately run `scripts/deploy` — the owner
+  tests on the live VPS, never locally. Local verification stops at what `deploy`
+  already runs (`pnpm test` + `pnpm build` inside `nix develop -c`; bare `pnpm`
+  doesn't exist outside the shell); no extra checks, no local servers, no local
+  setup — it wastes time and the local env has no secrets anyway. One deploy per
+  commit; deploying is cheap and expected after every change.
 
 - Tests run with `node --experimental-strip-types` — no test framework, no TS features
   that need transformation (no enums).
@@ -601,6 +603,28 @@ level (one-time `scripts/migrate-numbering.mjs`, dry-run by default, git-committ
 path map so client state (expanded, selection, sessionStorage drafts) remaps.
 Phase 3 (not started): move depth is not restricted (a Book can become a Part by
 dragging it one level down) — worth a guard or a confirmation once the drag UX settles.
+
+Queued small changes (planned 2026-10-04, not yet built — implement one commit + one
+deploy each, per §Dev workflow):
+
+- **Remove the header delete button.** `#doc-del` in `index.astro` (markup line ~41,
+  the `docDel` const, its click handler, and the two `docDel.hidden = false` lines in
+  `showGroup`/`openFile`). Delete stays available via the tree context menu;
+  `deleteNode` and the pdf button are untouched. Keep `.doc-head .btn-tiny` CSS.
+- **Reveal the opened file in the tree.** Opening an md — from a folder index TOC, a
+  ctrl+click relative link (`openLink`), or the boot-restored last draft — must expand
+  its ancestor folders and highlight it in the sidebar. Add a `revealPath(p)` helper in
+  `index.astro`: split `p` into segments, `expanded.add` each ancestor, set `selected`,
+  `saveExpanded()`, `renderTree()` — and call it from `openFile()` so every entry point
+  gets it. TOC folder clicks already expand themselves.
+- **Mask the PIN on every browser.** On phones, some Android browsers/keyboards
+  (Samsung Internet, GBoard's password echo) briefly show the last typed digit of the
+  `type="password"` PIN field on `login.astro`. Fix: switch `#f-pin` to `type="text"`
+  (add `autocapitalize="none" autocorrect="off" spellcheck="false"`), keep the real PIN
+  in a JS variable in the existing input handler and render `'•'.repeat(len)` in the
+  field; submit and the failed-login reset use the variable. Works everywhere, unlike
+  `-webkit-text-security` (unsupported in Firefox). Known simplification: mid-string
+  caret edits append at the end — fine on a numeric keypad, caret is always last.
 
 Next: 6) Encrypted GitHub
 backup: tar+gzip whole tree → AES-256-GCM with master key → one ciphertext blob per
