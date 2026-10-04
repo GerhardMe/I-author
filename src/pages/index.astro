@@ -116,6 +116,16 @@ import Base from '../layouts/base.astro';
     saveExpanded();
   }
 
+  // opening an md from anywhere (toc, link, boot restore): expand its
+  // ancestors so the row is visible in the tree, then select it
+  function revealPath(p: string): void {
+    const segs = p.split('/');
+    for (let i = 1; i < segs.length; i++) expanded.add(segs.slice(0, i).join('/'));
+    selected = p;
+    saveExpanded();
+    renderTree();
+  }
+
   // ---------- drafts & notes visibility ----------
   let hideDrafts = localStorage.getItem('iauthor.hide-drafts') === '1';
 
@@ -752,6 +762,7 @@ async function showGroup(node: Node): Promise<void> {
   });
 
   async function openFile(p: string) {
+    revealPath(p);
     await leavingFile();
     try {
       const { content } = await api('/api/file?path=' + encodeURIComponent(p));
