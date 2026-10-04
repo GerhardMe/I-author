@@ -496,32 +496,7 @@ input:-webkit-autofill {
   color: var(--accent);
 }
 
-/* drag & drop: the grip at the row's end starts the drag */
-.tree-row .grip {
-  margin-left: auto;
-  align-self: center;
-  flex: none;
-  width: 7px;
-  height: 9px;
-  cursor: grab;
-  opacity: 0; /* the grip is a hover affordance: it appears under the pointer only */
-  background-image: radial-gradient(circle, currentColor 0.9px, transparent 1px);
-  background-size: 3.5px 3px;
-  background-position: 0 1px;
-}
-
-.tree-row:hover .grip {
-  opacity: 0.85;
-}
-
-.tree-row .grip:active {
-  cursor: grabbing;
-}
-
-.tree-row.dragging .grip {
-  opacity: 1;
-}
-
+/* drag & drop: the whole row is the handle, dimmed while it is being dragged */
 .tree-row.dragging {
   opacity: 0.45;
 }
@@ -533,8 +508,7 @@ input:-webkit-autofill {
 }
 
 .tn {
-  /* min-width: 0 lets the ellipsis above actually engage in a flex row, which
-     is what keeps a long name from pushing the drag grip off the row */
+  /* min-width: 0 lets the ellipsis above actually engage in a flex row */
   flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;

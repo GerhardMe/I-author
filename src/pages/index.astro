@@ -328,13 +328,14 @@ import Base from '../layouts/base.astro';
       (n.inDraft ? ' draft' : '');
       row.dataset.path = n.path;
       if (isFolder) row.dataset.folder = '1';
-      // dragging starts from the grip at the row's end, never from the row
-      // itself: the name stays selectable and clicking stays a click
+      // the whole row is the drag handle; native drag has its own movement
+      // threshold, so a plain click still opens the entry
+      row.draggable = true;
       row.innerHTML = `<span class="tw"${
         isFolder ? ' data-caret="1"' : ''
       }>${isFolder ? (expanded.has(n.path) ? '▾' : '▸') : '·'}</span><span class="tn">${esc(
         n.raw,
-      )}</span><span class="grip" draggable="true" aria-hidden="true"></span>`;
+      )}</span>`;
       li.append(row);
       if (isFolder && expanded.has(n.path) && n.children!.length) li.append(buildList(n.children!));
       ul.append(li);
@@ -357,14 +358,19 @@ import Base from '../layouts/base.astro';
   let dragExpandPath: string | null = null; // folder the drag opened, to close again
   let dragPreview = false; // a drag asked for the preview: keep empty folders
 
-  // Same rule as the right-click "new" preview (newParentOf): the hovered row
-  // decides the parent — a folder means "inside it", any other entry means "in
-  // its own folder" — and the pointer decides where in that folder. One line,
-  // one placement: the top half of a row means "directly above it", the bottom
-  // half means "below it", and a folder row always means "inside", drawn at
-  // child indent. (Two bands around one gap would be two affordances for the
-  // same result.)
-  type DropIntent = { parent: string; before: string | null; anchorPath: string; inside: boolean };
+  // Two bands per row, one line, one placement. The TOP half always means "the
+  // row's level, directly above it" — for a plain entry that is its own folder,
+  // for a folder it is the level ABOVE, which is how an entry becomes a sibling
+  // of a folder at all. The BOTTOM half means "below it" for a plain entry and
+  // "inside it" for a folder, drawn at child indent. So the line's indent is
+  // what tells you which level you are landing on.
+  type DropIntent = {
+    parent: string;
+    before: string | null;
+    anchorPath: string;
+    inside: boolean;
+    up: boolean; // the slot belongs to the level above this row
+  };
 
   const nameOf = (path: string): string => path.slice(path.lastIndexOf('/') + 1);
   const parentOf = (path: string): string => {
@@ -382,15 +388,21 @@ import Base from '../layouts/base.astro';
     if (!node) return null;
     const box = row.getBoundingClientRect();
     const isFolder = node.children !== undefined;
-    if (isFolder) return { parent: path, before: null, anchorPath: path, inside: true };
-    const parent = parentOf(path);
-    if ((e.clientY - box.top) / box.height < 0.5) {
-      return { parent, before: nameOf(path), anchorPath: path, inside: false };
+    const upper = (e.clientY - box.top) / box.height < 0.5;
+    // bottom half of a folder: inside it, appended at the end
+    if (isFolder && !upper) {
+      return { parent: path, before: null, anchorPath: path, inside: true, up: false };
     }
+    // top half of anything: directly above it, in the folder above it
+    const parent = parentOf(path);
+    if (upper) {
+      return { parent, before: nameOf(path), anchorPath: path, inside: false, up: isFolder };
+    }
+    // bottom half of a plain entry: below it, in the same folder
     const siblings = parent ? byPath.get(parent)?.children ?? [] : tree;
     const i = siblings.findIndex((n) => n.path === path);
     const next = siblings[i + 1];
-    return { parent, before: next ? nameOf(next.path) : null, anchorPath: path, inside: false };
+    return { parent, before: next ? nameOf(next.path) : null, anchorPath: path, inside: false, up: false };
   }
 
   async function reorderTo(path: string, intent: DropIntent): Promise<void> {
@@ -440,18 +452,14 @@ import Base from '../layouts/base.astro';
   treeEl.addEventListener('dragstart', (e) => {
     const row = (e.target as HTMLElement).closest('.tree-row') as HTMLElement | null;
     if (!row) return;
-    if (!(e.target as HTMLElement).closest('.grip')) {
-      e.preventDefault(); // a drag that did not start on the grip is not a reorder
-      return;
-    }
     dragPath = row.dataset.path ?? null;
     if (!dragPath) return;
     row.classList.add('dragging');
     if (e.dataTransfer) {
       e.dataTransfer.effectAllowed = 'move';
       e.dataTransfer.setData('text/plain', dragPath);
-      // drag the ROW, not the six-pixel grip that started it
-      e.dataTransfer.setDragImage(row, 24, 10);
+      // no setDragImage: the row is the draggable element, so the browser's
+      // default drag image already is the row
     }
   });
 
@@ -480,8 +488,13 @@ import Base from '../layouts/base.astro';
       `.tree-row[data-path="${CSS.escape(intent.anchorPath)}"]`,
     ) as HTMLElement | null;
     if (!row) return;
-    if (intent.inside) placeLineInFolder(row);
-    else placeLine(row.offsetTop, row.offsetLeft, row.offsetWidth);
+    if (intent.inside) {
+      placeLineInFolder(row);
+    } else {
+      // a slot one level up sits at the parent's indent, not the row's
+      const shift = intent.up ? CHILD_INDENT : 0;
+      placeLine(row.offsetTop, row.offsetLeft - shift, row.offsetWidth + shift);
+    }
     lineEl.classList.add('moving');
   }
 

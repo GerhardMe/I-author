@@ -106,22 +106,24 @@ boot()         restore expanded state (localStorage) → loadTree() → restore 
 loadTree()     GET /api/tree → `tree` + `byPath` Map (path → Node) → renderTree()
 renderTree()   rebuilds <nav id=tree>; rows show Node.raw (no prefix) and are
                draggable; `selected` + `expanded` Sets drive the view
-drag & drop     only the `.grip` at a row's end is draggable (6 dots, CSS
-               radial-gradient), never the row itself; drop posts intent
-               {path,parent,before} to /api/reorder, then remapPaths(renumbered) +
-               loadTree, expand the destination and select what landed there
-               (desktop only — HTML5 DnD does not fire on touch; keyboard
-               reordering does not exist yet)
+drag & drop     the whole `.tree-row` is the drag handle (draggable=true; native
+               drag's own movement threshold keeps a plain click a click);
+               drop posts intent {path,parent,before} to /api/reorder, then
+               remapPaths(renumbered) + loadTree, expand the destination and
+               select what landed there (desktop only — HTML5 DnD does not fire
+               on touch; keyboard reordering does not exist yet)
 drop preview    ONE `#insert-line` element for both create and move; only the
                colour differs (`--ok` green = creating, `.moving` `--accent`
                blue = moving, red row pulse = deleting). Geometry is shared
                too: `placeLineInFolder` draws a slot at child indent for
-               "inside this folder", `placeLine` a flush sibling slot. The
-               hovered row decides the parent by the same rule as the right-click
-               `new` preview (`newParentOf`): a folder row means inside it, any
-               other row means in its own folder, top half = above it, bottom
-               half = below it — one placement per line, never two affordances
-               for one result. Hovering a CLOSED folder expands it (like the
+               "inside this folder", `placeLine` a flush sibling slot. Two bands
+               per row, one placement each: the TOP half always means "the row's
+               level, directly above it" — for a plain entry its own folder, for
+               a folder the level ABOVE (shifted one `CHILD_INDENT` left, which
+               is how an entry becomes a folder's sibling); the BOTTOM half means
+               "below it" for a plain entry and "inside it" for a folder. The
+               line's indent is what says which level you are landing on.
+               Hovering a CLOSED folder expands it (like the
                `new` preview does on mouseenter) and only folders the drag
                opened are collapsed again on dragend (`dragExpandPath`);
                `visible()` keeps such an empty folder on screen via `dragPreview`,
