@@ -315,11 +315,12 @@ import Base from '../layouts/base.astro';
       (n.path === selected ? ' sel' : '') +
       (n.inDraft ? ' draft' : '');
       row.dataset.path = n.path;
+      row.draggable = true;
       if (isFolder) row.dataset.folder = '1';
       row.innerHTML = `<span class="tw"${
         isFolder ? ' data-caret="1"' : ''
       }>${isFolder ? (expanded.has(n.path) ? '▾' : '▸') : '·'}</span><span class="tn">${esc(
-        n.name,
+        n.raw,
       )}</span>`;
       li.append(row);
       if (isFolder && expanded.has(n.path) && n.children!.length) li.append(buildList(n.children!));
@@ -333,6 +334,122 @@ import Base from '../layouts/base.astro';
     treeEl.append(lineEl); // the insertion line lives here; re-append after rebuild
     if (!lineEl.hidden) showInsertLine();
   }
+
+  // ---------- drag & drop ----------
+  // Desktop only: HTML5 drag events do not fire for touch, so the mobile tree
+  // keeps the context menu. The server does the renaming (POST /api/reorder
+  // takes intent, not names) and answers with an old->new path map, which
+  // remapPaths applies before the tree is re-read.
+  let dragPath: string | null = null;
+
+  type DropIntent = { parent: string; before: string | null; row: HTMLElement; how: string };
+
+  function dropIntent(e: DragEvent): DropIntent | null {
+    const row = (e.target as HTMLElement).closest('.tree-row') as HTMLElement | null;
+    if (!row || !dragPath) return null;
+    const path = row.dataset.path!;
+    // no dropping a folder into itself, and not onto the entry being dragged
+    if (path === dragPath || path.startsWith(dragPath + '/')) return null;
+    const node = byPath.get(path);
+    if (!node) return null;
+    const box = row.getBoundingClientRect();
+    const at = (e.clientY - box.top) / box.height;
+    // the middle band of a folder means "into it" (appended at the end)
+    if (node.children !== undefined && at > 0.3 && at < 0.7) {
+      return { parent: path, before: null, row, how: 'drop-into' };
+    }
+    const ul = (row.parentElement as HTMLElement).parentElement as HTMLElement;
+    const rows = [...ul.querySelectorAll(':scope > li > .tree-row')] as HTMLElement[];
+    const i = rows.indexOf(row);
+    const next = at >= 0.5 ? rows[i + 1] : row;
+    const owner = ul.parentElement?.closest('.tree-row') as HTMLElement | null;
+    return {
+      parent: owner ? owner.dataset.path! : '',
+      before: next ? (next.dataset.path!.split('/').pop() ?? null) : null,
+      row,
+      how: at >= 0.5 ? 'drop-after' : 'drop-before',
+    };
+  }
+
+  function clearDropMarks(): void {
+    for (const el of treeEl.querySelectorAll('.drop-before, .drop-after, .drop-into')) {
+      el.classList.remove('drop-before', 'drop-after', 'drop-into');
+    }
+  }
+
+  async function reorderTo(path: string, intent: DropIntent): Promise<void> {
+    const open = currentFile;
+    try {
+      // flush + push while the entry is still at its old path
+      await leavingFile();
+      const res = await api('/api/reorder', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ path, parent: intent.parent, before: intent.before }),
+      });
+      remapPaths(res.renumbered);
+      await loadTree();
+      const reopen = open ? (res.renumbered?.[open] ?? open) : null;
+      if (reopen && byPath.has(reopen)) {
+        selected = reopen;
+        await openFile(reopen);
+      } else {
+        if (open) {
+          doc.hidden = true;
+          empty.hidden = false;
+          pdfBtn.hidden = true;
+        }
+        renderTree();
+      }
+    } catch (err) {
+      alert((err as Error).message);
+      await loadTree();
+      renderTree();
+    }
+  }
+
+  treeEl.addEventListener('dragstart', (e) => {
+    const row = (e.target as HTMLElement).closest('.tree-row') as HTMLElement | null;
+    if (!row) return;
+    dragPath = row.dataset.path ?? null;
+    if (!dragPath) return;
+    row.classList.add('dragging');
+    if (e.dataTransfer) {
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', dragPath);
+    }
+  });
+
+  treeEl.addEventListener('dragover', (e) => {
+    if (!dragPath) return;
+    const intent = dropIntent(e);
+    clearDropMarks();
+    if (!intent) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+    intent.row.classList.add(intent.how);
+  });
+
+  treeEl.addEventListener('dragleave', (e) => {
+    if (!(e.target as HTMLElement).closest('.tree-row')) clearDropMarks();
+  });
+
+  treeEl.addEventListener('drop', (e) => {
+    if (!dragPath) return;
+    const intent = dropIntent(e);
+    clearDropMarks();
+    if (!intent) return;
+    e.preventDefault();
+    const path = dragPath;
+    dragPath = null;
+    void reorderTo(path, intent);
+  });
+
+  treeEl.addEventListener('dragend', () => {
+    dragPath = null;
+    clearDropMarks();
+    for (const el of treeEl.querySelectorAll('.dragging')) el.classList.remove('dragging');
+  });
 
   treeEl.addEventListener('click', async (e) => {
     const caret = (e.target as HTMLElement).closest('[data-caret]');
@@ -739,11 +856,12 @@ async function showGroup(node: Node): Promise<void> {
     const name = newName.value.trim();
     if (!name) return;
     try {
-      const { path } = await api('/api/new', {
+      const { path, renumbered } = await api('/api/new', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ kind: pendingKind, parent: pendingParent, name }),
       });
+      remapPaths(renumbered);
 newRow.hidden = true;
     newName.value = '';
     newOpen = false;
@@ -778,11 +896,12 @@ newRow.hidden = true;
         await leavingFile(); // flush + push the open file's last content first
         dropDraft(open);
       }
-      await api('/api/delete', {
+      const res = await api('/api/delete', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ path: target.path }),
       });
+      remapPaths(res.renumbered);
       if (selected === target.path || selected?.startsWith(target.path + '/')) {
         selected = null;
         doc.hidden = true;
@@ -834,6 +953,21 @@ newRow.hidden = true;
     void commitRename(node, name);
   }
 
+  // Renumbering changes MANY paths at once (closing a gap renames every later
+  // sibling), so every mutation hands back an old->new map and all client state
+  // keyed by path has to follow: expanded folders, the selection, and the
+  // unsynced drafts in sessionStorage.
+  function remapPaths(map: Record<string, string> | undefined): void {
+    if (!map) return;
+    for (const [from, to] of Object.entries(map)) {
+      if (from === to) continue;
+      if (expanded.delete(from)) expanded.add(to);
+      if (selected === from) selected = to;
+      moveDraft(from, to);
+    }
+    saveExpanded();
+  }
+
   // renaming a folder rewrites all descendant paths: carry expanded state over
   // so the subtree stays open and the sidebar visibly updates in place
   function remapExpanded(oldPath: string, newPath: string): void {
@@ -851,11 +985,12 @@ newRow.hidden = true;
   async function commitRename(node: Node, name: string): Promise<void> {
     try {
       await leavingFile(); // flush + push under the old path while it still exists
-      const { path } = await api('/api/rename', {
+      const { path, renumbered } = await api('/api/rename', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ path: node.path, name }),
       });
+      remapPaths(renumbered);
       moveDraft(node.path, path);
       remapExpanded(node.path, path);
       await loadTree();

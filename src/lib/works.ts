@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { WORKS_DIR } from './config.ts';
-import { MATTER, naturalCompare, NOTES, parseName, slugify } from './naming.ts';
+import { MATTER, isReserved, naturalCompare, NOTES, parseName, slugify } from './naming.ts';
 import { countWords } from './words.ts';
 
 // re-exported for a single import surface (API routes, tests)
@@ -209,7 +209,9 @@ export function createEntry(kind: 'folder' | 'file', parent: string, name: strin
     // the filename is the title; files start empty (no duplicate heading)
     fs.writeFileSync(abs, '', 'utf8');
   }
-  return { path: rel };
+  // close any gaps the directory carried, then report where the entry ended up
+  const renumbered = renumberDir(parent);
+  return { path: renumbered[rel] ?? rel, renumbered };
 }
 
 export function readChapter(rel: string): string {
@@ -230,18 +232,128 @@ export function writeChapter(rel: string, content: string): void {
   fs.renameSync(tmp, abs);
 }
 
-export function deleteEntry(rel: string): void {
+export function deleteEntry(rel: string): Record<string, string> {
   const abs = safePath(rel);
   if (!abs || abs === fs.realpathSync(WORKS_DIR)) throw new Error('invalid path');
+  const parent = rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/')) : '';
   fs.rmSync(abs, { recursive: true });
   // the compiled pdf is a sibling artifact, not tracked data: remove it too
   const pdf = pdfSibling(rel, abs);
   if (fs.existsSync(pdf)) fs.rmSync(pdf);
+  return renumberDir(parent);
 }
 
 // compiled pdfs live beside their source (chapter or folder)
 function pdfSibling(rel: string, abs: string): string {
   return MD.test(rel) ? abs.replace(MD, '.pdf') : `${abs}.pdf`;
+}
+
+// ---------- ordering ----------
+// The NN_ prefix is order only, so it is kept contiguous per directory and
+// never printed. Everything below renames on disk and git-records the result.
+
+function pad2(n: number): string {
+  return String(n).padStart(2, '0');
+}
+
+function dirFor(rel: string): string {
+  if (rel === '') {
+    fs.mkdirSync(WORKS_DIR, { recursive: true });
+    return fs.realpathSync(WORKS_DIR);
+  }
+  const abs = safePath(rel);
+  if (!abs || !fs.statSync(abs).isDirectory()) throw new Error('invalid parent');
+  return abs;
+}
+
+// entries that take part in ordering (reserved bare names do not)
+function movableNames(parentAbs: string): string[] {
+  return fs
+    .readdirSync(parentAbs, { withFileTypes: true })
+    .filter((e) => !e.name.startsWith('.') && (e.isDirectory() || MD.test(e.name)))
+    .map((e) => e.name)
+    .filter((n) => !isReserved(n))
+    .sort(naturalCompare);
+}
+
+// Rewrite a directory to the given order, one contiguous NN_ prefix per entry
+// (stem and draft_ token preserved). Two-phase: everything that has to move is
+// parked under a dot-prefixed temp name first, so a change that swaps 01 and 02
+// cannot clobber a file. Compiled pdfs follow their entry. Returns the
+// old -> new rel map for everything that moved.
+function applyOrder(parentAbs: string, parentRel: string, ordered: string[]): Record<string, string> {
+  const base = parentRel === '' ? '' : `${parentRel}/`;
+  const target = ordered.map((name, i) => {
+    const ext = MD.test(name) ? '.md' : '';
+    return `${pad2(i + 1)}_${parseName(name).stem}${ext}`;
+  });
+  const moved = ordered.map((name, i) => name !== target[i]);
+  if (!moved.some(Boolean)) return {};
+
+  const temp = ordered.map((name, i) => (moved[i] ? `.__ord${i}__${MD.test(name) ? '.md' : ''}` : name));
+  ordered.forEach((name, i) => {
+    if (!moved[i]) return;
+    const from = path.join(parentAbs, name);
+    const to = path.join(parentAbs, temp[i]!);
+    fs.renameSync(from, to);
+    const pdf = `${from}.pdf`;
+    if (fs.existsSync(pdf)) fs.renameSync(pdf, `${to}.pdf`);
+  });
+
+  const map: Record<string, string> = {};
+  ordered.forEach((name, i) => {
+    if (!moved[i]) return;
+    const from = path.join(parentAbs, temp[i]!);
+    const to = path.join(parentAbs, target[i]!);
+    fs.renameSync(from, to);
+    const pdf = `${from}.pdf`;
+    if (fs.existsSync(pdf)) fs.renameSync(pdf, `${to}.pdf`);
+    map[base + name] = base + target[i]!;
+  });
+  return map;
+}
+
+const relIn = (parent: string, name: string): string => (parent === '' ? name : `${parent}/${name}`);
+
+// close the gaps in a directory (prefix top-level works, tidy what is inside)
+export function renumberDir(parent: string): Record<string, string> {
+  const parentAbs = dirFor(parent);
+  return applyOrder(parentAbs, parent, movableNames(parentAbs));
+}
+
+// Move an entry to `parent`, directly before the sibling named `before`
+// (null = last), then renumber both directories. A folder cannot move into
+// its own subtree.
+export function moveEntry(
+  rel: string,
+  parent: string,
+  before: string | null,
+): { moved: { from: string; to: string }; renumbered: Record<string, string> } {
+  const abs = safePath(rel);
+  if (!abs || rel === '') throw new Error('invalid path');
+  if (parent === rel || parent.startsWith(rel + '/')) throw new Error('invalid move');
+  const src = rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/')) : '';
+  const name = path.basename(rel);
+
+  const dstAbs = dirFor(parent);
+  if (src !== parent) {
+    const into = path.join(dstAbs, name);
+    if (fs.existsSync(into)) throw new Error('already exists');
+    fs.renameSync(abs, into);
+    const pdf = pdfSibling(rel, abs);
+    if (fs.existsSync(pdf)) fs.renameSync(pdf, path.join(dstAbs, path.basename(pdf)));
+  }
+
+  const siblings = movableNames(dstAbs).filter((n) => n !== name);
+  const at = before && siblings.includes(before) ? siblings.indexOf(before) : siblings.length;
+  siblings.splice(at, 0, name);
+  const renumbered = applyOrder(dstAbs, parent, siblings);
+  if (src !== parent) {
+    const srcAbs = dirFor(src);
+    Object.assign(renumbered, applyOrder(srcAbs, src, movableNames(srcAbs)));
+  }
+  const to = renumbered[relIn(parent, name)] ?? relIn(parent, name);
+  return { moved: { from: rel, to }, renumbered };
 }
 
 // The typed name is the TITLE, not the whole disk name: the entry keeps its
@@ -261,7 +373,7 @@ function composeName(oldName: string, typed: string, isFile: boolean): string {
   );
 }
 
-export function renameEntry(rel: string, name: string): { path: string } {
+export function renameEntry(rel: string, name: string): { path: string; renumbered: Record<string, string> } {
   const abs = safePath(rel);
   if (!abs || rel === '') throw new Error('invalid path');
   const slug = slugify(name);
@@ -270,7 +382,7 @@ export function renameEntry(rel: string, name: string): { path: string } {
   const parentAbs = path.dirname(abs);
   const target = composeName(path.basename(rel), isFile ? slug.replace(MD, '') : slug, isFile);
   const targetAbs = path.join(parentAbs, target);
-  if (targetAbs === abs) return { path: rel };
+  if (targetAbs === abs) return { path: rel, renumbered: renumberDir(parentOf(rel)) };
   if (fs.existsSync(targetAbs)) throw new Error('already exists');
   fs.renameSync(abs, targetAbs);
   // carry the compiled pdf to the new name, if one was built
@@ -280,5 +392,10 @@ export function renameEntry(rel: string, name: string): { path: string } {
   if (fs.existsSync(oldPdf)) {
     fs.renameSync(oldPdf, pdfSibling(newRel, targetAbs));
   }
-  return { path: newRel };
+  const renumbered = renumberDir(parentOf(rel));
+  return { path: renumbered[newRel] ?? newRel, renumbered };
+}
+
+function parentOf(rel: string): string {
+  return rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/')) : '';
 }

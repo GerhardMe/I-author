@@ -496,6 +496,24 @@ input:-webkit-autofill {
   color: var(--accent);
 }
 
+/* drag & drop: the row is the drop indicator (above/below/into) */
+.tree-row.dragging {
+  opacity: 0.45;
+}
+
+.tree-row.drop-before {
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+
+.tree-row.drop-after {
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+.tree-row.drop-into {
+  outline: 1px solid var(--accent);
+  background: var(--tint);
+}
+
 .tw {
   color: var(--muted);
   width: 1em;

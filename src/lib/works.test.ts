@@ -16,6 +16,7 @@ import {
   slugify,
   toRoman,
   renameEntry,
+  moveEntry,
 } from './works.ts';
 import { parseName } from './naming.ts';
 import { commit } from './git.ts';
@@ -436,7 +437,7 @@ test('renameEntry edits the title: prefix and draft token are kept', () => {
 
   // a typed prefix wins
   const r2 = renameEntry(r1.path, '03_Third');
-  assert.equal(r2.path, '01_Epic/01_Book_One/03_Third.md');
+  assert.equal(r2.path, '01_Epic/01_Book_One/01_Third.md'); // renumbered into place
 
   // a title edit does not drop the draft token
   const dr = createEntry('file', '', 'draft thing');
@@ -446,14 +447,20 @@ test('renameEntry edits the title: prefix and draft token are kept', () => {
   assert.ok(top);
   assert.equal(top!.draft, true);
 
-  // duplicates rejected
+  // duplicates rejected — against the name the sibling actually has now, since
+  // creating an entry renumbers the directory
   const d = createEntry('file', b.path, 'Alpha');
-  assert.throws(() => renameEntry(d.path, '03_Third'), /already exists/);
+  const third = listWorks()
+    .find((n) => n.path === w.path)!
+    .children!.find((n) => n.path === b.path)!
+    .children!.map((n) => n.path)
+    .find((p) => parseName(p.split('/').pop()!).stem === 'Third')!;
+  assert.throws(() => renameEntry(d.path, third.split('/').pop()!), /already exists/);
 
   // folder rename cascades to children
   const r3 = renameEntry(w.path, 'Legend');
   assert.equal(r3.path, '01_Legend');
-  assert.equal(readChapter('01_Legend/01_Book_One/03_Third.md'), '');
+  assert.equal(readChapter(third.replace(w.path, r3.path)), '');
 
   // no-op rename and invalid names
   assert.equal(renameEntry(r3.path, 'Legend').path, r3.path);
@@ -503,4 +510,39 @@ test('parseName defines the filename grammar in one place', () => {
   assert.equal(parseName('01').raw, '01');
   assert.equal(parseName('01_').raw, '01_'); // prefix only: raw falls back to the base
   assert.equal(parseName('01_').stem, '');
+});
+
+test('moveEntry reorders and crosses folders, renumbering both', () => {
+  fs.rmSync(TEST_WORKS_DIR, { recursive: true, force: true });
+
+  const w = createEntry('folder', '', 'Epic');
+  const a = createEntry('file', w.path, 'Alpha');
+  const b = createEntry('file', w.path, 'Beta');
+  const c = createEntry('file', w.path, 'Gamma');
+  assert.deepEqual([a.path, b.path, c.path].map((p) => p.split('/').pop()), [
+    '01_Alpha.md',
+    '02_Beta.md',
+    '03_Gamma.md',
+  ]);
+
+  const namesIn = (dir: string) =>
+    listWorks()
+      .find((n) => n.path === dir)!
+      .children!.map((n) => n.name);
+
+  // put the last one first: the others shift down, contiguously
+  const r1 = moveEntry(c.path, w.path, a.path.split('/').pop());
+  assert.equal(r1.moved.to, w.path + '/01_Gamma.md');
+  assert.equal(r1.renumbered[b.path], w.path + '/03_Beta.md'); // reported with the fix
+  assert.deepEqual(namesIn(w.path), ['01_Gamma.md', '02_Alpha.md', '03_Beta.md']);
+
+  // across folders: the source closes its gap, the target numbers from 01
+  const sub = createEntry('folder', '', 'Other').path;
+  const r2 = moveEntry(r1.renumbered[b.path] ?? b.path, sub, null);
+  assert.equal(r2.moved.to, sub + '/01_Beta.md');
+  assert.deepEqual(namesIn(sub), ['01_Beta.md']);
+  assert.deepEqual(namesIn(w.path), ['01_Gamma.md', '02_Alpha.md']);
+
+  // a folder cannot move inside itself
+  assert.throws(() => moveEntry(w.path, w.path + '/x', null), /invalid move/);
 });

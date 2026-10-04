@@ -39,7 +39,8 @@ the roadmap below. If a change adds complexity, it needs a good reason.
   Do not mention the user's password manager or setup in UI text.
 - **Nav**: the `I author` title is the *only* tree toggle — desktop slides between
   docked/focus, mobile expands over the page. No hamburger button; don't reintroduce one.
-- **Laptop-first.** Mobile = bare minimum (sidebar behind a ☰ button; forms must work).
+- **Laptop-first.** Mobile = bare minimum (sidebar behind the ☰ button today, replaced by
+  the title-as-toggle overlay in 4.7; forms must work).
 
 ## Stack
 
@@ -90,7 +91,7 @@ src/lib/pdf.ts       PDF compiler: LuaLaTeX + `markdown` package; ensurePdf(rel,
                      never from the disk basename, so prefixes can't leak into print;
                      styles from pdfstyles/ (first line `% label: L — note` = metadata)
 src/pages/api/       setup, login, session, logout, lock, tree, file (GET/PUT), new, delete,
-                     rename, pdfstyles
+                     rename, reorder, pdfstyles, pdfstatus
 src/pages/           index.astro (app shell), login.astro, setup.astro, pdf.ts (stream)
 pdfstyles/           LaTeX preamble "stylesheets" (a4, a5, academic) — single source
                      of truth for the pdf style menu
@@ -103,7 +104,12 @@ src/styles/global.css  design tokens + shared components + app shell + markdown 
 ```
 boot()         restore expanded state (localStorage) → loadTree() → restore last draft
 loadTree()     GET /api/tree → `tree` + `byPath` Map (path → Node) → renderTree()
-renderTree()   rebuilds <nav id=tree>; `selected` + `expanded` Sets drive the view
+renderTree()   rebuilds <nav id=tree>; rows show Node.raw (no prefix) and are
+               draggable; `selected` + `expanded` Sets drive the view
+drag & drop     rows draggable; middle band of a folder = into it, edges =
+               before/after; drop posts intent {path,parent,before} to /api/reorder,
+               then remapPaths(renumbered) + loadTree (desktop only — HTML5 DnD does
+               not fire on touch)
 openFile(p)    GET /api/file → makeEditor(content); restores sessionStorage draft if newer
 showGroup(n)   folder index TOC (never an editor); awaits leavingFile() + loadTree()
                first so word totals (Node.words) reflect saves since the last load
@@ -189,9 +195,15 @@ WORKS_DIR (server: /home/server/writing/works)
   (`createEntry` creates empty files); content may begin at the top. The `NN_` prefix
   is grammar, not text: it orders, it never prints. Entries may still lack a prefix
   (unprefixed names sort after prefixed ones via naturalCompare) — they are numbered
-  by position like everything else, so no `?` placeholder exists. Prefix contiguity
-  and drag-to-reorder are phase 2; for now `createEntry` appends with the next free
-  number and nothing rewrites existing prefixes.
+  by position like everything else, so no `?` placeholder exists.
+- **Prefixes are contiguous, hidden, and app-managed**: `NN_` is order only, never
+  printed, and every directory is renumbered to `01…N` on every create, delete,
+  rename and drop (`renumberDir`/`applyOrder` in `works.ts` — two-phase, temp names
+  first, so a swap of 01/02 cannot clobber a file; reserved bare names are skipped;
+  compiled pdfs follow their entry). The sidebar shows `Node.raw`, not the disk name.
+  Because a mutation can rename *many* siblings, every mutating route returns a
+  `{old: new}` path map (`renumbered`) and the client remaps expanded folders, the
+  selection and sessionStorage drafts through it (`remapPaths`).
 - **Special files** (in any non-top-level folder): `title.md` is a normal chapter with
   no prefix — sorts alphabetically and is numbered by position like any chapter
   (useful for work-in-progress; give it an `NN_` prefix via rename once it settles).
@@ -307,6 +319,124 @@ migrations won't be undone by deploys.
   catch DOM-render bugs. Test on the server, per the workflow rules.
 - Never commit secrets or the `.env`. The project repo itself has almost nothing
   committed yet; only commit when explicitly asked.
+
+## Known issues (audit 2026-10-04) — recorded, NOT fixed
+
+A full read-only audit of the project against this file. Everything below was verified in
+the source. Nothing has been fixed; the plan is to work through the tiers in order. Treat
+this as a work list, not as spec — where the two disagree, the code is current and the
+prose above is stale.
+
+**Tier 1 — real bugs, small fixes, no API change:**
+
+- `src/middleware.ts:47-58` **the idle lock fires itself.** The request `touch`es the *old*
+  token, then mints and sets a *fresh* cookie that never gets a `seen` entry — and
+  `auth/idle.ts:11` treats "no entry" as locked. Net: ~15 days after each login the next
+  request is bounced to `/login?locked=1`. Not a security hole (the cookie is still valid,
+  so it's PIN-only), but it contradicts the 30-day rolling cookie in §Product decisions.
+  Fix: `touch(fresh)` after minting. Also `seen` grows one entry per login forever — it has
+  no sweeper, unlike `auth/ratelimit.ts`.
+- `src/lib/works.ts:53` **one unreadable folder kills the whole tree.** `scan()` has no
+  `try/catch` around `readdirSync`, so an EACCES/EBUSY subdirectory throws out of
+  `listWorks` → `/api/tree` 500 → blank sidebar. `countFile` right below swallows errors,
+  which makes the asymmetry look accidental.
+- `src/lib/http.ts:15` **the rate limiter trusts the client's IP.** `x-forwarded-for` is
+  split and the *leftmost* entry taken — the one a client can forge (a proxy appends, so
+  the trustworthy value is rightmost). Caddy overwrites the header today, so it's latent,
+  but this is the only control between a 4-digit PIN and an online brute forcer, and it
+  also allows deliberate lockout of the owner's IP.
+- `src/lib/pdf.ts:446-452` **`chapterTitle`'s fallback still speaks the old numbering
+  grammar** (`Chapter ${diskPrefix}: …`, with `?`), so a tree-stale chapter prints a
+  different number than the sidebar shows. Also a real typo at `:442` ("UNCLENED").
+
+**Tier 2 — consistency / dead code:**
+
+- The "what's visible" rule (drafts + notes + empty folders) is implemented **twice**:
+  `index.astro:129-145` (`visible`) and `pdf.ts:69-83` (`clean`). If the sidebar rule
+  changes, the PDF aggregate silently diverges. One shared predicate.
+- `renameEntry` duplicate check is `fs.existsSync` (`works.ts:274`) while `createEntry`
+  uses `findExisting` (`works.ts:183`, case-insensitive + prefix-stripped). Rename lets a
+  case-variant collision through that create would reject.
+- `sync.ts:84` **`dropDraft` always clears the global `iauthor.draft` pointer**, even when
+  the dropped draft isn't the one it points at — a second file's draft can't be restored at
+  boot (`boot()` reads `lastDraftPath()`).
+- `sync.ts:169` **the unsynced chip can stick**: `pushNow` returns early when content equals
+  baseline without resetting the dirty counter. `clearIfClean` (`sync.ts:208`) is the
+  intended fix and is exported but **never called**.
+- Dead code: `clearIfClean`'s export, `works.ts:150-152` `rawTitle()` (identity wrapper),
+  `works.ts:53` `scan`'s `depth` parameter (never read — `assignTitles` owns depth),
+  `preview.ts:200` `buildDeco`'s unused `onOpenLink` (only `createPreview`'s mousedown
+  handler uses it), `preview.ts:19/555` re-exported `placeholder`.
+
+**Tier 3 — this file is behind the code (fix the prose, not the code):**
+
+- Self-contradiction: the `Nav` bullet says "no hamburger button", §Auth model still says
+  "sidebar behind a ☰ button". The ☰ line is the stale one (4.7 deletes it).
+- §Repository layout omits `src/lib/editor.ts`, `src/lib/pdf-wait.ts`,
+  `src/pages/api/pdfstatus.ts` and every `*.test.ts`.
+- §Environment variables lists `IAUTHOR_LUALATEX`, but `config.ts` doesn't own it —
+  `pdf.ts:24` reads `process.env` directly, contradicting "config.ts: all env vars".
+- §Dev workflow + `flake.nix:49` describe `scripts/deploy` as "build locally, sync source +
+  dist to VPS". It does neither: it pushes `main`, and the *server* pulls, installs and
+  builds. §Deployment describes the real behaviour.
+- "deleting the secrets file re-runs setup" is **false until the process restarts** —
+  `auth/secrets.ts:22` caches at module load and never invalidates on read failure.
+- The login-page gotcha describes an older shape: `login.astro:6` now ships
+  `<main hidden>` and reveals the page after the `/api/session` probe. The "no unhide
+  later" rule now guards a different element.
+- Factual drift: drafts-toggle glyphs are `◉`/`◡` (`index.astro:11,123`), not `👁`/`🙈`;
+  `index.astro` is 1150 lines, not ~950; "almost nothing committed yet" is now 10 commits
+  / 60 tracked files.
+- The Roadmap's 4.5 entry still says "prefix-derived numbers" — historical, superseded by
+  the numbering rework below it. Needs one footnote, not a rewrite.
+- **A doc trap:** §Gotchas says to test locally at `http://[::1]:4321`, but
+  `IAUTHOR_DOMAINS` defaults to `localhost` and Astro's origin check compares hostnames
+  exactly (then drops the port) — by the CSRF rule in the same section, every non-GET
+  request there 403s. Either add `[::1]` to the default or the doc should say
+  `http://localhost:4321`.
+- `.gitignore` doesn't cover `dist.old/`, which `scripts/deploy:35` creates inside the
+  server's git clone. Harmless (never pushed) but it shows as untracked there.
+
+**Tier 4 — needs an explicit product decision, not just an edit:**
+
+- `.md.md`: `slugify` keeps dots (`naming.ts:51`) and `createEntry` appends `.md`
+  unconditionally (`works.ts:203`), so typing "notes.md" yields `01_notes.md.md`.
+  `renameEntry` strips the extension first, so the two entry points disagree.
+- **There is no way to un-draft or un-number an entry.** `composeName` (`works.ts:252`)
+  preserves the prefix and ORs the draft flag with no way to clear either. That matches
+  §Data & naming as written — but it makes `NN_`/`draft_` permanent once set.
+- `git.commit()` swallows every failure and returns `false`, and all four mutation routes
+  ignore the return value — a save can land with no history and no user-visible signal,
+  while the UI promises "Git history keeps a copy on the server". Concurrent commits can
+  also collide on `.git/index.lock` and vanish silently.
+- `git.ts:20` appends `*.pdf\n` without checking for a trailing newline, so an existing
+  `.gitignore` ending `node_modules` (no `\n`) becomes `node_modules*.pdf`.
+- `pdf.ts:268` passes `--shell-escape` to LuaLaTeX; nothing in `pdfstyles/` needs it
+  (no `minted`/`gobble`/`pandoc`), so it's pure attack surface for a document compiled on
+  the server.
+- One-time secrets (`totpSecret`, `masterKey`, 8 recovery codes) are returned without
+  `Cache-Control: no-store` — `http.ts:4` sets only `content-type`. `pages/pdf.ts` does set
+  it, so the omission is inconsistent.
+- Oversized files (>512 KB) report **0 words** in the tree (`works.ts:45`) while being
+  unreadable (`works.ts:219`) — the header chip silently lies. Also `listWorks`
+  `mkdirSync`s the works dir on every `GET /api/tree` (a GET with a side effect).
+- Silent env parsing: `parseDuration` (`config.ts:13`) takes one unit, so `1d` or `12 h`
+  quietly becomes 12h; `IAUTHOR_SECURE` must be exactly `1`, so `true`/`yes` silently drop
+  `Secure` from the cookie.
+- `--shell-escape`, `pdfstyles/a4.tex` vs `a5.tex` (byte-identical but for two lines — two
+  hand-maintained copies of one preamble), and the `seen`-map leak are all cheap; the
+  above are the ones that need a yes/no first.
+
+**Claims that look like drift but are NOT — don't "fix" these:**
+
+- `pnpm test` really does glob (`package.json:9`: `node --experimental-strip-types --test
+  src/lib/*.test.ts`), so `pdf.test.ts` runs. The §Gotchas warning is satisfied.
+- Printed numbers are positional in **both** the code (`works.ts:154-181`) and §Data &
+  naming. Only the historical Roadmap entry lags.
+- `renameEntry` preserving the prefix + `draft_` token is documented correctly
+  (`composeName`).
+- There is no `?` placeholder for unprefixed entries any more; `kindNumber`'s `num === '?'`
+  branch (`works.ts:145`) is the only leftover, and it is unreachable.
 
 ## Planned: collapsible tree view (milestone 4.7)
 
@@ -430,10 +560,12 @@ Numbering rework, phase 1 (shipped): printed numbers are positional among same-k
 siblings instead of the disk prefix; `renameEntry` edits the title and preserves the
 prefix + draft token (`composeName`); matter accepts a prefix; print/artifact names
 come from `Node.raw` (`scopeTitle`); `pnpm test` globs so new test files actually run.
-Phase 2 (not started): prefixes hidden in the tree, contiguous per directory incl.
-top level (one-time `scripts/` migration, git-committed), `POST /api/reorder` +
-drag & drop within and across folders returning an old→new path map so client state
-(expanded, selection, sessionStorage drafts) remaps.
+Phase 2 (shipped): prefixes hidden in the tree, contiguous per directory incl. top
+level (one-time `scripts/migrate-numbering.mjs`, dry-run by default, git-committed),
+`POST /api/reorder` + drag & drop within and across folders, both returning an old→new
+path map so client state (expanded, selection, sessionStorage drafts) remaps.
+Phase 3 (not started): move depth is not restricted (a Book can become a Part by
+dragging it one level down) — worth a guard or a confirmation once the drag UX settles.
 
 Next: 6) Encrypted GitHub
 backup: tar+gzip whole tree → AES-256-GCM with master key → one ciphertext blob per

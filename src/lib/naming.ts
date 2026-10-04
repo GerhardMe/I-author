@@ -63,3 +63,18 @@ export const NOTES = /^notes\.md$/i;
 // (unlike notes.md), as unnumbered front/back matter in the contents.
 export const MATTER =
   /^(?:\d{1,4}[-_])?(front_matter|appendix|afterword|preface|foreword|epilogue|acknowledgements|colophon|dedication|epigraph|prologue)\.md$/i;
+
+// the same names with no prefix: they keep no prefix at all, so renumbering
+// must skip them — only a PREFIXED matter file takes part in ordering
+const BARE_MATTER =
+  /^(front_matter|appendix|afterword|preface|foreword|epilogue|acknowledgements|colophon|dedication|epigraph|prologue)\.md$/i;
+
+// the work-in-progress chapter: a normal chapter, unnumbered by name
+const WIP = /^title\.md$/i;
+
+// names the app never prefixes or numbers: folder material, the wip chapter,
+// and bare matter. They sort after prefixed entries (naturalCompare puts
+// digits first), so a bare file always reads as trailing material.
+export function isReserved(name: string): boolean {
+  return NOTES.test(name) || WIP.test(name) || BARE_MATTER.test(name);
+}
