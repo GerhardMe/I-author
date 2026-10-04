@@ -134,9 +134,12 @@ import Base from '../layouts/base.astro';
       if (n.draft) continue;
       if (n.children === undefined && NOTES.test(n.name)) continue;
       if (n.children !== undefined) {
-        if (n.children.length === 0) continue; // empty directory
+        // an empty directory is dropped — unless a drag asked to drop INTO it,
+        // in which case it has to be on screen to be aimed at
+        const leaf = n.children.length === 0;
+        if (leaf && !(dragPreview && expanded.has(n.path))) continue;
         const kids = visible(n.children);
-        if (!kids.length) continue;
+        if (!kids.length && !leaf) continue;
         out.push({ ...n, children: kids });
       } else {
         out.push(n);
@@ -145,11 +148,19 @@ import Base from '../layouts/base.astro';
     return out;
   }
 
-  function isVisibleNode(node: Node): boolean {
-    if (!hideDrafts) return true;
+  // same rule as visible(), walked — one implementation, so "is this on screen?"
+  // can never drift from what the tree actually rendered
+  function isVisibleNode(path: string): boolean {
     const walk = (ns: Node[]): boolean =>
-      ns.some((n) => n.path === node.path || (n.children !== undefined && walk(n.children)));
-    return walk(visible(tree));
+      ns.some((n) => {
+        if (n.path === path) return true;
+        if (n.children === undefined) return false;
+        const leaf = n.children.length === 0;
+        if (leaf) return dragPreview && expanded.has(n.path);
+        const kids = visible(n.children);
+        return kids.length > 0 && walk(kids);
+      });
+    return walk(hideDrafts ? visible(tree) : tree);
   }
 
   // ---------- editor + sync ----------
@@ -343,8 +354,23 @@ import Base from '../layouts/base.astro';
   // takes intent, not names) and answers with an old->new path map, which
   // remapPaths applies before the tree is re-read.
   let dragPath: string | null = null;
+  let dragExpandPath: string | null = null; // folder the drag opened, to close again
+  let dragPreview = false; // a drag asked for the preview: keep empty folders
 
-  type DropIntent = { parent: string; before: string | null; row: HTMLElement; how: string };
+  // Same rule as the right-click "new" preview (newParentOf): the hovered row
+  // decides the parent — a folder means "inside it", any other entry means "in
+  // its own folder" — and the pointer decides where in that folder. One line,
+  // one placement: the top half of a row means "directly above it", the bottom
+  // half means "below it", and a folder row always means "inside", drawn at
+  // child indent. (Two bands around one gap would be two affordances for the
+  // same result.)
+  type DropIntent = { parent: string; before: string | null; anchorPath: string; inside: boolean };
+
+  const nameOf = (path: string): string => path.slice(path.lastIndexOf('/') + 1);
+  const parentOf = (path: string): string => {
+    const i = path.lastIndexOf('/');
+    return i === -1 ? '' : path.slice(0, i);
+  };
 
   function dropIntent(e: DragEvent): DropIntent | null {
     const row = (e.target as HTMLElement).closest('.tree-row') as HTMLElement | null;
@@ -355,28 +381,16 @@ import Base from '../layouts/base.astro';
     const node = byPath.get(path);
     if (!node) return null;
     const box = row.getBoundingClientRect();
-    const at = (e.clientY - box.top) / box.height;
-    // the middle band of a folder means "into it" (appended at the end)
-    if (node.children !== undefined && at > 0.3 && at < 0.7) {
-      return { parent: path, before: null, row, how: 'drop-into' };
+    const isFolder = node.children !== undefined;
+    if (isFolder) return { parent: path, before: null, anchorPath: path, inside: true };
+    const parent = parentOf(path);
+    if ((e.clientY - box.top) / box.height < 0.5) {
+      return { parent, before: nameOf(path), anchorPath: path, inside: false };
     }
-    const ul = (row.parentElement as HTMLElement).parentElement as HTMLElement;
-    const rows = [...ul.querySelectorAll(':scope > li > .tree-row')] as HTMLElement[];
-    const i = rows.indexOf(row);
-    const next = at >= 0.5 ? rows[i + 1] : row;
-    // The owning folder's row is the FIRST CHILD of the same <li> that holds
-    // this <ul> — a sibling of the ul, never an ancestor of it. Walking
-    // ancestors with .closest() therefore found nothing and every drop inside
-    // a folder resolved to the works root, which is how two chapters ended up
-    // as top-level entries.
-    const ownerLi = ul.parentElement as HTMLElement | null;
-    const owner = ownerLi?.querySelector(':scope > .tree-row') as HTMLElement | null;
-    return {
-      parent: owner ? owner.dataset.path! : '',
-      before: next ? (next.dataset.path!.split('/').pop() ?? null) : null,
-      row,
-      how: at >= 0.5 ? 'drop-after' : 'drop-before',
-    };
+    const siblings = parent ? byPath.get(parent)?.children ?? [] : tree;
+    const i = siblings.findIndex((n) => n.path === path);
+    const next = siblings[i + 1];
+    return { parent, before: next ? nameOf(next.path) : null, anchorPath: path, inside: false };
   }
 
   async function reorderTo(path: string, intent: DropIntent): Promise<void> {
@@ -413,7 +427,7 @@ import Base from '../layouts/base.astro';
         if (node?.children !== undefined) await showGroup(node);
         else renderTree();
       }
-      if (node && !isVisibleNode(node)) {
+      if (node && !isVisibleNode(moved)) {
         alert(`Moved to "${node.raw}", which the drafts toggle is hiding.`);
       }
     } catch (err) {
@@ -441,19 +455,39 @@ import Base from '../layouts/base.astro';
     }
   });
 
-  // dropping into a folder reuses the very same insertion line as the
-  // right-click "new" preview: shorter than the row, sitting directly under it
-  // at the same indent as its children
-  function showDropLine(row: HTMLElement): void {
-    const indent = 0.9 * parseFloat(getComputedStyle(document.documentElement).fontSize);
-    placeLine(row.offsetTop + row.offsetHeight, row.offsetLeft + indent, row.offsetWidth - indent);
+  // One insertion line, one geometry: flush for a sibling slot, at child indent
+  // for "inside this folder" — shared by the create preview and the drag
+  // preview, which differ only in colour (green creates, blue moves).
+  const CHILD_INDENT = 0.9 * parseFloat(getComputedStyle(document.documentElement).fontSize);
+
+  function placeLineInFolder(row: HTMLElement): void {
+    placeLine(row.offsetTop + row.offsetHeight, row.offsetLeft + CHILD_INDENT, row.offsetWidth - CHILD_INDENT);
+  }
+
+  function showDropLine(intent: DropIntent): void {
+    // A closed folder is opened so it can be aimed inside — the same move the
+    // "new" preview makes on mouseenter (index.astro:819). Rows are rebuilt by
+    // renderTree(), so the anchor has to be looked up again afterwards.
+    const node = byPath.get(intent.anchorPath);
+    if (intent.inside && node?.children !== undefined && !expanded.has(node.path)) {
+      expanded.add(node.path);
+      dragExpandPath = node.path;
+      dragPreview = true; // keep an empty folder on screen so it can be aimed at
+      saveExpanded();
+      renderTree();
+    }
+    const row = treeEl.querySelector(
+      `.tree-row[data-path="${CSS.escape(intent.anchorPath)}"]`,
+    ) as HTMLElement | null;
+    if (!row) return;
+    if (intent.inside) placeLineInFolder(row);
+    else placeLine(row.offsetTop, row.offsetLeft, row.offsetWidth);
+    lineEl.classList.add('moving');
   }
 
   function clearDropMarks(): void {
     lineEl.hidden = true;
-    for (const el of treeEl.querySelectorAll('.drop-before, .drop-after')) {
-      el.classList.remove('drop-before', 'drop-after');
-    }
+    lineEl.classList.remove('moving');
   }
 
   treeEl.addEventListener('dragover', (e) => {
@@ -463,8 +497,7 @@ import Base from '../layouts/base.astro';
     if (!intent) return;
     e.preventDefault();
     if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
-    if (intent.how === 'drop-into') showDropLine(intent.row);
-    else intent.row.classList.add(intent.how);
+    showDropLine(intent);
   });
 
   treeEl.addEventListener('dragleave', (e) => {
@@ -478,7 +511,10 @@ import Base from '../layouts/base.astro';
     if (!intent) return;
     e.preventDefault();
     const path = dragPath;
+    // the folder the drag opened stays open: the entry now lives in it
     dragPath = null;
+    dragExpandPath = null;
+    dragPreview = false;
     void reorderTo(path, intent);
   });
 
@@ -486,6 +522,16 @@ import Base from '../layouts/base.astro';
     dragPath = null;
     clearDropMarks();
     for (const el of treeEl.querySelectorAll('.dragging')) el.classList.remove('dragging');
+    // only a folder this drag opened is closed again; one the author had
+    // collapsed on purpose stays collapsed (the "new" preview keeps the same
+    // rule in previewExpandedPath)
+    if (dragExpandPath) {
+      expanded.delete(dragExpandPath);
+      saveExpanded();
+      dragExpandPath = null;
+    }
+    dragPreview = false;
+    renderTree();
   });
 
   treeEl.addEventListener('click', async (e) => {
@@ -759,12 +805,7 @@ async function showGroup(node: Node): Promise<void> {
       // folder target: the entry lands inside it — the line sits directly
       // under the folder row, at the same indent as its children
       if (node && node.children !== undefined && head) {
-        const indent = 0.9 * parseFloat(getComputedStyle(document.documentElement).fontSize);
-        placeLine(
-          head.offsetTop + head.offsetHeight,
-          head.offsetLeft + indent,
-          head.offsetWidth - indent,
-        );
+        placeLineInFolder(head);
         return;
       } else if (head) {
         row = head;
@@ -1092,7 +1133,7 @@ newRow.hidden = true;
     renderTree();
     if (selected) {
       const node = byPath.get(selected);
-      if (!node || !isVisibleNode(node)) {
+      if (!node || !isVisibleNode(node.path)) {
         selected = null;
         doc.hidden = true;
         empty.hidden = false;

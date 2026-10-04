@@ -496,8 +496,7 @@ input:-webkit-autofill {
   color: var(--accent);
 }
 
-/* drag & drop: the grip at the row's end starts the drag, the row itself is
-   the drop indicator (above/below/into) */
+/* drag & drop: the grip at the row's end starts the drag */
 .tree-row .grip {
   margin-left: auto;
   align-self: center;
@@ -525,14 +524,6 @@ input:-webkit-autofill {
 
 .tree-row.dragging {
   opacity: 0.45;
-}
-
-.tree-row.drop-before {
-  box-shadow: inset 0 2px 0 var(--accent);
-}
-
-.tree-row.drop-after {
-  box-shadow: inset 0 -2px 0 var(--accent);
 }
 
 .tw {
@@ -570,6 +561,23 @@ input:-webkit-autofill {
   0%,
   100% {
     opacity: 0.3;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* the same line while MOVING: blue, like the accent the delete/rename UI uses,
+   with a deeper swing so it reads as a move even without colour */
+#insert-line.moving {
+  background: var(--accent);
+  animation-name: move-pulse;
+}
+
+@keyframes move-pulse {
+  0%,
+  100% {
+    opacity: 0.15;
   }
   50% {
     opacity: 1;
