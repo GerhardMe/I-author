@@ -940,6 +940,15 @@ newRow.hidden = true;
     syncPdfBtnTitle();
   }
 
+  function selectPreset(id: string): void {
+    presetId = id;
+    try {
+      localStorage.setItem('iauthor.pdf-preset', id);
+    } catch {}
+    syncPdfMenu();
+    syncPdfBtnTitle();
+  }
+
   function buildPdfMenu(): void {
     const items: HTMLButtonElement[] = [];
     for (const s of pdfStyles) {
@@ -948,13 +957,15 @@ newRow.hidden = true;
       b.className = 'ctx-item';
       b.textContent = s.note ? `${s.label} — ${s.note}` : s.label;
       b.dataset.preset = s.id;
+      // picking a size is a choice, not just a setting: it becomes the
+      // default for later clicks AND compiles right away, so right-click →
+      // a4 is one gesture, not two
       b.addEventListener('click', () => {
-        presetId = s.id;
-        try {
-          localStorage.setItem('iauthor.pdf-preset', s.id);
-        } catch {}
-        syncPdfBtnTitle();
+        selectPreset(s.id);
         hidePdfMenu();
+        const scope = currentScope();
+        if (!scope || pdfBusy()) return;
+        void fetchPdf(scope, false);
       });
       items.push(b);
     }
