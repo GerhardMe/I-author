@@ -106,10 +106,13 @@ boot()         restore expanded state (localStorage) → loadTree() → restore 
 loadTree()     GET /api/tree → `tree` + `byPath` Map (path → Node) → renderTree()
 renderTree()   rebuilds <nav id=tree>; rows show Node.raw (no prefix) and are
                draggable; `selected` + `expanded` Sets drive the view
-drag & drop     rows draggable; middle band of a folder = into it, edges =
-               before/after; drop posts intent {path,parent,before} to /api/reorder,
-               then remapPaths(renumbered) + loadTree (desktop only — HTML5 DnD does
-               not fire on touch)
+drag & drop     only the `.grip` at a row's end is draggable (6 dots, CSS
+               radial-gradient), never the row itself; middle band of a folder =
+               into it, edges = before/after; drop posts intent
+               {path,parent,before} to /api/reorder, then remapPaths(renumbered) +
+               loadTree, expand the destination and select what landed there
+               (desktop only — HTML5 DnD does not fire on touch; keyboard
+               reordering does not exist yet)
 openFile(p)    GET /api/file → makeEditor(content); restores sessionStorage draft if newer
 showGroup(n)   folder index TOC (never an editor); awaits leavingFile() + loadTree()
                first so word totals (Node.words) reflect saves since the last load
@@ -203,7 +206,10 @@ WORKS_DIR (server: /home/server/writing/works)
   compiled pdfs follow their entry). The sidebar shows `Node.raw`, not the disk name.
   Because a mutation can rename *many* siblings, every mutating route returns a
   `{old: new}` path map (`renumbered`) and the client remaps expanded folders, the
-  selection and sessionStorage drafts through it (`remapPaths`).
+  selection and sessionStorage drafts through it (`remapPaths`). The remap matches by
+  **longest prefix**, not exact key: a moved folder changes the path of everything
+  inside it while the map carries only the folder, and a missed draft would recreate
+  its file at the old path on the next sync (`remapDrafts` walks the draft store).
 - **Special files** (in any non-top-level folder): `title.md` is a normal chapter with
   no prefix — sorts alphabetically and is numbered by position like any chapter
   (useful for work-in-progress; give it an `NN_` prefix via rename once it settles).

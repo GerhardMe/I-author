@@ -95,6 +95,27 @@ export function moveDraft(oldP: string, newP: string): void {
   if (sessionStorage.getItem(DRAFT_KEY) === oldP) sessionStorage.setItem(DRAFT_KEY, newP);
 }
 
+// Renumbering renames every later sibling, and moving a folder changes the path
+// of everything inside it, so the caller cannot enumerate the affected paths —
+// walk the store instead and hand every draft path through the same remapper.
+export function remapDrafts(map: (path: string) => string): void {
+  const keys: string[] = [];
+  for (let i = 0; i < sessionStorage.length; i++) {
+    const k = sessionStorage.key(i);
+    if (k && k.startsWith('iauthor.draft.')) keys.push(k);
+  }
+  for (const k of keys) {
+    const path = k.slice('iauthor.draft.'.length);
+    const next = map(path);
+    if (next === path) continue;
+    const raw = sessionStorage.getItem(k);
+    if (raw === null) continue;
+    sessionStorage.setItem(draftKey(next), raw);
+    sessionStorage.removeItem(k);
+    if (sessionStorage.getItem(DRAFT_KEY) === path) sessionStorage.setItem(DRAFT_KEY, next);
+  }
+}
+
 // ---------- push machine ----------
 export type SyncHooks = {
   getPath: () => string | null;

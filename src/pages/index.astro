@@ -66,6 +66,7 @@ import Base from '../layouts/base.astro';
     saveDraft,
     dropDraft,
     moveDraft,
+    remapDrafts,
     lastDraftPath,
   } from '../lib/sync.ts';
 
@@ -315,13 +316,14 @@ import Base from '../layouts/base.astro';
       (n.path === selected ? ' sel' : '') +
       (n.inDraft ? ' draft' : '');
       row.dataset.path = n.path;
-      row.draggable = true;
       if (isFolder) row.dataset.folder = '1';
+      // dragging starts from the grip at the row's end, never from the row
+      // itself: the name stays selectable and clicking stays a click
       row.innerHTML = `<span class="tw"${
         isFolder ? ' data-caret="1"' : ''
       }>${isFolder ? (expanded.has(n.path) ? '▾' : '▸') : '·'}</span><span class="tn">${esc(
         n.raw,
-      )}</span>`;
+      )}</span><span class="grip" draggable="true" aria-hidden="true"></span>`;
       li.append(row);
       if (isFolder && expanded.has(n.path) && n.children!.length) li.append(buildList(n.children!));
       ul.append(li);
@@ -362,7 +364,13 @@ import Base from '../layouts/base.astro';
     const rows = [...ul.querySelectorAll(':scope > li > .tree-row')] as HTMLElement[];
     const i = rows.indexOf(row);
     const next = at >= 0.5 ? rows[i + 1] : row;
-    const owner = ul.parentElement?.closest('.tree-row') as HTMLElement | null;
+    // The owning folder's row is the FIRST CHILD of the same <li> that holds
+    // this <ul> — a sibling of the ul, never an ancestor of it. Walking
+    // ancestors with .closest() therefore found nothing and every drop inside
+    // a folder resolved to the works root, which is how two chapters ended up
+    // as top-level entries.
+    const ownerLi = ul.parentElement as HTMLElement | null;
+    const owner = ownerLi?.querySelector(':scope > .tree-row') as HTMLElement | null;
     return {
       parent: owner ? owner.dataset.path! : '',
       before: next ? (next.dataset.path!.split('/').pop() ?? null) : null,
@@ -389,9 +397,18 @@ import Base from '../layouts/base.astro';
       });
       remapPaths(res.renumbered);
       await loadTree();
-      const reopen = open ? (res.renumbered?.[open] ?? open) : null;
+      const moved = res.moved.to as string;
+      const node = byPath.get(moved);
+      // show the result: reveal the destination and select what landed there,
+      // otherwise a file dropped into a closed (or draft-hidden) folder looks
+      // like it vanished
+      if (intent.parent) {
+        expanded.add(intent.parent);
+        saveExpanded();
+      }
+      selected = moved;
+      const reopen = open ? pathMapper(res.renumbered)(open) : null;
       if (reopen && byPath.has(reopen)) {
-        selected = reopen;
         await openFile(reopen);
       } else {
         if (open) {
@@ -399,7 +416,11 @@ import Base from '../layouts/base.astro';
           empty.hidden = false;
           pdfBtn.hidden = true;
         }
-        renderTree();
+        if (node?.children !== undefined) await showGroup(node);
+        else renderTree();
+      }
+      if (node && !isVisibleNode(node)) {
+        alert(`Moved to "${node.raw}", which the drafts toggle is hiding.`);
       }
     } catch (err) {
       alert((err as Error).message);
@@ -411,12 +432,18 @@ import Base from '../layouts/base.astro';
   treeEl.addEventListener('dragstart', (e) => {
     const row = (e.target as HTMLElement).closest('.tree-row') as HTMLElement | null;
     if (!row) return;
+    if (!(e.target as HTMLElement).closest('.grip')) {
+      e.preventDefault(); // a drag that did not start on the grip is not a reorder
+      return;
+    }
     dragPath = row.dataset.path ?? null;
     if (!dragPath) return;
     row.classList.add('dragging');
     if (e.dataTransfer) {
       e.dataTransfer.effectAllowed = 'move';
       e.dataTransfer.setData('text/plain', dragPath);
+      // drag the ROW, not the six-pixel grip that started it
+      e.dataTransfer.setDragImage(row, 24, 10);
     }
   });
 
@@ -957,15 +984,41 @@ newRow.hidden = true;
   // sibling), so every mutation hands back an old->new map and all client state
   // keyed by path has to follow: expanded folders, the selection, and the
   // unsynced drafts in sessionStorage.
+  // A moved FOLDER changes the path of everything inside it, while the map only
+  // carries the folder itself, so match by longest prefix rather than by exact
+  // key — that is what keeps descendants (expanded folders, unsynced drafts)
+  // pointing at files that still exist.
+  function pathMapper(map: Record<string, string> | undefined): (path: string) => string {
+    const pairs = Object.entries(map ?? {}).filter(([a, b]) => a !== b);
+    return (path: string) => {
+      let best = '';
+      let to = '';
+      for (const [from, dest] of pairs) {
+        if ((path === from || path.startsWith(from + '/')) && from.length > best.length) {
+          best = from;
+          to = dest;
+        }
+      }
+      return to ? to + path.slice(best.length) : path;
+    };
+  }
+
   function remapPaths(map: Record<string, string> | undefined): void {
-    if (!map) return;
-    for (const [from, to] of Object.entries(map)) {
-      if (from === to) continue;
-      if (expanded.delete(from)) expanded.add(to);
-      if (selected === from) selected = to;
-      moveDraft(from, to);
+    const hit = pathMapper(map);
+    let touched = false;
+    for (const p of [...expanded]) {
+      const next = hit(p);
+      if (next === p) continue;
+      touched = true;
+      expanded.delete(p);
+      expanded.add(next);
     }
-    saveExpanded();
+    if (selected) selected = hit(selected);
+    // drafts: the caller cannot enumerate what a moved folder touches, so the
+    // store is walked with the same remapper (a missed draft would recreate
+    // its file at the old path on the next sync)
+    remapDrafts(hit);
+    if (touched) saveExpanded();
   }
 
   // renaming a folder rewrites all descendant paths: carry expanded state over
