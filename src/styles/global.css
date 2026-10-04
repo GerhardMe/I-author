@@ -506,7 +506,8 @@ input:-webkit-autofill {
 /* the floating card that follows the cursor during a tree drag: a clone of the
    row (it keeps its .tree-row class, so typography and padding come from
    there) pinned to the viewport and moved with transform. pointer-events: none
-   keeps it from ever blocking a drop target. */
+   keeps it from ever blocking a drop target. The blue pulse marks the card as
+   a MOVE — the same accent and rhythm the moving insert line uses. */
 .drag-card {
   position: fixed;
   top: 0;
@@ -517,6 +518,19 @@ input:-webkit-autofill {
   border: 1px solid var(--line);
   border-radius: 2px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  animation: card-pulse 1.1s ease-in-out infinite;
+}
+
+@keyframes card-pulse {
+  0%,
+  100% {
+    border-color: var(--line);
+    background: var(--card);
+  }
+  50% {
+    border-color: var(--accent);
+    background: var(--tint);
+  }
 }
 
 .tw {
