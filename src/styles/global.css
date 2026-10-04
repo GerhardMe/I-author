@@ -498,10 +498,17 @@ input:-webkit-autofill {
 
 /* drag & drop: the whole row is the handle. The row left behind is the ghost —
    the solid item is the one under the cursor (a drag image is a frozen snapshot,
-   so it cannot blink). The image is taken before this class lands, which is what
-   keeps the dragged copy opaque. */
+   so it cannot blink). The ghost class lands a frame after dragstart, because
+   Chrome rasterizes the drag image lazily and would catch the opacity. */
 .tree-row.dragging {
   opacity: 0.45;
+}
+
+/* snapshot-only style for the drag image: a solid background turns the dragged
+   copy into a crisp card instead of floating text. Added and removed around
+   setDragImage inside the dragstart handler — it is never painted on screen. */
+.tree-row.drag-src {
+  background: var(--bg);
 }
 
 .tw {

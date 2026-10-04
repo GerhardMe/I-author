@@ -458,11 +458,19 @@ import Base from '../layouts/base.astro';
       e.dataTransfer.effectAllowed = 'move';
       e.dataTransfer.setData('text/plain', dragPath);
       // an explicit image, because the browser's default rendering of the row
-      // is a translucent ghost; this one is the whole row, solid. Taken before
-      // the pulse class lands, so the snapshot never catches the animation.
+      // is a translucent ghost; this one is the whole row, solid. `drag-src`
+      // gives the snapshot a solid background so it reads as a card, not
+      // floating text; removed immediately — it is snapshot-only, never painted.
+      row.classList.add('drag-src');
       e.dataTransfer.setDragImage(row, 24, 10);
+      row.classList.remove('drag-src');
+      // Chrome rasterizes the drag image lazily (at the next paint), so the
+      // ghost class must not land in the same task — the next frame is safe
+      // in both engines (Firefox snapshots synchronously).
+      requestAnimationFrame(() => row.classList.add('dragging'));
+    } else {
+      row.classList.add('dragging');
     }
-    row.classList.add('dragging');
   });
 
   // One insertion line, one geometry: flush for a sibling slot, at child indent
