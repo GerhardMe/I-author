@@ -667,8 +667,15 @@ input:-webkit-autofill {
   min-width: 0;
 }
 
+/* ---------- adjustable measure ----------
+   The line (.doc-head's border) is always centred: the left handle only
+   changes its width, both margins move equally. The text view is pinned to
+   the line's start; its width is owned by the right handle alone. */
 .doc-head {
   font-size: 1rem; /* page-text scale: h1 in em tracks the # heading size */
+  position: relative; /* anchors the measure handles on the underline */
+  width: var(--line-w, 100%); /* the line — centred by the auto margins */
+  margin-inline: auto;
   display: flex;
   align-items: baseline;
   justify-content: space-between;
@@ -736,12 +743,20 @@ input:-webkit-autofill {
   color: var(--muted);
 }
 
+/* the text view (field): pinned to the line's start, width owned by B.
+   Geometry applies to the direct children of .doc only — nested .md-body
+   (toc-notes) lives inside the field and must not re-apply it. */
+.doc > .md-body,
+.doc > #editor-host {
+  width: min(var(--field-w, 72ch), calc(100% - var(--field-inset, 0px)));
+  margin-left: var(--field-inset, 0px);
+}
+
 /* ---------- folder index view (JS-created DOM) ---------- */
 .toc {
   list-style: none;
   margin: 0;
   padding: 0;
-  max-width: 72ch;
 }
 
 .toc-sub {
@@ -816,7 +831,6 @@ input:-webkit-autofill {
 .md-body {
   font-size: 1rem;
   line-height: 1.7;
-  max-width: 72ch;
 }
 
 .md-body h1,
@@ -887,8 +901,39 @@ input:-webkit-autofill {
 /* ---------- editor (CodeMirror — JS-created DOM, so global styles) ---------- */
 #editor-host {
   font-size: 1rem;
-  max-width: 72ch;
   min-height: 70svh;
+}
+
+/* measure handles: A (▶) at the line's start, B (◀) at the field's right
+   edge — both live on the underline; JS-created, so global styles */
+.measure-h {
+  position: absolute;
+  bottom: -0.75rem;
+  font: inherit;
+  font-size: 0.6rem;
+  line-height: 1;
+  color: var(--muted);
+  background: transparent;
+  border: 0;
+  padding: 0.5rem 0.3rem;
+  cursor: ew-resize;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.measure-h:hover,
+.measure-h:focus-visible {
+  color: var(--fg);
+}
+
+.measure-a {
+  left: -1rem; /* the line starts as a small ▶ */
+}
+
+.measure-b {
+  left: var(--field-w, 72ch); /* rides the field's right edge */
+  transform: translateX(-100%); /* tip points into the text */
 }
 
 #editor-host .cm-scroller {

@@ -1127,6 +1127,116 @@ newRow.hidden = true;
     void commitRename(node, name);
   }
 
+  // ---------- adjustable measure: two handles on the header underline ----------
+  // The LINE (.doc-head's border) is always centred: the left handle (A, ▶ at
+  // the line's start) changes only its width — both margins move equally, so
+  // the line never leaves the centre. The text view (.md-body / #editor-host /
+  // .toc) is pinned to the line's start; the right handle (B, ◀ at the field's
+  // right edge) is the ONLY control for the FIELD's width. Constraints: the
+  // line can never be narrower than the field, B never leaves the line, the
+  // field floor is 36ch. State is session-only: reload resets to line = full
+  // width, field = 72ch.
+  const mainEl = document.querySelector('.main') as HTMLElement;
+  const MIN_FIELD = 36; // ch — the field can never collapse
+  let linePx = 0; // px; 0 = default (full content width)
+  let fieldPx = 0; // px; 0 = default (72ch)
+
+  const chProbe = document.createElement('span');
+  chProbe.style.cssText = 'position:absolute;visibility:hidden;white-space:pre';
+  docHead.append(chProbe);
+  const ch = (n: number): number => {
+    chProbe.style.width = n + 'ch';
+    return chProbe.offsetWidth;
+  };
+
+  function applyMeasure(): void {
+    if (doc.hidden) return; // zero-width layout: nothing to clamp against
+    const C = doc.clientWidth;
+    let lw = linePx ? Math.min(linePx, C) : 0;
+    let fw = fieldPx ? fieldPx : 0;
+    if (lw) lw = Math.max(lw, fw || ch(72)); // the line is never narrower than the field
+    if (fw) fw = Math.min(Math.max(fw, ch(MIN_FIELD)), lw || C);
+    linePx = lw;
+    fieldPx = fw;
+    if (lw) {
+      mainEl.style.setProperty('--line-w', lw + 'px');
+      mainEl.style.setProperty('--field-inset', ((C - lw) / 2).toFixed(2) + 'px');
+    } else {
+      mainEl.style.removeProperty('--line-w');
+      mainEl.style.removeProperty('--field-inset');
+    }
+    if (fw) mainEl.style.setProperty('--field-w', fw + 'px');
+    else mainEl.style.removeProperty('--field-w');
+  }
+
+  const measureA = document.createElement('button');
+  measureA.className = 'measure-h measure-a';
+  measureA.type = 'button';
+  measureA.title = 'drag — page width (stays centred)';
+  measureA.setAttribute('aria-label', 'drag to change the page width');
+  const measureB = document.createElement('button');
+  measureB.className = 'measure-h measure-b';
+  measureB.type = 'button';
+  measureB.title = 'drag — text width';
+  measureB.setAttribute('aria-label', 'drag to change the text width');
+  docHead.append(measureA, measureB);
+
+  // Pointer Events with capture — HTML5 drag never fires on touch, and the
+  // drag needs px deltas per move, not drop targets.
+  function dragWidth(
+    el: HTMLElement,
+    start: () => number,
+    move: (from: number, dx: number) => void,
+  ): void {
+    let sx = 0;
+    let s0 = 0;
+    el.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      sx = e.clientX;
+      s0 = start();
+      el.setPointerCapture(e.pointerId);
+      const onMove = (ev: PointerEvent) => move(s0, ev.clientX - sx);
+      const onUp = () => {
+        el.removeEventListener('pointermove', onMove);
+        el.removeEventListener('pointerup', onUp);
+        el.removeEventListener('pointercancel', onUp);
+      };
+      el.addEventListener('pointermove', onMove);
+      el.addEventListener('pointerup', onUp);
+      el.addEventListener('pointercancel', onUp);
+    });
+  }
+
+  dragWidth(measureA, () => linePx || doc.clientWidth, (from, dx) => {
+    // the handle rides the line's end 1:1 while the line grows 2:1 (centred)
+    linePx = from - 2 * dx;
+    applyMeasure();
+  });
+  dragWidth(measureB, () => fieldPx || ch(72), (from, dx) => {
+    fieldPx = from + dx; // left edge pinned: only the width follows
+    applyMeasure();
+  });
+
+  function nudge(el: HTMLElement, step: (sign: number) => void): void {
+    el.addEventListener('keydown', (e) => {
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+      e.preventDefault();
+      step(e.key === 'ArrowRight' ? 1 : -1);
+    });
+  }
+  nudge(measureA, (sign) => {
+    linePx = (linePx || doc.clientWidth) - 2 * ch(1) * sign; // right = narrower
+    applyMeasure();
+  });
+  nudge(measureB, (sign) => {
+    fieldPx = (fieldPx || ch(72)) + ch(1) * sign; // right = wider
+    applyMeasure();
+  });
+
+  window.addEventListener('resize', applyMeasure);
+
+
   // Renumbering changes MANY paths at once (closing a gap renames every later
   // sibling), so every mutation hands back an old->new map and all client state
   // keyed by path has to follow: expanded folders, the selection, and the

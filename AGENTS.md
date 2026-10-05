@@ -167,6 +167,18 @@ context menu   right-click: ctxTarget + hover previews (insert-line, delete flas
                pendingParent/pendingAnchorPath feed the create dialog
 rename         header click (except buttons) → raw-name editor → commitRename()
                (+ moveDraft, remapExpanded so subtree stays open)
+measure        two handles on .doc-head's underline: A (▶, at the line's START)
+               changes only the LINE's width — the line is always centred, both
+               margins move equally (lineW = from − 2·dx, handle rides 1:1);
+               the field (.doc > .md-body / #editor-host) is pinned to the
+               line's start (--field-inset = (C−lineW)/2) and B (◀, positioned
+               at left: var(--field-w)) is the ONLY width control. Constraints
+               fall out of applyMeasure's clamps: line ≥ field (72ch default),
+               field ≥ 36ch, both ≤ content width; B can therefore never leave
+               the line. Session-only state ({linePx, fieldPx}, 0 = default);
+               CSS vars --line-w/--field-inset/--field-w on .main; Pointer
+               Events + setPointerCapture (HTML5 DnD is dead on touch); arrow
+               keys nudge the focused handle by 1ch; resize re-clamps
 ```
 
 Where a change goes: data/files → `works.ts`, UI shell → `index.astro`,
@@ -518,6 +530,14 @@ hamburger (`#menu-btn`) is deleted outright. Two regimes from one state class:
 
 ### Layout: overlay sidebar, toggled grid track
 
+**Superseded in part by milestone 4.65 (adjustable measure, shipped):** `.main` keeps its
+fluid width and the `clamp` padding — there is no `max-width: calc(72ch + 2.5rem)` column.
+The measure lives *inside* `.main`: the line (`.doc-head`, always centred) and the field
+(pinned to the line's start) are user-draggable, so 4.7 must not re-cap the column.
+`setNav` must call `applyMeasure()` after changing the track (a grid-track change is not a
+window `resize`), and `.doc-head`/`.md-body`/`#editor-host` inner caps are already gone —
+don't re-add them. The rest of this subsection stands.
+
 `.sidebar` becomes `position: fixed` (replaces `sticky`; scrolling unchanged) overlaying its
 own track. `.app` keeps the grid and the track *is* the toggle:
 
@@ -609,6 +629,11 @@ state file keys artifact freshness by style + toggle + mtimes), while a
 directly requested draft chapter always compiles; works dir `.gitignore` gets
 `*.pdf` seeded by `ensureRepo`;
 KaTeX renders `$…$`/`$$…$$` math in the editor preview (`preview.ts`).
+4.65) adjustable measure — two handles on the header underline: the left one (▶, at the
+line's start) changes only the always-centred line's width (both margins equally), the
+text view rides the line's start, the right one (◀, at the field's right edge) alone
+sets the field's width (36ch floor, line-bound, line ≥ field); session-only state,
+arrow-key nudge on both handles, touch via Pointer Events + capture.
 
 Planned: 4.7) collapsible tree view — the `I author` title becomes the only tree toggle,
 ☰ hamburger deleted; desktop slides between docked and focus (9rem re-centre), mobile
