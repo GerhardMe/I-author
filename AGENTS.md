@@ -173,9 +173,12 @@ measure        two handles on .doc-head's underline: A (▶, at the line's START
                the field (.doc > .md-body / #editor-host) is pinned to the
                line's start (--field-inset = (C−lineW)/2) and B (◀, positioned
                at left: var(--field-w) minus its own padding) is the ONLY width
-               control. Both triangles are border-drawn (font glyphs unreliable)
-               and tip-exact: each handle offsets itself by its padding so the
-               tip lands precisely on its anchor; hover brightens only, no tint.
+               control. Both triangles are the buttons themselves (clip-path, so the
+               hover/click area is the triangular shape and the apex sits
+               exactly on its anchor); `font: inherit` on the handle is load-
+               bearing — without it B's 72ch fallback resolves against the
+               button's UA font and the handle teleports on first grab. Hover
+               brightens the triangle only, no tint box.
                Constraints
                fall out of applyMeasure's clamps: line ≥ field (72ch default),
                field ≥ 36ch, both ≤ content width; B can therefore never leave

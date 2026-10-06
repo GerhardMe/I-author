@@ -905,55 +905,40 @@ input:-webkit-autofill {
 }
 
 /* measure handles: A (▶) at the line's start, B (◀) at the field's right
-   edge — both live on the underline; JS-created, so global styles. The
-   triangles are drawn with borders — font glyphs (▶/◀) are unreliable.
-   Lining: the tip is the content-box edge, so each button is offset by its
-   own padding to put the tip exactly on its anchor (line start / field edge),
-   and translateY centres the triangle on the 1px border. */
+   edge — both live on the underline; JS-created, so global styles. Each
+   button IS the triangle: clip-path makes the hover/click area the shape
+   itself and puts the apex exactly on its anchor. font: inherit keeps the
+   72ch fallback in B's left equal to the field's 72ch (buttons don't inherit
+   fonts by default — without it the handle teleports on first grab). */
 .measure-h {
   position: absolute;
   bottom: 0;
-  transform: translateY(calc(50% + 0.5px)); /* dead centre on the border */
-  display: flex;
-  align-items: center;
-  background: transparent;
+  transform: translateY(calc(50% + 0.5px)); /* dead centre on the 1px border */
+  width: 0.8rem;
+  height: 1rem;
+  padding: 0;
   border: 0;
-  padding: 0.55rem 0.35rem;
+  background: var(--muted);
+  font: inherit;
   cursor: ew-resize;
   touch-action: none;
   user-select: none;
   -webkit-user-select: none;
 }
 
-.measure-h::before {
-  content: '';
-  display: block;
-  width: 0;
-  height: 0;
-  border-top: 0.34rem solid transparent;
-  border-bottom: 0.34rem solid transparent;
-}
-
-.measure-a::before {
-  border-left: 0.55rem solid var(--muted); /* ▶ */
-}
-
-.measure-b::before {
-  border-right: 0.55rem solid var(--muted); /* ◀ */
-}
-
-.measure-h:hover::before,
-.measure-h:focus-visible::before {
-  border-left-color: var(--fg);
-  border-right-color: var(--fg);
-}
-
 .measure-a {
-  right: calc(100% - 0.35rem); /* tip exactly at the line's start */
+  right: 100%; /* apex exactly at the line's start */
+  clip-path: polygon(0 0, 100% 50%, 0 100%);
 }
 
 .measure-b {
-  left: calc(var(--field-w, 72ch) - 0.35rem); /* tip exactly at the field's edge */
+  left: var(--field-w, 72ch); /* apex exactly at the field's right edge */
+  clip-path: polygon(100% 0, 0 50%, 100% 100%);
+}
+
+.measure-h:hover,
+.measure-h:focus-visible {
+  background: var(--fg);
 }
 
 #editor-host .cm-scroller {
