@@ -376,6 +376,7 @@ input:-webkit-autofill {
    and nothing is reserved. The brand button is the only toggle. */
 :root {
   --nav-dur: 0.2s;
+  --tree-w: 18rem;
 }
 
 .app {
@@ -385,7 +386,7 @@ input:-webkit-autofill {
 }
 
 .app:not(.nav-off) {
-  grid-template-columns: 18rem 1fr; /* docked: the track reserves the tree */
+  grid-template-columns: var(--tree-w) 1fr; /* docked: the track reserves the tree */
 }
 
 .sidebar {
@@ -736,6 +737,18 @@ body.nav-anim .toolbar {
   padding: 2rem clamp(1rem, 8vw, 10rem);
   overflow-y: auto;
   min-width: 0;
+  /* the effective line width: the user's drag, capped per nav state */
+  --line: min(var(--line-w, 100%), var(--line-cap, 100%));
+}
+
+/* focus (desktop only): the default full-width line caps at the docked
+   content width, so it re-centres in the freed space and the field — pinned
+   to the line's start — travels exactly half the tree width instead of
+   ending up against the left wall */
+@media (min-width: 901px) {
+  .app.nav-off .main {
+    --line-cap: calc(100% - var(--tree-w));
+  }
 }
 
 /* ---------- adjustable measure ----------
@@ -745,7 +758,7 @@ body.nav-anim .toolbar {
 .doc-head {
   font-size: 1rem; /* page-text scale: h1 in em tracks the # heading size */
   position: relative; /* anchors the measure handles on the underline */
-  width: min(var(--line-w, 100%), 100%); /* the line — centred by the auto margins */
+  width: min(var(--line), 100%); /* the line — centred by the auto margins */
   margin-inline: auto;
   display: flex;
   align-items: baseline;
@@ -822,12 +835,8 @@ body.nav-anim .toolbar {
    stale --line-w wider than the viewport. */
 .doc > .md-body,
 .doc > #editor-host {
-  width: min(
-    var(--field-w, 72ch),
-    calc((100% + var(--line-w, 100%)) / 2),
-    100%
-  );
-  margin-left: max(0px, calc((100% - var(--line-w, 100%)) / 2));
+  width: min(var(--field-w, 72ch), calc((100% + var(--line)) / 2), 100%);
+  margin-left: max(0px, calc((100% - var(--line)) / 2));
 }
 
 /* ---------- folder index view (JS-created DOM) ---------- */

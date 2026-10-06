@@ -542,11 +542,12 @@ hamburger (`#menu-btn`) is deleted outright. Two regimes from one state class:
   is the point, not a bug: *docked* (writing/navigating) vs *focus* (reading). On mobile
   nothing is reserved (the panel is an overlay), so docked/focus is a desktop-only concept.
   **Slide distance, as-built under 4.65's model:** the line is centred by CSS auto margins,
-  so collapsing the 18rem track re-centres it automatically; for a *dragged* line the
-  start (and the field pinned to it) travels exactly **9rem** — half the tree width, the
-  design's promise. For the **default full-width line** the travel is **18rem** (the line
-  fills whatever space exists and the field rides its start); dragging A once switches to
-  the 9rem regime.
+  so collapsing the 18rem track re-centres it automatically. In focus the effective line
+  width caps at the docked content width (`--line-cap: calc(100% - var(--tree-w))` on
+  `.main`, desktop only; `--line = min(--line-w, --line-cap)` drives `.doc-head` and the
+  field's CSS-derived inset), so the field — pinned to the line's start — travels exactly
+  **9rem** (half the tree width, the design's promise) in BOTH the default full-width and
+  the dragged regime, and never ends up against the left wall.
 - **mobile (≤900px)** — the title bar (`.side-head`, own card background) is always
   visible at the top of the fixed overlay; the tree expands **over the whole page**
   (`position: fixed; inset: 0`). **Starts hidden on every load.** Close via the title,
@@ -571,10 +572,11 @@ the same task as the initial `setNav` so the first paint never slides; dropped u
 the `clamp` padding — there is no `max-width: calc(72ch + 2.5rem)` column. The measure
 lives *inside* `.main`: the line (`.doc-head`, always centred) and the field (pinned to
 the line's start) are user-draggable. The field's inset is derived **in CSS** —
-`margin-left: max(0px, calc((100% - var(--line-w, 100%)) / 2))` — so it stays live while
+`margin-left: max(0px, calc((100% - var(--line)) / 2))`, with `--line =
+min(--line-w, --line-cap)` and the focus cap from §Shipped above — so it stays live while
 the track animates and can never go stale; `setNav` still calls `applyMeasure()` and a
 `transitionend` on the grid track re-clamps the stored px against the settled width (the
-CSS caps — line `min(var(--line-w), 100%)`, field `min(..., 100%)` — guard the
+CSS caps — line `min(var(--line), 100%)`, field `min(..., 100%)` — guard the
 in-between).
 
 ### Collapsed = pointer-transparent
