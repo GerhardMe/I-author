@@ -913,9 +913,9 @@ input:-webkit-autofill {
 .measure-h {
   position: absolute;
   bottom: 0;
-  transform: translateY(calc(50% + 0.5px)); /* dead centre on the 1px border */
-  width: 0.8rem;
-  height: 1rem;
+  transform: translateY(50%); /* dead centre on the 1px border */
+  width: 0.55rem;
+  height: 0.68rem;
   padding: 0;
   border: 0;
   background: var(--muted);
@@ -932,7 +932,9 @@ input:-webkit-autofill {
 }
 
 .measure-b {
-  left: var(--field-w, 72ch); /* apex exactly at the field's right edge */
+  /* the 100% ceiling is a CSS-level guarantee: even if state desyncs, the
+     apex can never leave the line */
+  left: min(var(--field-w, 72ch), 100%);
   clip-path: polygon(100% 0, 0 50%, 100% 100%);
 }
 

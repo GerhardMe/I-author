@@ -180,9 +180,15 @@ measure        two handles on .doc-head's underline: A (▶, at the line's START
                button's UA font and the handle teleports on first grab. Hover
                brightens the triangle only, no tint box.
                Constraints
-               fall out of applyMeasure's clamps: line ≥ field (72ch default),
-               field ≥ 36ch, both ≤ content width; B can therefore never leave
-               the line. Session-only state ({linePx, fieldPx}, 0 = default);
+               fall out of applyMeasure's clamps — and their ORDER is load-
+               bearing: the field clamps against the CURRENT content width
+               first (36ch floor), then the line clamps ≥ field and ≤ content
+               width; clamping the line first lets a stale (pre-resize) field
+               px force the topline past the viewport, and B rides it off the
+               line. `.measure-b`'s left is also CSS-capped at min(--field-w,
+               100%) as a belt-and-braces guarantee. line ≥ field (72ch
+               default), field ≥ 36ch, both ≤ content width; B can therefore
+               never leave the line. Session-only state ({linePx, fieldPx}, 0 = default);
                CSS vars --line-w/--field-inset/--field-w on .main; Pointer
                Events + setPointerCapture (HTML5 DnD is dead on touch); arrow
                keys nudge the focused handle by 1ch; resize re-clamps

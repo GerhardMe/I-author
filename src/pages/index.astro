@@ -1152,10 +1152,15 @@ newRow.hidden = true;
   function applyMeasure(): void {
     if (doc.hidden) return; // zero-width layout: nothing to clamp against
     const C = doc.clientWidth;
-    let lw = linePx ? Math.min(linePx, C) : 0;
-    let fw = fieldPx ? fieldPx : 0;
-    if (lw) lw = Math.max(lw, fw || ch(72)); // the line is never narrower than the field
-    if (fw) fw = Math.min(Math.max(fw, ch(MIN_FIELD)), lw || C);
+    // field FIRST, against the current content width — a window shrink must
+    // not let stale px force the line back up past the viewport (that let B
+    // slide off the line and "expand" the topline)
+    const minFw = ch(MIN_FIELD);
+    const fw = fieldPx ? Math.min(Math.max(fieldPx, minFw), C) : 0;
+    const fieldEff = fw || Math.min(ch(72), C); // effective field (72ch default)
+    // line second: never below the field, never past the content width;
+    // 0 = default (full width)
+    const lw = linePx ? Math.max(Math.min(linePx, C), fieldEff) : 0;
     linePx = lw;
     fieldPx = fw;
     if (lw) {
