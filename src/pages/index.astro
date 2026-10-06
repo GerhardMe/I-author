@@ -3,10 +3,9 @@ import Base from '../layouts/base.astro';
 ---
 <Base title="I author">
   <div class="app">
-    <button class="menu-btn" id="menu-btn" aria-label="Toggle sidebar">☰</button>
     <aside class="sidebar" id="sidebar">
       <div class="side-head">
-        <span class="brand">I author</span>
+        <button class="brand" id="brand" type="button" aria-expanded="true" aria-controls="tree">I author</button>
         <div class="toolbar">
           <button class="btn-tiny" id="hide-drafts" title="Show drafts and notes">drafts <span id="hide-drafts-eye">◡</span></button>
         </div>
@@ -81,7 +80,6 @@ import Base from '../layouts/base.astro';
   };
 
   const treeEl = document.getElementById('tree')!;
-  const sidebar = document.getElementById('sidebar')!;
   const empty = document.getElementById('empty')!;
   const doc = document.getElementById('doc')!;
   const docTitle = document.getElementById('doc-title')!;
@@ -660,7 +658,7 @@ import Base from '../layouts/base.astro';
       renderTree();
       await openFile(node.path);
     }
-    sidebar.classList.remove('open');
+    if (narrow()) setNav(false, false); // mobile: picking a chapter closes the panel
   });
 
   function buildToc(ul: HTMLUListElement, nodes: Node[]): void {
@@ -941,6 +939,7 @@ async function showGroup(node: Node): Promise<void> {
 
   treeEl.addEventListener('contextmenu', (e) => {
     e.preventDefault();
+    if (!navOpen()) setNav(true, false); // no control behind a closed panel
     const row = (e.target as HTMLElement).closest('.tree-row') as HTMLElement | null;
     ctxTarget = row ? (byPath.get(row.dataset.path!) ?? null) : null;
     ctxLi = row ? (row.closest('li') as HTMLElement) : null;
@@ -979,6 +978,7 @@ async function showGroup(node: Node): Promise<void> {
     }
   });
   itemNew.addEventListener('click', () => {
+    if (!navOpen()) setNav(true, false); // no control behind a closed panel
     previewExpandedPath = null; // the folder stays open once creation begins
     pendingParent = newParentOf(ctxTarget);
     pendingKind = 'file';
@@ -1163,13 +1163,8 @@ newRow.hidden = true;
     const lw = linePx ? Math.max(Math.min(linePx, C), fieldEff) : 0;
     linePx = lw;
     fieldPx = fw;
-    if (lw) {
-      mainEl.style.setProperty('--line-w', lw + 'px');
-      mainEl.style.setProperty('--field-inset', ((C - lw) / 2).toFixed(2) + 'px');
-    } else {
-      mainEl.style.removeProperty('--line-w');
-      mainEl.style.removeProperty('--field-inset');
-    }
+    if (lw) mainEl.style.setProperty('--line-w', lw + 'px');
+    else mainEl.style.removeProperty('--line-w');
     if (fw) mainEl.style.setProperty('--field-w', fw + 'px');
     else mainEl.style.removeProperty('--field-w');
   }
@@ -1558,13 +1553,67 @@ newRow.hidden = true;
     if (document.visibilityState === 'hidden') flushDraft();
   });
 
-  document.getElementById('menu-btn')!.addEventListener('click', () => {
-    sidebar.classList.toggle('open');
+  // ---------- collapsible tree: the title is the only toggle (4.7) ----------
+  // Desktop slides between docked (track reserves the tree) and focus (the
+  // track collapses so the measure re-centres — exactly half the tree width
+  // for a dragged line, because the centred line's start moves by (ΔC)/2).
+  // On mobile the panel is a fixed overlay over the page and starts hidden on
+  // every load; a mobile collapse never overwrites the desktop preference.
+  const appEl = document.querySelector('.app') as HTMLElement;
+  const brand = document.getElementById('brand') as HTMLButtonElement;
+  const toolbarEl = document.querySelector('.toolbar') as HTMLElement;
+  const sideFootEl = document.querySelector('.side-foot') as HTMLElement;
+  const NAV_KEY = 'iauthor.nav';
+  const navMq = window.matchMedia('(max-width: 900px)');
+  const narrow = (): boolean => navMq.matches;
+  const navOpen = (): boolean => !appEl.classList.contains('nav-off');
+
+  function setNav(open: boolean, persist = true): void {
+    if (!open && newOpen) return; // the create dialog lives inside the panel
+    appEl.classList.toggle('nav-off', !open);
+    brand.setAttribute('aria-expanded', String(open));
+    for (const el of [treeEl, newRow, toolbarEl, sideFootEl]) {
+      if (open) el.removeAttribute('inert');
+      else el.setAttribute('inert', ''); // Tab skips the hidden parts
+    }
+    if (persist && !narrow()) {
+      try {
+        localStorage.setItem(NAV_KEY, open ? '1' : '0');
+      } catch {}
+    }
+    applyMeasure(); // a grid-track change is not a window resize
+  }
+
+  brand.addEventListener('click', () => setNav(!navOpen()));
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape' || !navOpen()) return;
+    // menus and the create dialog get Escape first
+    if (newOpen || !ctxMenu.hidden || !pdfMenu.hidden) return;
+    setNav(false);
+  });
+
+  navMq.addEventListener('change', (e) => {
+    if (e.matches) setNav(false, false); // shrinking to mobile hides the panel
+  });
+
+  // the stored px clamps against the width the track settles on
+  appEl.addEventListener('transitionend', (e) => {
+    if (e.target === appEl && (e as TransitionEvent).propertyName === 'grid-template-columns') {
+      applyMeasure();
+    }
   });
 
   async function boot(): Promise<void> {
     void loadPdfStyles(); // the pdf menu fills in whenever the server answers
     syncHideBtn();
+    // nav state: desktop docks unless focus was chosen; mobile starts hidden
+    let storedNav: string | null = null;
+    try {
+      storedNav = localStorage.getItem(NAV_KEY);
+    } catch {}
+    setNav(narrow() ? false : storedNav !== '0', false);
+    document.body.classList.add('nav-anim'); // first paint never slides
     // restore the expanded/collapsed folders from the last session; first
     // visit (no stored state) starts with all top-level works expanded
     let stored: string[] | null = null;

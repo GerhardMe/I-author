@@ -369,11 +369,23 @@ input:-webkit-autofill {
   padding: 0.65rem 1.6rem;
 }
 
-/* ---------- app shell ---------- */
+/* ---------- app shell ----------
+   The tree toggles via the title alone (4.7): .app.nav-off is the only state.
+   Desktop slides between docked (track reserves the tree) and focus (track
+   collapses, the measure re-centres); on mobile the panel is a fixed overlay
+   and nothing is reserved. The brand button is the only toggle. */
+:root {
+  --nav-dur: 0.2s;
+}
+
 .app {
   display: grid;
-  grid-template-columns: 18rem 1fr;
+  grid-template-columns: 0rem 1fr; /* focus: nothing reserved */
   min-height: 100svh;
+}
+
+.app:not(.nav-off) {
+  grid-template-columns: 18rem 1fr; /* docked: the track reserves the tree */
 }
 
 .sidebar {
@@ -381,9 +393,61 @@ input:-webkit-autofill {
   background: var(--card);
   display: flex;
   flex-direction: column;
-  height: 100svh;
-  position: sticky;
+  position: fixed; /* overlays its own grid track */
   top: 0;
+  bottom: 0;
+  left: 0;
+  width: 18rem;
+  z-index: 20;
+}
+
+/* collapsed = pointer-transparent: the invisible column swallows no clicks,
+   selections or scroll gestures — only the title stays live */
+.app.nav-off .sidebar {
+  background: transparent;
+  border-right-color: transparent;
+  pointer-events: none;
+}
+
+.app.nav-off .brand {
+  pointer-events: auto;
+}
+
+.app.nav-off .tree,
+.app.nav-off .new-row,
+.app.nav-off .side-foot,
+.app.nav-off .toolbar {
+  opacity: 0;
+  transform: translateX(-0.5rem);
+  pointer-events: none;
+}
+
+/* animation only after boot, so the first paint doesn't slide */
+body.nav-anim .app {
+  transition: grid-template-columns var(--nav-dur) ease;
+}
+
+body.nav-anim .sidebar {
+  transition: background-color var(--nav-dur) ease,
+    border-color var(--nav-dur) ease;
+}
+
+body.nav-anim .tree,
+body.nav-anim .new-row,
+body.nav-anim .side-foot,
+body.nav-anim .toolbar {
+  transition: opacity var(--nav-dur) ease, transform var(--nav-dur) ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body.nav-anim .app,
+  body.nav-anim .sidebar,
+  body.nav-anim .tree,
+  body.nav-anim .new-row,
+  body.nav-anim .side-foot,
+  body.nav-anim .toolbar {
+    transition: none;
+  }
 }
 
 .side-head {
@@ -396,8 +460,15 @@ input:-webkit-autofill {
 }
 
 .brand {
+  font: inherit; /* buttons don't inherit fonts by default */
   font-weight: 600;
   font-size: 0.95rem;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  text-align: left;
+  cursor: pointer;
 }
 
 .toolbar {
@@ -674,7 +745,7 @@ input:-webkit-autofill {
 .doc-head {
   font-size: 1rem; /* page-text scale: h1 in em tracks the # heading size */
   position: relative; /* anchors the measure handles on the underline */
-  width: var(--line-w, 100%); /* the line — centred by the auto margins */
+  width: min(var(--line-w, 100%), 100%); /* the line — centred by the auto margins */
   margin-inline: auto;
   display: flex;
   align-items: baseline;
@@ -745,11 +816,18 @@ input:-webkit-autofill {
 
 /* the text view (field): pinned to the line's start, width owned by B.
    Geometry applies to the direct children of .doc only — nested .md-body
-   (toc-notes) lives inside the field and must not re-apply it. */
+   (toc-notes) lives inside the field and must not re-apply it. The inset is
+   derived in CSS ((100% − line)/2) rather than set from JS, so it stays live
+   while the nav track animates and can never go stale; max(0px) guards a
+   stale --line-w wider than the viewport. */
 .doc > .md-body,
 .doc > #editor-host {
-  width: min(var(--field-w, 72ch), calc(100% - var(--field-inset, 0px)));
-  margin-left: var(--field-inset, 0px);
+  width: min(
+    var(--field-w, 72ch),
+    calc((100% + var(--line-w, 100%)) / 2),
+    100%
+  );
+  margin-left: max(0px, calc((100% - var(--line-w, 100%)) / 2));
 }
 
 /* ---------- folder index view (JS-created DOM) ---------- */
@@ -819,10 +897,6 @@ input:-webkit-autofill {
   margin-top: 2rem;
   border-top: 1px solid var(--line);
   padding-top: 1.5rem;
-}
-
-.menu-btn {
-  display: none;
 }
 
 /* ---------- markdown body ---------- */
@@ -1146,38 +1220,28 @@ input:-webkit-autofill {
 }
 
 @media (max-width: 900px) {
+  /* overlay only: nothing is reserved, so docked/focus doesn't exist here */
   .app {
     grid-template-columns: 1fr;
   }
 
+  /* the panel expands over the whole page; the title bar is always visible */
   .sidebar {
-    position: fixed;
-    z-index: 20;
-    width: min(18rem, 85vw);
-    transform: translateX(-100%);
-    transition: transform 0.15s;
+    inset: 0;
+    width: auto;
+    border-right: 0;
   }
 
-  .sidebar.open {
-    transform: none;
+  /* closed: the page scrolls beneath the title bar; only the title is live */
+  .app.nav-off .sidebar {
+    border-bottom: 0;
   }
 
-  .menu-btn {
-    display: block;
-    position: fixed;
-    top: 0.6rem;
-    left: 0.6rem;
-    z-index: 30;
-    font: inherit;
-    background: var(--card);
-    border: 1px solid var(--line);
-    color: var(--fg);
-    border-radius: 2px;
-    padding: 0.2rem 0.6rem;
-    cursor: pointer;
+  .side-head {
+    background: var(--card); /* the always-visible fixed title bar */
   }
 
   .main {
-    padding: 3.5rem 1.25rem 2rem;
+    padding: 3.5rem 1.25rem 2rem; /* clears the fixed title bar */
   }
 }
