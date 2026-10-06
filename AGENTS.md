@@ -172,7 +172,11 @@ measure        two handles on .doc-head's underline: A (▶, at the line's START
                margins move equally (lineW = from − 2·dx, handle rides 1:1);
                the field (.doc > .md-body / #editor-host) is pinned to the
                line's start (--field-inset = (C−lineW)/2) and B (◀, positioned
-               at left: var(--field-w)) is the ONLY width control. Constraints
+               at left: var(--field-w) minus its own padding) is the ONLY width
+               control. Both triangles are border-drawn (font glyphs unreliable)
+               and tip-exact: each handle offsets itself by its padding so the
+               tip lands precisely on its anchor; hover brightens only, no tint.
+               Constraints
                fall out of applyMeasure's clamps: line ≥ field (72ch default),
                field ≥ 36ch, both ≤ content width; B can therefore never leave
                the line. Session-only state ({linePx, fieldPx}, 0 = default);
