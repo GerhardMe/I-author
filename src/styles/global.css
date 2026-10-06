@@ -905,26 +905,48 @@ input:-webkit-autofill {
 }
 
 /* measure handles: A (▶) at the line's start, B (◀) at the field's right
-   edge — both live on the underline; JS-created, so global styles */
+   edge — both live on the underline; JS-created, so global styles. The
+   triangles are drawn with borders — font glyphs (▶/◀) are unreliable. */
 .measure-h {
   position: absolute;
-  bottom: -0.75rem;
-  font: inherit;
-  font-size: 0.6rem;
-  line-height: 1;
-  color: var(--muted);
+  bottom: -0.75rem; /* button centre rides the 1px border */
+  display: flex;
+  align-items: center;
   background: transparent;
   border: 0;
-  padding: 0.5rem 0.3rem;
+  padding: 0.55rem 0.35rem;
   cursor: ew-resize;
   touch-action: none;
   user-select: none;
   -webkit-user-select: none;
 }
 
+.measure-h::before {
+  content: '';
+  display: block;
+  width: 0;
+  height: 0;
+  border-top: 0.34rem solid transparent;
+  border-bottom: 0.34rem solid transparent;
+}
+
+.measure-a::before {
+  border-left: 0.55rem solid var(--muted); /* ▶ */
+}
+
+.measure-b::before {
+  border-right: 0.55rem solid var(--muted); /* ◀ */
+}
+
 .measure-h:hover,
 .measure-h:focus-visible {
-  color: var(--fg);
+  background: var(--tint);
+}
+
+.measure-h:hover::before,
+.measure-h:focus-visible::before {
+  border-left-color: var(--fg);
+  border-right-color: var(--fg);
 }
 
 .measure-a {
