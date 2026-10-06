@@ -912,10 +912,13 @@ input:-webkit-autofill {
    fonts by default — without it the handle teleports on first grab). */
 .measure-h {
   position: absolute;
-  bottom: 0;
-  transform: translateY(50%); /* dead centre on the 1px border */
-  width: 0.55rem;
-  height: 0.68rem;
+  /* integer geometry, no transform: an 11px triangle with its bottom edge
+     6px below the padding box puts the centre pixel row exactly on the 1px
+     border row — subpixel placement (translateY(50%)) renders 1px off
+     depending on device pixel ratio */
+  bottom: -6px;
+  width: 9px;
+  height: 11px;
   padding: 0;
   border: 0;
   background: var(--muted);
