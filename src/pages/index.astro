@@ -1208,7 +1208,7 @@ newRow.hidden = true;
     });
   }
 
-  dragWidth(measureA, () => linePx || doc.clientWidth, (from, dx) => {
+  dragWidth(measureA, () => linePx || ch(72), (from, dx) => {
     // the handle rides the line's end 1:1 while the line grows 2:1 (centred)
     linePx = from - 2 * dx;
     applyMeasure();
@@ -1226,7 +1226,7 @@ newRow.hidden = true;
     });
   }
   nudge(measureA, (sign) => {
-    linePx = (linePx || doc.clientWidth) - 2 * ch(1) * sign; // right = narrower
+    linePx = (linePx || ch(72)) - 2 * ch(1) * sign; // right = narrower
     applyMeasure();
   });
   nudge(measureB, (sign) => {
@@ -1554,11 +1554,10 @@ newRow.hidden = true;
   });
 
   // ---------- collapsible tree: the title is the only toggle (4.7) ----------
-  // Desktop slides between docked (track reserves the tree) and focus (the
-  // track collapses so the measure re-centres — exactly half the tree width
-  // for a dragged line, because the centred line's start moves by (ΔC)/2).
-  // On mobile the panel is a fixed overlay over the page and starts hidden on
-  // every load; a mobile collapse never overwrites the desktop preference.
+  // The sidebar is a PURE OVERLAY (owner decision, 2026-10-06): nothing is
+  // reserved and the centred markdown column never moves when the tree
+  // toggles — no docked/focus, no track animation, no re-centring. The panel
+  // just sits on top; only the title stays live when it's closed.
   const appEl = document.querySelector('.app') as HTMLElement;
   const brand = document.getElementById('brand') as HTMLButtonElement;
   const toolbarEl = document.querySelector('.toolbar') as HTMLElement;
@@ -1581,7 +1580,6 @@ newRow.hidden = true;
         localStorage.setItem(NAV_KEY, open ? '1' : '0');
       } catch {}
     }
-    applyMeasure(); // a grid-track change is not a window resize
   }
 
   brand.addEventListener('click', () => setNav(!navOpen()));
@@ -1595,13 +1593,6 @@ newRow.hidden = true;
 
   navMq.addEventListener('change', (e) => {
     if (e.matches) setNav(false, false); // shrinking to mobile hides the panel
-  });
-
-  // the stored px clamps against the width the track settles on
-  appEl.addEventListener('transitionend', (e) => {
-    if (e.target === appEl && (e as TransitionEvent).propertyName === 'grid-template-columns') {
-      applyMeasure();
-    }
   });
 
   async function boot(): Promise<void> {

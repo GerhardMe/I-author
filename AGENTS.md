@@ -172,8 +172,8 @@ measure        two handles on .doc-head's underline: A (▶, at the line's START
                margins move equally (lineW = from − 2·dx, handle rides 1:1);
                the field (.doc > .md-body / #editor-host) is pinned to the
                line's start (--field-inset is derived IN CSS as
-               max(0px, (100% − line)/2) so it stays live while the nav track
-               animates and can never go stale) and B (◀, positioned
+               max(0px, (100% − line)/2) so it stays live and can never go
+               stale) and B (◀, positioned
                at left: min(var(--field-w), 100%)) is the ONLY width
                control. Both triangles are the buttons themselves (clip-path, so the
                hover/click area is the triangular shape and the apex sits
@@ -181,6 +181,10 @@ measure        two handles on .doc-head's underline: A (▶, at the line's START
                bearing — without it B's 72ch fallback resolves against the
                button's UA font and the handle teleports on first grab. Hover
                brightens the triangle only, no tint box.
+               Defaults: the resting geometry is ONE centred column —
+               --line = min(var(--line-w, 72ch), 100%), so the underline hugs
+               the 72ch text and A/B sit at its edges (dragging A widens the
+               line and the field rides its start — the sketch's longer line).
                Constraints
                fall out of applyMeasure's clamps — and their ORDER is load-
                bearing: the field clamps against the CURRENT content width
@@ -191,16 +195,16 @@ measure        two handles on .doc-head's underline: A (▶, at the line's START
                100%) as a belt-and-braces guarantee. line ≥ field (72ch
                default), field ≥ 36ch, both ≤ content width; B can therefore
                never leave the line. Session-only state ({linePx, fieldPx}, 0 = default);
-               CSS vars --line-w/--field-inset/--field-w on .main; Pointer
+               CSS vars --line-w/--field-w on .main; Pointer
                Events + setPointerCapture (HTML5 DnD is dead on touch); arrow
                keys nudge the focused handle by 1ch; resize re-clamps
 setNav(open)   the ONLY nav mutator (4.7): toggles .app.nav-off, aria-expanded
                on the brand button, inert on tree/new-row/toolbar/side-foot,
-               persists localStorage['iauthor.nav'] (never on mobile), then
-               applyMeasure(). The brand click toggles; Escape closes (unless
-               the create dialog or a menu is open); a mobile tree-row click
-               closes with persist=false; transitionend on the grid track
-               re-clamps the stored px against the settled width
+               persists localStorage['iauthor.nav'] (never on mobile). The
+               brand click toggles; Escape closes (unless the create dialog or
+               a menu is open); a mobile tree-row click closes with
+               persist=false. The sidebar is an overlay — setNav touches no
+               layout, so applyMeasure() is not involved
 ```
 
 Where a change goes: data/files → `works.ts`, UI shell → `index.astro`,
@@ -534,57 +538,50 @@ Verified against the source (2026-10-04) and **all resolved** — each with a de
 ## Shipped: collapsible tree view (milestone 4.7, 2026-10-06)
 
 The `I author` brand is a `<button>` and the only way to show/hide the tree; the ☰
-hamburger (`#menu-btn`) is deleted outright. Two regimes from one state class:
+hamburger (`#menu-btn`) is deleted outright. **Owner decision (2026-10-06, after the
+docked/focus slide fought the 4.65 measure twice): the sidebar is a PURE OVERLAY — no
+grid track, no reserved space, no docked/focus, no re-centring slide.** The markdown
+column is centred over the whole site and *never moves* when the tree toggles; the panel
+simply sits on top (on narrow windows it can cover the column's left edge — inherent to
+an overlay, and accepted).
 
 - **desktop** — click the title → tree, drafts toggle, new-row and the lock/log-out row
-  fade out (`opacity` + a 0.5rem slide), the sidebar's background and right border fade to
-  transparent, and the tree column collapses so the reading measure re-centres. That slide
-  is the point, not a bug: *docked* (writing/navigating) vs *focus* (reading). On mobile
-  nothing is reserved (the panel is an overlay), so docked/focus is a desktop-only concept.
-  **Slide distance, as-built under 4.65's model:** the line is centred by CSS auto margins,
-  so collapsing the 18rem track re-centres it automatically. In focus the effective line
-  width caps at the docked content width (`--line-cap: calc(100% - var(--tree-w))` on
-  `.main`, desktop only; `--line = min(--line-w, --line-cap)` drives `.doc-head` and the
-  field's CSS-derived inset), so the field — pinned to the line's start — travels exactly
-  **9rem** (half the tree width, the design's promise) in BOTH the default full-width and
-  the dragged regime, and never ends up against the left wall.
+  fade out (`opacity` + a 0.5rem slide), the sidebar's background and right border fade
+  to transparent, and only the title stays live at the top-left.
 - **mobile (≤900px)** — the title bar (`.side-head`, own card background) is always
   visible at the top of the fixed overlay; the tree expands **over the whole page**
   (`position: fixed; inset: 0`). **Starts hidden on every load.** Close via the title,
   `Escape`, or picking a chapter (`persist=false`, never overwrites the desktop pref).
 
-### Layout: overlay sidebar, toggled grid track
-
-`.sidebar` is `position: fixed`, overlaying its own grid track. `.app` keeps the grid and
-the track *is* the toggle (transitions gated behind `body.nav-anim`, which boot adds in
-the same task as the initial `setNav` so the first paint never slides; dropped under
-`prefers-reduced-motion`):
+### Layout: overlay sidebar
 
 ```css
-.app { grid-template-columns: 0rem 1fr; }                 /* focus: nothing reserved */
-.app:not(.nav-off) { grid-template-columns: 18rem 1fr; }  /* docked: track reserves the tree */
+.app { display: grid; grid-template-columns: 1fr; min-height: 100svh; }
+.sidebar { position: fixed; top: 0; bottom: 0; left: 0; width: var(--tree-w); z-index: 20; }
 @media (max-width: 900px) {
-  .app { grid-template-columns: 1fr; }                    /* overlay only: nothing reserved */
+  .sidebar { inset: 0; width: auto; border-right: 0; }  /* full-page overlay */
+  .side-head { background: var(--card); }               /* fixed title bar */
+  .main { padding: 3.5rem 1.25rem 2rem; }
 }
 ```
 
-**Superseded by milestone 4.65 (adjustable measure):** `.main` keeps its fluid width and
-the `clamp` padding — there is no `max-width: calc(72ch + 2.5rem)` column. The measure
-lives *inside* `.main`: the line (`.doc-head`, always centred) and the field (pinned to
-the line's start) are user-draggable. The field's inset is derived **in CSS** —
-`margin-left: max(0px, calc((100% - var(--line)) / 2))`, with `--line =
-min(--line-w, --line-cap)` and the focus cap from §Shipped above — so it stays live while
-the track animates and can never go stale; `setNav` still calls `applyMeasure()` and a
-`transitionend` on the grid track re-clamps the stored px against the settled width (the
-CSS caps — line `min(var(--line), 100%)`, field `min(..., 100%)` — guard the
-in-between).
+`.main` keeps its fluid width and the `clamp` padding. The measure (4.65) lives inside it
+and is **independent of the nav state**: the resting geometry is ONE centred column —
+`--line = min(var(--line-w, 72ch), 100%)` drives `.doc-head` (the line, centred by auto
+margins) and the field's CSS-derived inset (`margin-left: max(0px, calc((100% - var(--line)) / 2))`),
+so by default the underline hugs the 72ch text and A/B sit at its edges. Dragging A
+widens the line symmetrically (the field rides the line's start, B moves with it), B
+sizes the field. Nothing here keys off `.nav-off` any more, and `setNav` no longer calls
+`applyMeasure()` — only the window `resize` listener re-clamps.
 
 ### Collapsed = pointer-transparent
 
 Collapsed `.sidebar`: `background: transparent; border-right-color: transparent;
-pointer-events: none`, with only `.brand { pointer-events: auto }`. The invisible 18rem
-column then swallows no clicks, text selections or scroll gestures and leaves no dead zone
-— only the title is live, which is exactly the requested behaviour. `--nav-dur: 0.2s`.
+pointer-events: none`, with only `.brand { pointer-events: auto }`. The invisible panel
+then swallows no clicks, text selections or scroll gestures and leaves no dead zone — only
+the title is live. `--nav-dur: 0.2s`; fade transitions gated behind `body.nav-anim`
+(boot adds it in the same task as the initial `setNav` so the first paint never slides),
+dropped under `prefers-reduced-motion`.
 
 ### State, a11y, files
 
@@ -602,11 +599,11 @@ column then swallows no clicks, text selections or scroll gestures and leaves no
   so no control can ever sit behind a closed panel.
 - Tree row click: `if (narrow()) setNav(false, false)` — on desktop the tree stays open
   while switching chapters.
-- Touches `index.astro` (markup: brand button, menu-btn deleted; ~60 lines of script —
+- Touches `index.astro` (markup: brand button, menu-btn deleted; ~50 lines of script —
   `setNav` joins the flow map above) and `global.css` (`.app`, `.sidebar`, the `.nav-off`
   rules, the media-query rewrite, `.menu-btn` deletion, `--nav-dur`).
 
-Defaults baked in: desktop boots **docked** (focus mode is opt-in but remembered), and
+Defaults baked in: desktop boots with the tree **open** (closing it is remembered), and
 `lock` / `log out` / `drafts` stay inside the panel, reachable only with the tree open (they
 are tree chrome, not reader chrome).
 
@@ -653,9 +650,9 @@ text view rides the line's start, the right one (◀, at the field's right edge)
 sets the field's width (36ch floor, line-bound, line ≥ field); session-only state,
 arrow-key nudge on both handles, touch via Pointer Events + capture ·
 4.7) collapsible tree view — the `I author` title is the only tree toggle (☰ deleted);
-desktop slides between docked and focus (the track collapses, the centred measure
-re-centres — see §Shipped: collapsible tree view above), mobile expands the tree over
-the page and starts hidden.
+the sidebar is a pure overlay over the page (nothing reserved, the centred column never
+moves — see §Shipped: collapsible tree view above), mobile expands the tree over the
+page and starts hidden.
 
 Numbering rework, phase 1 (shipped): printed numbers are positional among same-kind
 siblings instead of the disk prefix; `renameEntry` edits the title and preserves the

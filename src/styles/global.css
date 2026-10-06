@@ -370,10 +370,10 @@ input:-webkit-autofill {
 }
 
 /* ---------- app shell ----------
-   The tree toggles via the title alone (4.7): .app.nav-off is the only state.
-   Desktop slides between docked (track reserves the tree) and focus (track
-   collapses, the measure re-centres); on mobile the panel is a fixed overlay
-   and nothing is reserved. The brand button is the only toggle. */
+   The tree toggles via the title alone (4.7). The sidebar is a PURE OVERLAY
+   (owner decision, 2026-10-06): nothing is reserved and the markdown column —
+   centred over the whole site — never moves when the tree toggles. The panel
+   simply sits on top; only the title stays visible when it's closed. */
 :root {
   --nav-dur: 0.2s;
   --tree-w: 18rem;
@@ -381,12 +381,8 @@ input:-webkit-autofill {
 
 .app {
   display: grid;
-  grid-template-columns: 0rem 1fr; /* focus: nothing reserved */
+  grid-template-columns: 1fr;
   min-height: 100svh;
-}
-
-.app:not(.nav-off) {
-  grid-template-columns: var(--tree-w) 1fr; /* docked: the track reserves the tree */
 }
 
 .sidebar {
@@ -394,16 +390,15 @@ input:-webkit-autofill {
   background: var(--card);
   display: flex;
   flex-direction: column;
-  position: fixed; /* overlays its own grid track */
+  position: fixed; /* overlays the page */
   top: 0;
   bottom: 0;
   left: 0;
-  width: 18rem;
+  width: var(--tree-w);
   z-index: 20;
 }
 
-/* collapsed = pointer-transparent: the invisible column swallows no clicks,
-   selections or scroll gestures — only the title stays live */
+/* closed = pointer-transparent: only the title stays live */
 .app.nav-off .sidebar {
   background: transparent;
   border-right-color: transparent;
@@ -424,10 +419,6 @@ input:-webkit-autofill {
 }
 
 /* animation only after boot, so the first paint doesn't slide */
-body.nav-anim .app {
-  transition: grid-template-columns var(--nav-dur) ease;
-}
-
 body.nav-anim .sidebar {
   transition: background-color var(--nav-dur) ease,
     border-color var(--nav-dur) ease;
@@ -441,7 +432,6 @@ body.nav-anim .toolbar {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  body.nav-anim .app,
   body.nav-anim .sidebar,
   body.nav-anim .tree,
   body.nav-anim .new-row,
@@ -737,18 +727,10 @@ body.nav-anim .toolbar {
   padding: 2rem clamp(1rem, 8vw, 10rem);
   overflow-y: auto;
   min-width: 0;
-  /* the effective line width: the user's drag, capped per nav state */
-  --line: min(var(--line-w, 100%), var(--line-cap, 100%));
-}
-
-/* focus (desktop only): the default full-width line caps at the docked
-   content width, so it re-centres in the freed space and the field — pinned
-   to the line's start — travels exactly half the tree width instead of
-   ending up against the left wall */
-@media (min-width: 901px) {
-  .app.nav-off .main {
-    --line-cap: calc(100% - var(--tree-w));
-  }
+  /* the effective line width: the user's drag (px), defaulting to the field's
+     72ch — so the resting state is ONE centred column (underline == text),
+     independent of the sidebar, which is a pure overlay */
+  --line: min(var(--line-w, 72ch), 100%);
 }
 
 /* ---------- adjustable measure ----------
@@ -758,7 +740,7 @@ body.nav-anim .toolbar {
 .doc-head {
   font-size: 1rem; /* page-text scale: h1 in em tracks the # heading size */
   position: relative; /* anchors the measure handles on the underline */
-  width: min(var(--line), 100%); /* the line — centred by the auto margins */
+  width: var(--line); /* the line — centred by the auto margins */
   margin-inline: auto;
   display: flex;
   align-items: baseline;
@@ -1229,11 +1211,6 @@ body.nav-anim .toolbar {
 }
 
 @media (max-width: 900px) {
-  /* overlay only: nothing is reserved, so docked/focus doesn't exist here */
-  .app {
-    grid-template-columns: 1fr;
-  }
-
   /* the panel expands over the whole page; the title bar is always visible */
   .sidebar {
     inset: 0;
