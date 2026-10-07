@@ -754,11 +754,12 @@ body.nav-anim .toolbar {
   padding: 2rem clamp(1rem, 8vw, 10rem);
   overflow-y: auto;
   min-width: 0;
-  /* the effective line width: the user's drag (px), defaulting to the field's
-     72ch — the resting state is ONE centred column, independent of the
-     sidebar, which is a pure overlay. NOT named --line: that would shadow the
-     --line colour token and strip every border inside .main */
-  --measure: min(var(--line-w, 72ch), 100%);
+  /* the effective line width: the user's drag (px), defaulting to FULL WIDTH
+     — the underline spans the whole markdown area, the field rests at 72ch on
+     the line's start, and B (its right edge) sits at 72ch, not far right.
+     NOT named --line: that would shadow the --line colour token and strip
+     every border inside .main */
+  --measure: min(var(--line-w, 100%), 100%);
 }
 
 /* ---------- adjustable measure ----------

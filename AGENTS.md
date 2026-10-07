@@ -111,7 +111,10 @@ src/lib/*.test.ts    node:test suites (test-auth runs the src/lib/*.test.ts glob
 ### index.astro flow map (~1400 lines, the entire UI; all JS in one `<script>`)
 
 ```
-boot()         restore expanded state (localStorage) → loadTree() → restore last draft
+boot()         restore expanded state (localStorage) → loadTree(); NO last-page
+               restore — the welcome message is the boot screen (drafts still
+               come back when the user opens the file they belong to); nav:
+               desktop boots with the tree open, always
 loadTree()     GET /api/tree → `tree` + `byPath` Map (path → Node) → renderTree()
 renderTree()   rebuilds <nav id=tree>; rows show Node.raw (no prefix) and are
                draggable; `selected` + `expanded` Sets drive the view
@@ -182,9 +185,10 @@ measure        two handles on .doc-head's underline: A (▶, at the line's START
                button's UA font and the handle teleports on first grab. Hover
                brightens the triangle only, no tint box.
                Defaults: the resting geometry is ONE centred column —
-               --measure = min(var(--line-w, 72ch), 100%), so the underline hugs
-               the 72ch text and A/B sit at its edges (dragging A widens the
-               line and the field rides its start — the sketch's longer line).
+               --measure = min(var(--line-w, 100%), 100%), so the LINE spans
+               the whole markdown area and the field rests at 72ch on the
+               line's start, B at 72ch (not far right); dragging A widens the
+               line and the field rides its start — the sketch's longer line.
                `--measure` must NOT be named `--line`: that shadows the --line
                colour token and strips every border inside .main (shipped that
                way once — the topline vanished). Constraints
@@ -205,14 +209,14 @@ measure        two handles on .doc-head's underline: A (▶, at the line's START
                keys nudge the focused handle by 1ch; resize re-clamps
 setNav(open)   the ONLY nav mutator (4.7): toggles .app.nav-off, aria-expanded
                on the brand button, inert on tree/new-row/toolbar/side-foot,
-               persists localStorage['iauthor.nav'] (never on mobile), then
+               then
                applyMeasure() (the docked track changes the content width).
                The brand click toggles (slideNav: adds .measure-slide for a
                0.15s padding-left slide, drops it ~200ms later); Escape closes
                (unless the create dialog or a menu is open); a mobile tree-row
-               click closes with persist=false. The sidebar is an overlay; the
-               docked margin is static padding on .main (no animation — a grid
-               track misplaced the view, see §Shipped above)
+               click closes. The sidebar is an overlay; the docked margin is
+               static padding on .main (no animation — a grid track misplaced
+               the view, see §Shipped above)
 ```
 
 Where a change goes: data/files → `works.ts`, UI shell → `index.astro`,
@@ -565,8 +569,9 @@ the view got squashed into it. Padding can't misplace.)**
   to transparent, and only the title stays live at the top-left.
 - **mobile (≤900px)** — the title bar (`.side-head`, own card background) is always
   visible at the top of the fixed overlay; the tree expands **over the whole page**
-  (`position: fixed; inset: 0`). **Starts hidden on every load.** Close via the title,
-  `Escape`, or picking a chapter (`persist=false`, never overwrites the desktop pref).
+  (`position: fixed; inset: 0`). **Starts hidden on every load** — a pre-paint inline
+  script in the markup applies `nav-off` on mobile so the overlay never flashes before
+  the app script runs. Close via the title, `Escape`, or picking a chapter.
 
 ### Layout: overlay sidebar
 
@@ -584,13 +589,14 @@ the view got squashed into it. Padding can't misplace.)**
 ```
 
 `.main` keeps its fluid width and the `clamp` padding. The measure (4.65) lives inside it
-and is **independent of the nav state**: the resting geometry is ONE centred column —
-`--measure = min(var(--line-w, 72ch), 100%)` drives `.doc-head` (the line, centred by auto
+and is **independent of the nav state**: the resting geometry is a FULL-width line —
+`--measure = min(var(--line-w, 100%), 100%)` drives `.doc-head` (the line, centred by auto
 margins) and the field's CSS-derived inset (`margin-left: max(0px, calc((100% - var(--measure)) / 2))`),
-so by default the underline hugs the 72ch text and A/B sit at its edges. Dragging A
-widens the line symmetrically (the field rides the line's start, B moves with it), B
-sizes the field. Toggling the tree changes the container width (static jump) and
-`applyMeasure()` re-clamps.
+so by default the underline spans the whole markdown area, the field rests at 72ch on the
+line's start and B sits at 72ch (not far right). Dragging A widens or narrows the line
+symmetrically (the field rides the line's start, B moves with it), B sizes the field
+within the line. Toggling the tree changes the container width (0.15s slide on user
+toggles) and `applyMeasure()` re-clamps.
 
 ### Collapsed = pointer-transparent
 
@@ -603,25 +609,25 @@ dropped under `prefers-reduced-motion`.
 
 ### State, a11y, files
 
-- `.app.nav-off` is the only state, `setNav(open, persist?)` the only mutator; it also
+- `.app.nav-off` is the only state, `setNav(open)` the only mutator; it also
   toggles `inert` on tree/new-row/toolbar/side-foot so Tab skips the hidden parts, and
   refuses to close while the create dialog is open (the dialog lives inside the panel).
-- `localStorage['iauthor.nav'] = '1'|'0'`, same precedent as `iauthor.hide-drafts`.
-  Boot: `narrow() ? false : stored !== '0'` — mobile always starts hidden, and a mobile
-  collapse passes `persist=false` so it never overwrites the desktop preference. Shrinking
-  to mobile (mq change) hides the panel the same way.
+- **No nav persistence** (owner decision): desktop always boots with the tree open — a
+  reload undoes a close; mobile always boots hidden (the pre-paint inline script applies
+  `nav-off`). Shrinking to mobile (mq change) hides the panel the same way.
 - `brand` is `<button aria-expanded aria-controls="tree">`, styled to look like the old
   span (`font: inherit` is load-bearing for buttons).
 - `Escape` closes — but only when the create dialog and both menus are closed; they get
   Escape first. The create dialog and the tree context menu force `setNav(true)` first,
   so no control can ever sit behind a closed panel.
-- Tree row click: `if (narrow()) setNav(false, false)` — on desktop the tree stays open
+- Tree row click: `if (narrow()) setNav(false)` — on desktop the tree stays open
   while switching chapters.
-- Touches `index.astro` (markup: brand button, menu-btn deleted; ~50 lines of script —
-  `setNav` joins the flow map above) and `global.css` (`.app`, `.sidebar`, the `.nav-off`
-  rules, the media-query rewrite, `.menu-btn` deletion, `--nav-dur`).
+- Touches `index.astro` (markup: brand button, menu-btn deleted, pre-paint inline
+  script; ~50 lines of script — `setNav` joins the flow map above) and `global.css`
+  (`.app`, `.sidebar`, the `.nav-off` rules, the media-query rewrite, `.menu-btn`
+  deletion, `--nav-dur`).
 
-Defaults baked in: desktop boots with the tree **open** (closing it is remembered), and
+Defaults baked in: desktop boots with the tree **open, always** (no memory), and
 `lock` / `log out` / `drafts` stay inside the panel, reachable only with the tree open (they
 are tree chrome, not reader chrome).
 

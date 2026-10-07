@@ -44,6 +44,14 @@ import Base from '../layouts/base.astro';
       </article>
     </main>
   </div>
+  <script is:inline>
+    // pre-paint nav state: on mobile the overlay starts closed so the page is
+    // never covered by a flash before the app script runs; desktop starts
+    // open, which the static markup already is
+    if (matchMedia('(max-width: 900px)').matches) {
+      document.querySelector('.app').classList.add('nav-off');
+    }
+  </script>
   <div id="pdf-menu" hidden></div>
 </Base>
 <script>
@@ -66,7 +74,6 @@ import Base from '../layouts/base.astro';
     dropDraft,
     moveDraft,
     remapDrafts,
-    lastDraftPath,
   } from '../lib/sync.ts';
 
   type Node = {
@@ -658,7 +665,7 @@ import Base from '../layouts/base.astro';
       renderTree();
       await openFile(node.path);
     }
-    if (narrow()) setNav(false, false); // mobile: picking a chapter closes the panel
+    if (narrow()) setNav(false); // mobile: picking a chapter closes the panel
   });
 
   function buildToc(ul: HTMLUListElement, nodes: Node[]): void {
@@ -939,7 +946,7 @@ async function showGroup(node: Node): Promise<void> {
 
   treeEl.addEventListener('contextmenu', (e) => {
     e.preventDefault();
-    if (!navOpen()) setNav(true, false); // no control behind a closed panel
+    if (!navOpen()) setNav(true); // no control behind a closed panel
     const row = (e.target as HTMLElement).closest('.tree-row') as HTMLElement | null;
     ctxTarget = row ? (byPath.get(row.dataset.path!) ?? null) : null;
     ctxLi = row ? (row.closest('li') as HTMLElement) : null;
@@ -978,7 +985,7 @@ async function showGroup(node: Node): Promise<void> {
     }
   });
   itemNew.addEventListener('click', () => {
-    if (!navOpen()) setNav(true, false); // no control behind a closed panel
+    if (!navOpen()) setNav(true); // no control behind a closed panel
     previewExpandedPath = null; // the folder stays open once creation begins
     pendingParent = newParentOf(ctxTarget);
     pendingKind = 'file';
@@ -1153,10 +1160,10 @@ newRow.hidden = true;
     if (doc.hidden) return; // zero-width layout: nothing to clamp against
     const C = doc.clientWidth;
     const minFw = ch(MIN_FIELD);
-    // the effective line: the user's drag, or the default 72ch column. B is
+    // the effective line: the user's drag, or the default FULL WIDTH. B is
     // jailed within it — the topline's width is A's alone, so B can never
     // widen the line or ride off it
-    const effLine = linePx ? Math.min(linePx, C) : Math.min(ch(72), C);
+    const effLine = linePx ? Math.min(linePx, C) : C;
     const fw = fieldPx ? Math.min(Math.max(fieldPx, minFw), effLine) : 0;
     const fieldEff = fw || Math.min(ch(72), C);
     // the line: never below the field, never past the content width;
@@ -1209,7 +1216,7 @@ newRow.hidden = true;
     });
   }
 
-  dragWidth(measureA, () => linePx || ch(72), (from, dx) => {
+  dragWidth(measureA, () => linePx || doc.clientWidth, (from, dx) => {
     // the handle rides the line's end 1:1 while the line grows 2:1 (centred)
     linePx = from - 2 * dx;
     applyMeasure();
@@ -1227,7 +1234,7 @@ newRow.hidden = true;
     });
   }
   nudge(measureA, (sign) => {
-    linePx = (linePx || ch(72)) - 2 * ch(1) * sign; // right = narrower
+    linePx = (linePx || doc.clientWidth) - 2 * ch(1) * sign; // right = narrower
     applyMeasure();
   });
   nudge(measureB, (sign) => {
@@ -1555,15 +1562,16 @@ newRow.hidden = true;
   });
 
   // ---------- collapsible tree: the title is the only toggle (4.7) ----------
-  // The sidebar is a PURE OVERLAY (owner decision, 2026-10-06): nothing is
-  // reserved and the centred markdown column never moves when the tree
-  // toggles — no docked/focus, no track animation, no re-centring. The panel
-  // just sits on top; only the title stays live when it's closed.
+  // The sidebar is a fixed overlay; when it is OPEN the markdown view's left
+  // padding statically widens by the tree width (owner decision, 2026-10-06).
+  // Desktop ALWAYS boots with the tree open (no persistence — a reload undoes
+  // a close); mobile boots hidden so the page is never covered. The pre-paint
+  // inline script in the markup applies nav-off on mobile before first paint,
+  // so neither state ever flashes.
   const appEl = document.querySelector('.app') as HTMLElement;
   const brand = document.getElementById('brand') as HTMLButtonElement;
   const toolbarEl = document.querySelector('.toolbar') as HTMLElement;
   const sideFootEl = document.querySelector('.side-foot') as HTMLElement;
-  const NAV_KEY = 'iauthor.nav';
   const navMq = window.matchMedia('(max-width: 900px)');
   const narrow = (): boolean => navMq.matches;
   const navOpen = (): boolean => !appEl.classList.contains('nav-off');
@@ -1571,14 +1579,14 @@ newRow.hidden = true;
 
   // the docked jump gets a brief slide; the class drops right after it plays,
   // so drags and measure changes never lag behind a running transition
-  function slideNav(open: boolean, persist = true): void {
+  function slideNav(open: boolean): void {
     mainEl.classList.add('measure-slide');
     clearTimeout(slideTimer);
     slideTimer = setTimeout(() => mainEl.classList.remove('measure-slide'), 200);
-    setNav(open, persist);
+    setNav(open);
   }
 
-  function setNav(open: boolean, persist = true): void {
+  function setNav(open: boolean): void {
     if (!open && newOpen) return; // the create dialog lives inside the panel
     appEl.classList.toggle('nav-off', !open);
     brand.setAttribute('aria-expanded', String(open));
@@ -1586,12 +1594,7 @@ newRow.hidden = true;
       if (open) el.removeAttribute('inert');
       else el.setAttribute('inert', ''); // Tab skips the hidden parts
     }
-    if (persist && !narrow()) {
-      try {
-        localStorage.setItem(NAV_KEY, open ? '1' : '0');
-      } catch {}
-    }
-    applyMeasure(); // the docked track changes the content width — re-clamp
+    applyMeasure(); // the docked margin changes the content width — re-clamp
   }
 
   brand.addEventListener('click', () => slideNav(!navOpen()));
@@ -1604,19 +1607,17 @@ newRow.hidden = true;
   });
 
   navMq.addEventListener('change', (e) => {
-    if (e.matches) setNav(false, false); // shrinking to mobile hides the panel
+    if (e.matches) setNav(false); // shrinking to mobile hides the panel
   });
 
   async function boot(): Promise<void> {
     void loadPdfStyles(); // the pdf menu fills in whenever the server answers
     syncHideBtn();
-    // nav state: desktop docks unless focus was chosen; mobile starts hidden
-    let storedNav: string | null = null;
-    try {
-      storedNav = localStorage.getItem(NAV_KEY);
-    } catch {}
-    setNav(narrow() ? false : storedNav !== '0', false);
-    document.body.classList.add('nav-anim'); // first paint never slides
+    // nav state: the tree is ALWAYS open on desktop at boot (a reload undoes
+    // a close); mobile starts hidden — the pre-paint inline script already
+    // applied nav-off, so this is a no-op there and nothing animates
+    setNav(!narrow());
+    document.body.classList.add('nav-anim');
     // restore the expanded/collapsed folders from the last session; first
     // visit (no stored state) starts with all top-level works expanded
     let stored: string[] | null = null;
@@ -1634,18 +1635,8 @@ newRow.hidden = true;
       saveExpanded();
       renderTree();
     }
-    // restore a draft left behind by a reload or PIN lock
-    const dpath = lastDraftPath();
-    if (dpath) {
-      const node = byPath.get(dpath);
-      if (node && node.children === undefined) {
-        selected = dpath;
-        renderTree();
-        await openFile(dpath);
-        return;
-      }
-      dropDraft(dpath);
-    }
+    // no last-page restore: the welcome message is the boot screen; drafts
+    // still come back when the user opens the file they belong to
   }
 
   boot();
