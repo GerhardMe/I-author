@@ -1581,6 +1581,7 @@ newRow.hidden = true;
         localStorage.setItem(NAV_KEY, open ? '1' : '0');
       } catch {}
     }
+    applyMeasure(); // the docked track changes the content width — re-clamp
   }
 
   brand.addEventListener('click', () => setNav(!navOpen()));
