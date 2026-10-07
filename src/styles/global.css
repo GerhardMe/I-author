@@ -405,6 +405,11 @@ input:-webkit-autofill {
   pointer-events: none;
 }
 
+/* the title's own underline fades with the panel */
+.app.nav-off .side-head {
+  border-bottom-color: transparent;
+}
+
 .app.nav-off .brand {
   pointer-events: auto;
 }
@@ -424,6 +429,10 @@ body.nav-anim .sidebar {
     border-color var(--nav-dur) ease;
 }
 
+body.nav-anim .side-head {
+  transition: border-color var(--nav-dur) ease;
+}
+
 body.nav-anim .tree,
 body.nav-anim .new-row,
 body.nav-anim .side-foot,
@@ -433,6 +442,7 @@ body.nav-anim .toolbar {
 
 @media (prefers-reduced-motion: reduce) {
   body.nav-anim .sidebar,
+  body.nav-anim .side-head,
   body.nav-anim .tree,
   body.nav-anim .new-row,
   body.nav-anim .side-foot,
@@ -728,9 +738,10 @@ body.nav-anim .toolbar {
   overflow-y: auto;
   min-width: 0;
   /* the effective line width: the user's drag (px), defaulting to the field's
-     72ch — so the resting state is ONE centred column (underline == text),
-     independent of the sidebar, which is a pure overlay */
-  --line: min(var(--line-w, 72ch), 100%);
+     72ch — the resting state is ONE centred column, independent of the
+     sidebar, which is a pure overlay. NOT named --line: that would shadow the
+     --line colour token and strip every border inside .main */
+  --measure: min(var(--line-w, 72ch), 100%);
 }
 
 /* ---------- adjustable measure ----------
@@ -740,7 +751,7 @@ body.nav-anim .toolbar {
 .doc-head {
   font-size: 1rem; /* page-text scale: h1 in em tracks the # heading size */
   position: relative; /* anchors the measure handles on the underline */
-  width: var(--line); /* the line — centred by the auto margins */
+  width: var(--measure); /* the line — centred by the auto margins */
   margin-inline: auto;
   display: flex;
   align-items: baseline;
@@ -817,8 +828,8 @@ body.nav-anim .toolbar {
    stale --line-w wider than the viewport. */
 .doc > .md-body,
 .doc > #editor-host {
-  width: min(var(--field-w, 72ch), calc((100% + var(--line)) / 2), 100%);
-  margin-left: max(0px, calc((100% - var(--line)) / 2));
+  width: min(var(--field-w, 72ch), calc((100% + var(--measure)) / 2), 100%);
+  margin-left: max(0px, calc((100% - var(--measure)) / 2));
 }
 
 /* ---------- folder index view (JS-created DOM) ---------- */

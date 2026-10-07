@@ -1152,14 +1152,15 @@ newRow.hidden = true;
   function applyMeasure(): void {
     if (doc.hidden) return; // zero-width layout: nothing to clamp against
     const C = doc.clientWidth;
-    // field FIRST, against the current content width — a window shrink must
-    // not let stale px force the line back up past the viewport (that let B
-    // slide off the line and "expand" the topline)
     const minFw = ch(MIN_FIELD);
-    const fw = fieldPx ? Math.min(Math.max(fieldPx, minFw), C) : 0;
-    const fieldEff = fw || Math.min(ch(72), C); // effective field (72ch default)
-    // line second: never below the field, never past the content width;
-    // 0 = default (full width)
+    // the effective line: the user's drag, or the default 72ch column. B is
+    // jailed within it — the topline's width is A's alone, so B can never
+    // widen the line or ride off it
+    const effLine = linePx ? Math.min(linePx, C) : Math.min(ch(72), C);
+    const fw = fieldPx ? Math.min(Math.max(fieldPx, minFw), effLine) : 0;
+    const fieldEff = fw || Math.min(ch(72), C);
+    // the line: never below the field, never past the content width;
+    // 0 = default (the 72ch column)
     const lw = linePx ? Math.max(Math.min(linePx, C), fieldEff) : 0;
     linePx = lw;
     fieldPx = fw;
