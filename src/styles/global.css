@@ -394,6 +394,13 @@ input:-webkit-autofill {
   }
 }
 
+/* the docked jump animates only on toggle: setNav adds .measure-slide and
+   drops it right after the transition, so drags and measure changes never
+   lag behind a running transition */
+.main.measure-slide {
+  transition: padding-left 0.15s ease-out;
+}
+
 .sidebar {
   border-right: 1px solid var(--line);
   background: var(--card);
@@ -455,7 +462,8 @@ body.nav-anim .toolbar {
   body.nav-anim .tree,
   body.nav-anim .new-row,
   body.nav-anim .side-foot,
-  body.nav-anim .toolbar {
+  body.nav-anim .toolbar,
+  .main.measure-slide {
     transition: none;
   }
 }

@@ -207,11 +207,12 @@ setNav(open)   the ONLY nav mutator (4.7): toggles .app.nav-off, aria-expanded
                on the brand button, inert on tree/new-row/toolbar/side-foot,
                persists localStorage['iauthor.nav'] (never on mobile), then
                applyMeasure() (the docked track changes the content width).
-               The brand click toggles; Escape closes (unless the create
-               dialog or a menu is open); a mobile tree-row click closes with
-               persist=false. The sidebar is an overlay; the docked margin is
-               static padding on .main (no animation — a grid track misplaced
-               the view, see §Shipped above)
+               The brand click toggles (slideNav: adds .measure-slide for a
+               0.15s padding-left slide, drops it ~200ms later); Escape closes
+               (unless the create dialog or a menu is open); a mobile tree-row
+               click closes with persist=false. The sidebar is an overlay; the
+               docked margin is static padding on .main (no animation — a grid
+               track misplaced the view, see §Shipped above)
 ```
 
 Where a change goes: data/files → `works.ts`, UI shell → `index.astro`,
@@ -551,11 +552,13 @@ the docked/focus distinction is a STATIC jump — when the tree is open, the mar
 view's left padding statically widens by the tree width (`@media (min-width: 901px)
 .app:not(.nav-off) .main { padding-left: calc(var(--tree-w) + clamp(1rem, 8vw, 10rem)) }`),
 so the view lives in the smaller container the margin leaves; when the tree is
-minimised, the container takes the whole screen. No animation — the jump is instant.
-`setNav` calls `applyMeasure()` so dragged measure px re-clamp against the new content
-width. (A grid track was tried first: the fixed sidebar is out of flow, so `.main`
-auto-placed into the tree's own 18rem track — the view got squashed into it. Padding
-can't misplace.)**
+minimised, the container takes the whole screen. On USER TOGGLES the jump gets a
+brief slide (`.main.measure-slide`: `transition: padding-left 0.15s ease-out`, class
+added by `slideNav()` and dropped ~200 ms later so drags/measure changes never lag;
+boot's initial `setNav` never slides). `setNav` calls `applyMeasure()` so dragged
+measure px re-clamp against the new content width. (A grid track was tried first: the
+fixed sidebar is out of flow, so `.main` auto-placed into the tree's own 18rem track —
+the view got squashed into it. Padding can't misplace.)**
 
 - **desktop** — click the title → tree, drafts toggle, new-row and the lock/log-out row
   fade out (`opacity` + a 0.5rem slide), the sidebar's background and right border fade
