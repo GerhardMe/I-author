@@ -210,7 +210,8 @@ setNav(open)   the ONLY nav mutator (4.7): toggles .app.nav-off, aria-expanded
                The brand click toggles; Escape closes (unless the create
                dialog or a menu is open); a mobile tree-row click closes with
                persist=false. The sidebar is an overlay; the docked margin is
-               a static grid track (no animation)
+               static padding on .main (no animation — a grid track misplaced
+               the view, see §Shipped above)
 ```
 
 Where a change goes: data/files → `works.ts`, UI shell → `index.astro`,
@@ -546,12 +547,15 @@ Verified against the source (2026-10-04) and **all resolved** — each with a de
 The `I author` brand is a `<button>` and the only way to show/hide the tree; the ☰
 hamburger (`#menu-btn`) is deleted outright. **Owner decision (2026-10-06, after the
 docked/focus slide fought the 4.65 measure twice): the sidebar is a fixed overlay, and
-the docked/focus distinction is a STATIC jump — when the tree is open, the grid
-statically widens the left margin by the tree width (`@media (min-width: 901px)
-.app:not(.nav-off) { grid-template-columns: var(--tree-w) 1fr }`), so the markdown view
-lives in the smaller container the track leaves; when the tree is minimised, the
-container takes the whole screen. No animation — the jump is instant. `setNav` calls
-`applyMeasure()` so dragged measure px re-clamp against the new content width.**
+the docked/focus distinction is a STATIC jump — when the tree is open, the markdown
+view's left padding statically widens by the tree width (`@media (min-width: 901px)
+.app:not(.nav-off) .main { padding-left: calc(var(--tree-w) + clamp(1rem, 8vw, 10rem)) }`),
+so the view lives in the smaller container the margin leaves; when the tree is
+minimised, the container takes the whole screen. No animation — the jump is instant.
+`setNav` calls `applyMeasure()` so dragged measure px re-clamp against the new content
+width. (A grid track was tried first: the fixed sidebar is out of flow, so `.main`
+auto-placed into the tree's own 18rem track — the view got squashed into it. Padding
+can't misplace.)**
 
 - **desktop** — click the title → tree, drafts toggle, new-row and the lock/log-out row
   fade out (`opacity` + a 0.5rem slide), the sidebar's background and right border fade
@@ -566,7 +570,7 @@ container takes the whole screen. No animation — the jump is instant. `setNav`
 ```css
 .app { display: grid; grid-template-columns: 1fr; min-height: 100svh; }
 @media (min-width: 901px) {
-  .app:not(.nav-off) { grid-template-columns: var(--tree-w) 1fr; } /* static docked margin */
+  .app:not(.nav-off) .main { padding-left: calc(var(--tree-w) + clamp(1rem, 8vw, 10rem)); }
 }
 .sidebar { position: fixed; top: 0; bottom: 0; left: 0; width: var(--tree-w); z-index: 20; }
 @media (max-width: 900px) {
@@ -661,9 +665,9 @@ text view rides the line's start, the right one (◀, at the field's right edge)
 sets the field's width (36ch floor, line-bound, line ≥ field); session-only state,
 arrow-key nudge on both handles, touch via Pointer Events + capture ·
 4.7) collapsible tree view — the `I author` title is the only tree toggle (☰ deleted);
-the sidebar is an overlay over the page, and when it is open the grid statically widens
-the left margin by the tree width (see §Shipped: collapsible tree view above); mobile
-expands the tree over the page and starts hidden.
+the sidebar is an overlay over the page, and when it is open the markdown view's left
+padding statically widens by the tree width (see §Shipped: collapsible tree view above);
+mobile expands the tree over the page and starts hidden.
 
 Numbering rework, phase 1 (shipped): printed numbers are positional among same-kind
 siblings instead of the disk prefix; `renameEntry` edits the title and preserves the
