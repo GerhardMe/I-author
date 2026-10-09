@@ -1018,9 +1018,9 @@ body.nav-anim .toolbar {
   height: 11px;
   padding: 0;
   border: 0;
-  background: var(--muted);
+  background: var(--line); /* the same token as the underline they sit on */
   font: inherit;
-  cursor: ew-resize;
+  /* no cursor of its own: the handles keep the header's text cursor */
   touch-action: none;
   user-select: none;
   -webkit-user-select: none;
