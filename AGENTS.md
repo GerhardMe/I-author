@@ -87,7 +87,11 @@ src/lib/preview.ts   live-preview engine: widgets, buildDeco, focus field, ctrl+
                      high-precedence ↑/↓ keymap (arrowStep) steps a plain
                      source-line cursor when it starts inside or would enter a
                      table/$$ block (native moveVertically pixel-skips block
-                     replaces; char goal column in a WeakMap), everything else
+                     replaces; char indent in a WeakMap, carried across native
+                     vertical moves (over blank lines), cleared on non-vertical
+                     selection changes; block coverage is strict — a blank line
+                     after a block is regular text (b.to is also that line's
+                     from)), everything else
                      stays native; pinScreenY scroll-compensates reveals so the
                      caret doesn't ride block height changes; widget clicks map
                      back to source (table clicks land in the clicked cell via a

@@ -642,8 +642,10 @@ export function createPreview(onOpenLink: OpenLink): Extension[] {
   // So whenever the cursor starts inside a block's raw source, or would step
   // into a hidden one, ↑/↓ step a plain source-line cursor over the raw
   // markdown instead (option A: line-by-line entry); everything else returns
-  // false and native motion runs.
-  const vgoal = new WeakMap<EditorView, { head: number; col: number }>();
+  // false and native motion runs. vgoal is the char indent carried between
+  // blobs: arrowStep keeps it, the update listener below preserves it across
+  // native vertical moves (over blank lines) and drops it on everything else.
+  const vgoal = new WeakMap<EditorView, number>();
   function arrowStep(view: EditorView, dir: 1 | -1, extend: boolean): boolean {
     const { state } = view;
     const sel = state.selection;
@@ -654,14 +656,16 @@ export function createPreview(onOpenLink: OpenLink): Extension[] {
     const next = line.number + dir;
     if (next < 1 || next > state.doc.lines) return false;
     const blocks = state.field(previewField).blocks;
-    const inside = blocks.find((b) => b.from <= line.from && line.to <= b.to);
+    // a line belongs to a block only when its content starts strictly inside
+    // the range: b.to (the end of the block's last line) is ALSO the first
+    // position of the blank line below the block — that line is regular text
+    const covered = (l: { from: number; to: number }) =>
+      blocks.find((b) => b.from <= l.from && l.from < b.to && l.to <= b.to);
+    const inside = covered(line);
     const target = state.doc.line(next);
-    const targetBlock = blocks.find((b) => b.from <= target.from && target.to <= b.to);
+    const targetBlock = covered(target);
     if (!inside && !(targetBlock && targetBlock.hidden)) return false;
-    // char goal column: persists across consecutive vertical keystrokes,
-    // resets when the cursor last moved by other means
-    const v = vgoal.get(view);
-    const col = v && v.head === main.head ? v.col : main.head - line.from;
+    const col = vgoal.get(view) ?? main.head - line.from;
     const anchor = Math.min(target.from + col, target.to);
     const before = view.coordsAtPos(main.head);
     view.dispatch({
@@ -671,7 +675,7 @@ export function createPreview(onOpenLink: OpenLink): Extension[] {
     // the step revealed, re-hid or crossed a block — its height changed and
     // the caret would ride the layout shift; scroll the difference instead
     pinScreenY(view, anchor, before?.top);
-    vgoal.set(view, { head: anchor, col });
+    vgoal.set(view, col);
     return true;
   }
 
@@ -684,6 +688,22 @@ export function createPreview(onOpenLink: OpenLink): Extension[] {
         { key: 'Shift-ArrowUp', run: (v) => arrowStep(v, -1, true) },
       ]),
     ),
+    // indent memory for arrowStep: native vertical moves carry a pixel
+    // goalColumn — when one starts from a populated line, remember that
+    // line's char column (blank starting lines would record 0); any other
+    // selection change (click, horizontal move, typing) clears it
+    EditorView.updateListener.of((u) => {
+      if (!u.selectionSet) return;
+      const main = u.state.selection.main;
+      if (main.goalColumn == null) {
+        vgoal.delete(view);
+        return;
+      }
+      if (vgoal.has(view)) return;
+      const prev = u.startState.selection.main;
+      const prevLine = u.startState.doc.lineAt(prev.head);
+      if (prevLine.text.trim()) vgoal.set(view, prev.head - prevLine.from);
+    }),
     markdown({ codeLanguages: languages }),
     focusField,
     previewField,
