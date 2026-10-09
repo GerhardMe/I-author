@@ -1,8 +1,11 @@
 // Obsidian-style live preview for the markdown editor.
 // The document is always the raw markdown source; decorations hide the syntax and
 // render compiled output everywhere except on the cursor's line while focused.
-// Styles for these JS-created DOM elements live in global.css (Astro scoping
-// wouldn't match dynamically created elements).
+// Hidden ranges are NOT atomic (only the checkbox is): the cursor traverses raw
+// offsets like in a plain markdown file, and every line it enters reveals raw.
+// Widget clicks map back to source positions (a table click lands in the clicked
+// cell). Styles for these JS-created DOM elements live in global.css (Astro
+// scoping wouldn't match dynamically created elements).
 import { marked } from 'marked';
 import {
   EditorState,
@@ -54,16 +57,28 @@ class BulletWidget extends WidgetType {
 }
 
 class HrWidget extends WidgetType {
-  toDOM(): HTMLElement {
+  constructor(readonly pos: number) {
+    super();
+  }
+  eq(o: HrWidget): boolean {
+    return o.pos === this.pos;
+  }
+  toDOM(view: EditorView): HTMLElement {
     const d = document.createElement('div');
     d.className = 'cm-hr-widget';
+    d.addEventListener('mousedown', (e) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      view.dispatch({
+        selection: { anchor: this.pos },
+        effects: EditorView.scrollIntoView(this.pos, { y: 'nearest' }),
+      });
+      view.focus();
+    });
     return d;
   }
-  eq(): boolean {
-    return true;
-  }
   ignoreEvent(): boolean {
-    return false;
+    return true; // the click reveals the raw rule, cursor at its line start
   }
 }
 
@@ -78,17 +93,26 @@ class ImgWidget extends WidgetType {
   eq(o: ImgWidget): boolean {
     return o.src === this.src && o.alt === this.alt && o.pos === this.pos;
   }
-  toDOM(): HTMLElement {
+  toDOM(view: EditorView): HTMLElement {
     const img = document.createElement('img');
     img.className = 'cm-img-widget';
     img.src = this.src;
     img.alt = this.alt;
     img.title = this.alt || this.src;
     img.loading = 'lazy';
+    img.addEventListener('mousedown', (e) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      view.dispatch({
+        selection: { anchor: this.pos },
+        effects: EditorView.scrollIntoView(this.pos, { y: 'nearest' }),
+      });
+      view.focus();
+    });
     return img;
   }
   ignoreEvent(): boolean {
-    return false; // native click places the cursor at the range boundary
+    return true; // the click reveals the raw image syntax at its start
   }
 }
 
@@ -119,10 +143,35 @@ class CheckboxWidget extends WidgetType {
   }
 }
 
+// source offsets of each cell's text start in a raw table line (split on
+// unescaped pipes; a leading/trailing pipe opens/closes the row, not a cell)
+function cellOffsets(text: string, base: number): number[] {
+  const pieces: { s: number; e: number }[] = [];
+  let s = 0;
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === '|' && text[i - 1] !== '\\') {
+      pieces.push({ s, e: i });
+      s = i + 1;
+    }
+  }
+  pieces.push({ s, e: text.length });
+  const trimmed = text.trim();
+  const lo = trimmed.startsWith('|') ? 1 : 0;
+  const hi = pieces.length - (trimmed.endsWith('|') ? 1 : 0);
+  const out: number[] = [];
+  for (let k = lo; k < hi; k++) {
+    let t = pieces[k].s;
+    while (t < pieces[k].e && /\s/.test(text[t])) t++;
+    out.push(base + t);
+  }
+  return out;
+}
+
 class TableWidget extends WidgetType {
   constructor(
     readonly html: string,
     readonly pos: number,
+    readonly rows: number[][], // cell offsets in rendered order — header row first
   ) {
     super();
   }
@@ -130,12 +179,29 @@ class TableWidget extends WidgetType {
     return o.html === this.html && o.pos === this.pos;
   }
   ignoreEvent(): boolean {
-    return false; // clicking places the cursor and reveals the raw table
+    return true; // clicks map to the clicked cell's source position
   }
-  toDOM(): HTMLElement {
+  toDOM(view: EditorView): HTMLElement {
     const wrap = document.createElement('div');
     wrap.className = 'cm-table';
     wrap.innerHTML = this.html;
+    wrap.addEventListener('mousedown', (e) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      let pos = this.pos;
+      const cell = (e.target as HTMLElement).closest('td,th') as HTMLTableCellElement | null;
+      if (cell) {
+        const row = cell.parentElement as HTMLTableRowElement;
+        const rowIdx = Array.prototype.indexOf.call(row.parentElement?.children ?? [], row);
+        const map = this.rows[rowIdx];
+        if (map) pos = map[Math.min(cell.cellIndex, map.length - 1)];
+      }
+      view.dispatch({
+        selection: { anchor: pos },
+        effects: EditorView.scrollIntoView(pos, { y: 'nearest' }),
+      });
+      view.focus();
+    });
     return wrap;
   }
 }
@@ -153,12 +219,21 @@ class MathWidget extends WidgetType {
     return o.src === this.src && o.display === this.display && o.pos === this.pos;
   }
   ignoreEvent(): boolean {
-    return false; // clicking places the cursor and reveals the raw math
+    return true; // the click reveals the raw math at its source start
   }
-  toDOM(): HTMLElement {
+  toDOM(view: EditorView): HTMLElement {
     const el = document.createElement(this.display ? 'div' : 'span');
     el.className = this.display ? 'cm-math-block' : 'cm-math-inline';
     el.innerHTML = this.html;
+    el.addEventListener('mousedown', (e) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      view.dispatch({
+        selection: { anchor: this.pos },
+        effects: EditorView.scrollIntoView(this.pos, { y: 'nearest' }),
+      });
+      view.focus();
+    });
     return el;
   }
 }
@@ -208,13 +283,13 @@ function buildDeco(state: EditorState): {
   const active = (from: number, to: number): boolean =>
     focused && from <= sel.to && to >= sel.from;
   const hide = (from: number, to: number): void => {
-    const d = Decoration.replace({});
-    deco.push({ from, to, value: d });
-    atom.push({ from, to, value: d });
+    // deliberately NOT atomic: arrows traverse the raw source and the cursor's
+    // line reveals raw, so a caret inside a hidden range is always visible
+    deco.push({ from, to, value: Decoration.replace({}) });
   };
-  const hideWidget = (from: number, to: number, d: Decoration): void => {
+  const hideWidget = (from: number, to: number, d: Decoration, atomic = false): void => {
     deco.push({ from, to, value: d });
-    atom.push({ from, to, value: d });
+    if (atomic) atom.push({ from, to, value: d });
   };
 
   // inline markdown: images, links, code, bold, italic, strike
@@ -349,10 +424,17 @@ function buildDeco(state: EditorState): {
           html = marked.parse(raw) as string;
           tableMemo.set(raw, html);
         }
+        // cell offsets in rendered order: header row first, then body rows
+        // (the separator line at ti+1 renders nothing)
+        const rows = [cellOffsets(a.text, a.from)];
+        for (let k = ti + 2; k < j; k++) rows.push(cellOffsets(lines[k].text, lines[k].from));
         hideWidget(
           blockFrom,
           blockTo,
-          Decoration.replace({ widget: new TableWidget(html, blockFrom), block: true }),
+          Decoration.replace({
+            widget: new TableWidget(html, blockFrom, rows),
+            block: true,
+          }),
         );
         for (let k = ti; k < j; k++) skip.add(k);
       }
@@ -469,7 +551,7 @@ function buildDeco(state: EditorState): {
     m = /^(\s*)(---+|\*\*\*+|___+)\s*$/.exec(text);
     if (m && (idx === 0 || !lines[idx - 1].text.trim())) {
       // a `---` right after text is a setext heading — leave it raw
-      hideWidget(l.from, l.to, Decoration.replace({ widget: new HrWidget() }));
+      hideWidget(l.from, l.to, Decoration.replace({ widget: new HrWidget(l.from) }));
       return;
     }
 
@@ -494,6 +576,7 @@ function buildDeco(state: EditorState): {
           l.from + after,
           l.from + after + 3,
           Decoration.replace({ widget: new CheckboxWidget(m[4][1] !== ' ', l.from + after + 1) }),
+          true, // the only atomic range: the box is one interactive object
         );
         after += 3;
       }

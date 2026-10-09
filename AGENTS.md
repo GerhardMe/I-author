@@ -81,7 +81,10 @@ src/lib/works.ts     works tree: listWorks/readChapter/writeChapter/createEntry/
 src/lib/words.ts     countWords() — pure, used client- and server-side
 src/lib/preview.ts   live-preview engine: widgets, buildDeco, focus field, ctrl+click
                      link routing (createPreview(onOpenLink)); table HTML memoized;
-                     KaTeX math ($…$ inline, $$…$$ display) via MathWidget
+                     KaTeX math ($…$ inline, $$…$$ display) via MathWidget; hidden
+                     ranges are non-atomic (only the checkbox is atomic) so arrows
+                     traverse raw offsets; widget clicks map back to source (table
+                     clicks land in the clicked cell via a per-cell offset map)
 src/lib/sync.ts      chunked-sync engine: unsynced marks, draft store (sessionStorage),
                      push machine (createSync) — dirty-word accumulator + idle push
 src/lib/git.ts       ensureRepo + commit(msg) in WORKS_DIR (server-local, never pushed)
