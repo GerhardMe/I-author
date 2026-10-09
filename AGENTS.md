@@ -460,6 +460,13 @@ migrations won't be undone by deploys.
 
 ## Gotchas learned the hard way
 
+- CodeMirror vertical motion cannot be patched around block widgets: `moveVertically`
+  pixel-scans via `posAtCoords`, which **skips `block: true` replace widgets entirely**
+  (they're not lines) and maps a widget to its nearest boundary — so ↑/↓ leap over
+  rendered tables/`$$` blocks no matter what atomic ranges say. This cost five commits
+  of hybrids/pins before the fix was to replace vertical motion with a plain
+  source-line cursor (preview.ts `arrowStep`) and delete the machinery. Don't
+  reintroduce pixel-based correction around reveals.
 - `pnpm test` globs `src/lib/*.test.ts` on purpose. It used to list the three test
   files explicitly, and `pdf.test.ts` was therefore never executed — a whole file of
   passing-looking assertions that no run ever touched. When adding a test file, check
@@ -738,6 +745,16 @@ apexes offset 0.1ch inward · mobile pass begun: no measure handles, markdown al
 full width, half-char side margins, page-coloured title bar + overlay (no card bar),
 title-bar underline a drawn `::after` line inset half a char, chrome (brand, buttons,
 tree rows) user-select: none.
+
+Editor navigation rework (2026-10-10, shipped): hidden syntax ranges are non-atomic
+(only the checkbox is atomic) so ←/→ traverse raw offsets; ↑/↓ are a plain source-line
+cursor over the markdown file (one file line per keystroke, char indent carried across
+blobs, ←/→ adopt the new column while line-crossing ←/→ preserve the indent — short
+blob lines would otherwise reset it to 0); widget clicks map to source (a table click
+lands in the clicked cell via a per-cell offset map, math/img/hr reveal raw at their
+start). Deleted en route: a hybrid native/intercept vertical motion and a
+`pinScreenY` scroll-compensation — the reveal on entry just shifts layout around a
+scrollIntoView'd caret, like Obsidian.
 
 Numbering rework, phase 1 (shipped): printed numbers are positional among same-kind
 siblings instead of the disk prefix; `renameEntry` edits the title and preserves the
