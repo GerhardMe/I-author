@@ -118,6 +118,12 @@ boot()         restore expanded state (localStorage) → loadTree(); NO last-pag
 loadTree()     GET /api/tree → `tree` + `byPath` Map (path → Node) → renderTree()
 renderTree()   rebuilds <nav id=tree>; rows show Node.raw (no prefix) and are
                draggable; `selected` + `expanded` Sets drive the view
+tree click     the caret ([data-caret]) toggles expand/collapse without
+               selecting; a folder ROW click never collapses — it opens the
+               folder's index and unfolds the row if folded; only a repeat
+               click on a folder already being viewed (`currentGroup ===
+               node.path`) toggles it. File rows open. Chrome (brand, all
+               .btn-tiny buttons, tree rows) is user-select: none
 drag & drop     the whole `.tree-row` is the drag handle (draggable=true; native
                drag's own movement threshold keeps a plain click a click). The
                dragged copy is a custom `.drag-card` — a solid clone of the row
@@ -594,7 +600,8 @@ the view got squashed into it. Padding can't misplace.)**
 - **desktop** — click the title → tree, drafts toggle, new-row and the lock/log-out row
   fade out (`opacity` + a 0.5rem slide), the sidebar's background and right border fade
   to transparent, and only the title stays live at the top-left.
-- **mobile (≤900px)** — the title bar (`.side-head`, own card background) is always
+- **mobile (≤900px)** — the title bar (`.side-head`, page-coloured like everything on
+  mobile — no card bar) is always
   visible at the top of the fixed overlay; the tree expands **over the whole page**
   (`position: fixed; inset: 0`). **Starts hidden on every load** — a pre-paint inline
   script in the markup applies `nav-off` on mobile so the overlay never flashes before
@@ -710,6 +717,19 @@ arrow-key nudge on both handles, touch via Pointer Events + capture ·
 the sidebar is an overlay over the page, and the markdown view keeps ONE static left
 margin regardless of the tree (see §Shipped: collapsible tree view above);
 mobile expands the tree over the page and starts hidden.
+
+Polish (2026-10-09, shipped): folder row clicks never toggle the tree — they open the
+index and only unfold; a repeat click on the viewed folder (or the caret) flips it ·
+the whole sidebar viewport is a drop zone (rows keep their bands; anywhere else lands
+TOP level, appended last) · hover-opened folders live or die with the chain's outermost
+member (`dragOpened` + `pruneDragOpened`) · the measure is ONE centred `.doc-col`
+column the topline wraps (the field's derived inset formula is gone — a content-side
+inset once desynced the topline, shipped and reverted the same day) · measure line +
+handles share `--line-strong` (halfway between the old line tone and the text colour),
+apexes offset 0.1ch inward · mobile pass begun: no measure handles, markdown always
+full width, half-char side margins, page-coloured title bar + overlay (no card bar),
+title-bar underline a drawn `::after` line inset half a char, chrome (brand, buttons,
+tree rows) user-select: none.
 
 Numbering rework, phase 1 (shipped): printed numbers are positional among same-kind
 siblings instead of the disk prefix; `renameEntry` edits the title and preserves the
