@@ -1279,6 +1279,22 @@ a.btn-tiny:hover {
   }
 
   .main {
-    padding: 3.5rem 1.25rem 2rem; /* clears the fixed title bar */
+    padding: 3.5rem 0.5ch 2rem; /* clears the fixed title bar; half a char to the sides */
+  }
+
+  /* mobile measure: the handles have no place on a narrow screen — the
+     markdown view always spans the full width, overriding any measure the
+     author dragged on desktop (later rule, same specificity: it wins) */
+  .measure-h {
+    display: none;
+  }
+
+  .doc-col {
+    width: 100%;
+  }
+
+  .doc-col > .md-body,
+  .doc-col > #editor-host {
+    width: 100%;
   }
 }

@@ -611,7 +611,10 @@ the view got squashed into it. Padding can't misplace.)**
 @media (max-width: 900px) {
   .sidebar { inset: 0; width: auto; border-right: 0; }  /* full-page overlay */
   .side-head { background: var(--card); }               /* fixed title bar */
-  .main { padding: 3.5rem 1.25rem 2rem; }
+  .main { padding: 3.5rem 0.5ch 2rem; }                 /* half a char to the sides */
+  .measure-h { display: none; }                         /* no handles on mobile */
+  .doc-col { width: 100%; }                             /* measure never applies */
+  .doc-col > .md-body, .doc-col > #editor-host { width: 100%; }
 }
 ```
 
