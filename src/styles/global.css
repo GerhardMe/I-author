@@ -271,6 +271,14 @@ input:-webkit-autofill {
 }
 
 /* ---------- theme toggle ---------- */
+/* the theme flips in one hard cut: the toggle suspends every transition for
+   the instant of the flip — the nav fades (sidebar bg/border, unsynced
+   colour) are the only animated properties, and they would otherwise run on
+   the var changes */
+body.theme-switching * {
+  transition: none !important;
+}
+
 .theme-toggle {
   position: fixed;
   top: 1rem;

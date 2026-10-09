@@ -34,8 +34,14 @@ const { title = 'I author' } = Astro.props;
     <slot />
     <script>
       document.getElementById('theme-toggle')?.addEventListener('click', () => {
+        // suspend the transitions for the flip (double rAF waits for the new
+        // theme to paint), so the theme change is one hard cut
+        document.body.classList.add('theme-switching');
         const dark = document.documentElement.classList.toggle('dark');
         localStorage.setItem('theme', dark ? 'dark' : 'light');
+        requestAnimationFrame(() =>
+          requestAnimationFrame(() => document.body.classList.remove('theme-switching')),
+        );
       });
     </script>
   </body>
