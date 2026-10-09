@@ -611,6 +611,9 @@ the view got squashed into it. Padding can't misplace.)**
 @media (max-width: 900px) {
   .sidebar { inset: 0; width: auto; border-right: 0; }  /* full-page overlay */
   .side-head { background: var(--card); }               /* fixed title bar */
+  /* title bar stays full-bleed; its underline is a .side-head::after drawn
+     line inset 0.5ch both ends (a border can't be shorter than its element);
+     nav-off hides it via background: transparent (the fade transition too) */
   .main { padding: 3.5rem 0.5ch 2rem; }                 /* half a char to the sides */
   .measure-h { display: none; }                         /* no handles on mobile */
   .doc-col { width: 100%; }                             /* measure never applies */

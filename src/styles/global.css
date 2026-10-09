@@ -1278,6 +1278,38 @@ a.btn-tiny:hover {
     background: var(--card); /* the always-visible fixed title bar */
   }
 
+  /* the title bar stays full-bleed; only its underline insets half a char
+     (a border can't be shorter than its element, so it becomes a drawn line) */
+  .side-head {
+    position: relative;
+    border-bottom: 0;
+  }
+
+  .side-head::after {
+    content: '';
+    position: absolute;
+    left: 0.5ch;
+    right: 0.5ch;
+    bottom: 0;
+    height: 1px;
+    background: var(--line);
+  }
+
+  /* the underline still fades when the panel closes */
+  .app.nav-off .side-head::after {
+    background: transparent;
+  }
+
+  body.nav-anim .side-head::after {
+    transition: background-color var(--nav-dur) ease;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    body.nav-anim .side-head::after {
+      transition: none;
+    }
+  }
+
   .main {
     padding: 3.5rem 0.5ch 2rem; /* clears the fixed title bar; half a char to the sides */
   }
