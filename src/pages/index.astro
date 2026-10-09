@@ -666,7 +666,11 @@ const authReady = loadSecrets() !== null;
     const node = byPath.get(row.dataset.path!);
     if (!node) return;
     if (node.children !== undefined) {
-      toggleExpanded(node.path);
+      // a plain view-click never collapses: it opens the folder's index and,
+      // if the row is still folded, unfolds it — only the caret (or a repeat
+      // click on a folder already being viewed) flips the tree state
+      if (currentGroup === node.path) toggleExpanded(node.path);
+      else if (!expanded.has(node.path)) expanded.add(node.path);
       selected = node.path;
       renderTree();
       await showGroup(node);
