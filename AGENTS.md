@@ -609,8 +609,8 @@ the view got squashed into it. Padding can't misplace.)**
 }
 .sidebar { position: fixed; top: 0; bottom: 0; left: 0; width: var(--tree-w); z-index: 20; }
 @media (max-width: 900px) {
-  .sidebar { inset: 0; width: auto; border-right: 0; }  /* full-page overlay */
-  .side-head { background: var(--card); }               /* fixed title bar */
+  .sidebar { inset: 0; width: auto; border-right: 0; background: var(--bg); }  /* full-page overlay, page-coloured */
+  .side-head { background: var(--bg); }               /* fixed title bar, page-coloured — no separate bar */
   /* title bar stays full-bleed; its underline is a .side-head::after drawn
      line inset 0.5ch both ends (a border can't be shorter than its element);
      nav-off hides it via background: transparent (the fade transition too) */

@@ -1262,11 +1262,13 @@ a.btn-tiny:hover {
 }
 
 @media (max-width: 900px) {
-  /* the panel expands over the whole page; the title bar is always visible */
+  /* the panel expands over the whole page; the title bar is always visible.
+     Both use the page background — no separate top-bar card, open or closed */
   .sidebar {
     inset: 0;
     width: auto;
     border-right: 0;
+    background: var(--bg);
   }
 
   /* closed: the page scrolls beneath the title bar; only the title is live */
@@ -1275,7 +1277,7 @@ a.btn-tiny:hover {
   }
 
   .side-head {
-    background: var(--card); /* the always-visible fixed title bar */
+    background: var(--bg); /* same as the page — no separate bar */
   }
 
   /* the title bar stays full-bleed; only its underline insets half a char
