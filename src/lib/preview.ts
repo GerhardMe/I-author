@@ -3,8 +3,10 @@
 // render compiled output everywhere except on the cursor's line while focused.
 // Hidden ranges are NOT atomic (only the checkbox is): the cursor traverses raw
 // offsets like in a plain markdown file, and every line it enters reveals raw.
-// A high-precedence ↑/↓ keymap lets the cursor stop inside hidden block widgets
-// (tables, $$…$$ — native vertical motion skips block replaces).
+// Vertical motion is hybrid: a high-precedence ↑/↓ keymap steps a plain
+// source-line cursor whenever it starts inside, or would enter, a block widget
+// (tables, $$…$$ — native vertical motion skips block replaces); everywhere
+// else native wrap-aware motion runs.
 // Widget clicks map back to source positions (a table click lands in the clicked
 // cell). Styles for these JS-created DOM elements live in global.css (Astro
 // scoping wouldn't match dynamically created elements).
@@ -290,14 +292,16 @@ const INLINE_MATH = /(?<![$\\])\$(?!\s)((?:\\.|[^$\n])+?)(?<!\s)\$(?!\$)/g;
 function buildDeco(state: EditorState): {
   deco: DecorationSet;
   atom: DecorationSet;
-  blocks: { from: number; to: number }[]; // hidden block widgets (tables, $$…$$)
+  // table and $$…$$ block ranges (line-aligned), flagged by visibility —
+  // drives the hybrid vertical motion in createPreview
+  blocks: { from: number; to: number; hidden: boolean }[];
 } {
   const doc = state.doc;
   const sel = state.selection.main;
   const focused = state.field(focusField);
   const deco: DecoRange[] = [];
   const atom: DecoRange[] = [];
-  const blocks: { from: number; to: number }[] = [];
+  const blocks: { from: number; to: number; hidden: boolean }[] = [];
   const active = (from: number, to: number): boolean =>
     focused && from <= sel.to && to >= sel.from;
   const hide = (from: number, to: number): void => {
@@ -454,9 +458,9 @@ function buildDeco(state: EditorState): {
             block: true,
           }),
         );
-        blocks.push({ from: blockFrom, to: blockTo });
         for (let k = ti; k < j; k++) skip.add(k);
       }
+      blocks.push({ from: blockFrom, to: blockTo, hidden: !active(blockFrom, blockTo) });
       ti = j;
       continue;
     }
@@ -516,11 +520,14 @@ function buildDeco(state: EditorState): {
           hideWidget(
             blockFrom,
             blockTo,
-            Decoration.replace({ widget: new MathWidget(src, html, true, blockFrom), block: true }),
+            Decoration.replace({
+              widget: new MathWidget(src, html, true, blockFrom),
+              block: true,
+            }),
           );
-          blocks.push({ from: blockFrom, to: blockTo });
         }
       }
+      blocks.push({ from: blockFrom, to: blockTo, hidden: !active(blockFrom, blockTo) });
       for (let k = di; k <= closeLine; k++) skip.add(k);
       di = closeLine + 1;
       continue;
@@ -618,7 +625,7 @@ export function createPreview(onOpenLink: OpenLink): Extension[] {
   const previewField = StateField.define<{
     deco: DecorationSet;
     atom: DecorationSet;
-    blocks: { from: number; to: number }[];
+    blocks: { from: number; to: number; hidden: boolean }[];
   }>({
     create: (s) => buildDeco(s),
     update(_v, tr) {
@@ -629,42 +636,52 @@ export function createPreview(onOpenLink: OpenLink): Extension[] {
     },
   });
 
-  // vertical arrows must be able to STOP inside a hidden block widget (a
-  // rendered table or $$…$$ block): native motion skips block replaces
-  // entirely, landing past them. When the adjacent line is a hidden block,
-  // place the cursor at its inner edge instead — the block reveals raw and
-  // normal motion takes over from there.
-  function arrowIntoBlock(view: EditorView, dir: 1 | -1): boolean {
+  // Hybrid vertical motion. Native moveVertically is pixel-perfect for plain
+  // text (wrapped paragraphs included) but pathological around block widgets:
+  // its coordinate scan skips block replaces entirely and lands unpredictably.
+  // So whenever the cursor starts inside a block's raw source, or would step
+  // into a hidden one, ↑/↓ step a plain source-line cursor over the raw
+  // markdown instead (option A: line-by-line entry); everything else returns
+  // false and native motion runs.
+  const vgoal = new WeakMap<EditorView, { head: number; col: number }>();
+  function arrowStep(view: EditorView, dir: 1 | -1, extend: boolean): boolean {
     const { state } = view;
     const sel = state.selection;
-    if (sel.ranges.length !== 1 || !sel.main.empty) return false;
-    const line = state.doc.lineAt(sel.main.head);
+    if (sel.ranges.length !== 1) return false;
+    const main = sel.main;
+    if (!extend && !main.empty) return false;
+    const line = state.doc.lineAt(main.head);
     const next = line.number + dir;
     if (next < 1 || next > state.doc.lines) return false;
+    const blocks = state.field(previewField).blocks;
+    const inside = blocks.find((b) => b.from <= line.from && line.to <= b.to);
     const target = state.doc.line(next);
-    const hit = state
-      .field(previewField)
-      .blocks.find((b) => b.from <= target.from && b.to >= target.to);
-    if (!hit) return false;
-    const anchor = dir === 1 ? target.from : target.to;
-    // the reveal that follows changes the block's height; the caret sits on
-    // its entry edge (top for ↓ — stable — bottom for ↑ — it rides the height
-    // change and teleports). Pin the caret to its pre-keystroke screen
-    // position by scrolling the difference instead.
-    const before = view.coordsAtPos(sel.main.head);
+    const targetBlock = blocks.find((b) => b.from <= target.from && target.to <= b.to);
+    if (!inside && !(targetBlock && targetBlock.hidden)) return false;
+    // char goal column: persists across consecutive vertical keystrokes,
+    // resets when the cursor last moved by other means
+    const v = vgoal.get(view);
+    const col = v && v.head === main.head ? v.col : main.head - line.from;
+    const anchor = Math.min(target.from + col, target.to);
+    const before = view.coordsAtPos(main.head);
     view.dispatch({
-      selection: { anchor },
+      selection: extend ? { anchor: main.anchor, head: anchor } : { anchor, head: anchor },
       scrollIntoView: true,
     });
+    // the step revealed, re-hid or crossed a block — its height changed and
+    // the caret would ride the layout shift; scroll the difference instead
     pinScreenY(view, anchor, before?.top);
+    vgoal.set(view, { head: anchor, col });
     return true;
   }
 
   return [
     Prec.highest(
       keymap.of([
-        { key: 'ArrowDown', run: (view) => arrowIntoBlock(view, 1) },
-        { key: 'ArrowUp', run: (view) => arrowIntoBlock(view, -1) },
+        { key: 'ArrowDown', run: (v) => arrowStep(v, 1, false) },
+        { key: 'ArrowUp', run: (v) => arrowStep(v, -1, false) },
+        { key: 'Shift-ArrowDown', run: (v) => arrowStep(v, 1, true) },
+        { key: 'Shift-ArrowUp', run: (v) => arrowStep(v, -1, true) },
       ]),
     ),
     markdown({ codeLanguages: languages }),

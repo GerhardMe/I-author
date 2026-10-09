@@ -83,8 +83,15 @@ src/lib/preview.ts   live-preview engine: widgets, buildDeco, focus field, ctrl+
                      link routing (createPreview(onOpenLink)); table HTML memoized;
                      KaTeX math ($…$ inline, $$…$$ display) via MathWidget; hidden
                      ranges are non-atomic (only the checkbox is atomic) so arrows
-                     traverse raw offsets; widget clicks map back to source (table
-                     clicks land in the clicked cell via a per-cell offset map)
+                     traverse raw offsets; VERTICAL motion is hybrid — a
+                     high-precedence ↑/↓ keymap (arrowStep) steps a plain
+                     source-line cursor when it starts inside or would enter a
+                     table/$$ block (native moveVertically pixel-skips block
+                     replaces; char goal column in a WeakMap), everything else
+                     stays native; pinScreenY scroll-compensates reveals so the
+                     caret doesn't ride block height changes; widget clicks map
+                     back to source (table clicks land in the clicked cell via a
+                     per-cell offset map)
 src/lib/sync.ts      chunked-sync engine: unsynced marks, draft store (sessionStorage),
                      push machine (createSync) — dirty-word accumulator + idle push
 src/lib/git.ts       ensureRepo + commit(msg) in WORKS_DIR (server-local, never pushed)
