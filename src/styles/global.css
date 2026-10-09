@@ -862,6 +862,13 @@ a.btn-tiny:hover {
   margin-left: max(0px, calc((100% - var(--measure)) / 2));
 }
 
+/* the folder index rides closer to the left: the BASE inset shrinks to one
+   third — the .toc-sub level indents are relative (1.25rem each) and keep
+   their steps, only the top level sheds two thirds of the inset */
+.doc > .md-body.toc-view {
+  margin-left: max(0px, calc((100% - var(--measure)) / 6));
+}
+
 /* ---------- folder index view (JS-created DOM) ---------- */
 .toc {
   list-style: none;
