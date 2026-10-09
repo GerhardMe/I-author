@@ -229,25 +229,31 @@ nix develop          # everything below assumes this shell
 run                  # astro dev on :4321 (foreground)
 dev                  # detached test server on :4321, all interfaces; idempotent,
                      # log /tmp/iauthor-dev.log — THIS is the owner's test env
-test-auth            # pnpm test (node --experimental-strip-types, node:test)
-build                # production build
+test-auth            # pnpm test — exists for the record; the agent NEVER runs it
+build                # production build — the agent NEVER runs it (deploy does)
 deploy               # push main to GitHub; the server pulls, installs, builds,
                      # restarts and health-checks (see §Deployment) — ONLY on request
 ```
 
-- **Test env always running, deploy only on request** (owner decision 2026-10-09,
-  replacing "minimal local testing, deploy always"). At session start run `scripts/dev`
-  and report the URL(s) it prints — astro dev hot-reloads, so edits are testable the
-  moment they land; never restart it for code changes. After every finished feature or
-  fix: verify with `nix develop -c pnpm test` (+ `pnpm build` when prudent), commit
-  with a SHORT message — but do NOT push/deploy unless the owner asks. The owner tests
-  in the test env (local `~/writing/works`, git repo, real content).
+- **NO TESTING. NEVER.** (owner decision 2026-10-09: "remove ALL testing. I can test.")
+  The agent does NOT run `pnpm test`, `pnpm build`, `scripts/test-auth`, `scripts/build`,
+  lint, typecheck, or ANY verification/smoke/curl command after a change. Zero. Not
+  "when prudent", not "just once", not "because it's cheap". Finish the change, commit
+  with a SHORT message, report, done — broken code is caught by the owner in the test
+  env, and a commit can always be reverted. The ONLY commands beyond file edits the
+  agent runs are `scripts/dev` (keep the test env alive) and git commits.
+- **Test env always running, deploy only on request.** At session start run
+  `scripts/dev` and report the URL(s) it prints — astro dev hot-reloads, so edits are
+  testable the moment they land; never restart it for code changes. The owner tests in
+  the test env (local `~/writing/works`, git repo, real content); the agent never does.
+  Never push or deploy unless the owner explicitly asks.
 - The dev server binds all interfaces; `scripts/dev` sets `IAUTHOR_DOMAINS` to
   `localhost,[::1],<lan-ip>` at startup — a missing IP there means CSRF 403s on POSTs
   from the LAN URL.
 
-- Tests run with `node --experimental-strip-types` — no test framework, no TS features
-  that need transformation (no enums).
+- Tests exist (`node --experimental-strip-types`, no TS features that need
+  transformation — no enums) but running them is the deploy script's and the owner's
+  business, never the agent's.
 - `src/lib/test-setup.ts` must be imported **first** in test files that touch `config.ts`,
   because `WORKS_DIR`/`SECRETS_FILE` are captured at module load.
 - pnpm 10+ blocks build scripts. Since pnpm 12, that config lives in
@@ -433,7 +439,8 @@ migrations won't be undone by deploys.
 - `pnpm test` globs `src/lib/*.test.ts` on purpose. It used to list the three test
   files explicitly, and `pdf.test.ts` was therefore never executed — a whole file of
   passing-looking assertions that no run ever touched. When adding a test file, check
-  the count in the summary actually went up.
+  the count in the summary actually went up. (The agent never runs tests at all —
+  see §Dev workflow: NO TESTING. NEVER.)
 - A bare `run` (astro dev without `--host`) binds `::1` only — test with
   `http://[::1]:4321`. `scripts/dev` passes `--host`, so localhost and the LAN IP
   both work there.
