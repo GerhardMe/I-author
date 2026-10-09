@@ -728,6 +728,7 @@ async function showGroup(node: Node): Promise<void> {
     docBody.hidden = false;
     currentGroup = node.path;
     pdfBtn.hidden = false; // folder scope: pdf compiles the folder
+    applyMeasure(); // the doc just became visible — the clamps need real width
 
     const frag = document.createDocumentFragment();
     const kids = visible(cur.children!);
@@ -806,6 +807,7 @@ async function showGroup(node: Node): Promise<void> {
       }
       editorHost.hidden = false;
       docBody.hidden = true;
+      applyMeasure(); // the doc just became visible — the clamps need real width
       window.scrollTo(0, 0);
     } catch (err) {
       void leavingFile();
@@ -817,6 +819,7 @@ async function showGroup(node: Node): Promise<void> {
       editorHost.hidden = true;
       docBody.hidden = false;
       pdfBtn.hidden = true;
+      applyMeasure(); // the doc just became visible — the clamps need real width
       docBody.innerHTML = `<p class="error">${esc((err as Error).message)}</p>`;
     }
   }
@@ -1266,7 +1269,8 @@ newRow.hidden = true;
   });
 
   window.addEventListener('resize', applyMeasure);
-  applyMeasure(); // apply the memorized measure at load (setNav no longer re-clamps)
+  applyMeasure(); // no-op while the welcome screen hides #doc; real application
+  // happens at the first openFile/showGroup, when the clamps have real width
 
 
   // Renumbering changes MANY paths at once (closing a gap renames every later
