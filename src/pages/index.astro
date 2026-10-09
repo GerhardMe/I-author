@@ -1141,12 +1141,20 @@ newRow.hidden = true;
   // .toc) is pinned to the line's start; the right handle (B, ◀ at the field's
   // right edge) is the ONLY control for the FIELD's width. Constraints: the
   // line can never be narrower than the field, B never leaves the line, the
-  // field floor is 36ch. State is session-only: reload resets to line = full
-  // width, field = 72ch.
+  // field floor is 36ch. State is memorized per browser (localStorage) — the
+  // same measure in every md file, across reloads.
   const mainEl = document.querySelector('.main') as HTMLElement;
   const MIN_FIELD = 36; // ch — the field can never collapse
+  const MEASURE_KEY = 'iauthor.measure';
   let linePx = 0; // px; 0 = default (full content width)
   let fieldPx = 0; // px; 0 = default (72ch)
+  try {
+    const saved = JSON.parse(localStorage.getItem(MEASURE_KEY) ?? '{}');
+    if (typeof saved.linePx === 'number' && saved.linePx > 0) linePx = saved.linePx;
+    if (typeof saved.fieldPx === 'number' && saved.fieldPx > 0) fieldPx = saved.fieldPx;
+  } catch {
+    /* corrupted store = defaults */
+  }
 
   const chProbe = document.createElement('span');
   chProbe.style.cssText = 'position:absolute;visibility:hidden;white-space:pre';
@@ -1175,6 +1183,11 @@ newRow.hidden = true;
     else mainEl.style.removeProperty('--line-w');
     if (fw) mainEl.style.setProperty('--field-w', fw + 'px');
     else mainEl.style.removeProperty('--field-w');
+    try {
+      localStorage.setItem(MEASURE_KEY, JSON.stringify({ linePx, fieldPx }));
+    } catch {
+      /* storage full/blocked: the session still works */
+    }
   }
 
   const measureA = document.createElement('button');

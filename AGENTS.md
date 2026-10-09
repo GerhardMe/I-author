@@ -203,7 +203,9 @@ measure        two handles on .doc-head's underline: A (▶, at the line's START
                once A has made it. `.measure-b`'s left is also CSS-capped at
                min(--field-w, 100%) as a belt-and-braces guarantee. line ≥
                field (72ch default), field ≥ 36ch, both ≤ content width; B can
-               therefore never leave the line. Session-only state ({linePx, fieldPx}, 0 = default);
+               therefore never leave the line. State ({linePx, fieldPx}, 0 = default) is
+               memorized per browser in localStorage (`iauthor.measure`) — the
+               same measure in every md file, across reloads;
                CSS vars --line-w/--field-w on .main; Pointer
                Events + setPointerCapture (HTML5 DnD is dead on touch); arrow
                keys nudge the focused handle by 1ch; resize re-clamps
@@ -671,7 +673,8 @@ KaTeX renders `$…$`/`$$…$$` math in the editor preview (`preview.ts`).
 4.65) adjustable measure — two handles on the header underline: the left one (▶, at the
 line's start) changes only the always-centred line's width (both margins equally), the
 text view rides the line's start, the right one (◀, at the field's right edge) alone
-sets the field's width (36ch floor, line-bound, line ≥ field); session-only state,
+sets the field's width (36ch floor, line-bound, line ≥ field); state persisted
+in localStorage (`iauthor.measure`),
 arrow-key nudge on both handles, touch via Pointer Events + capture ·
 4.7) collapsible tree view — the `I author` title is the only tree toggle (☰ deleted);
 the sidebar is an overlay over the page, and when it is open the markdown view's left
