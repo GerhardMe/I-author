@@ -14,9 +14,10 @@ export const onRequest = defineMiddleware(async (ctx, next) => {
   const secrets = loadSecrets();
 
   if (!secrets) {
-    if (SETUP_PATHS.has(p)) return next();
-    if (p.startsWith('/api/')) return json(ctx, { error: 'not set up' }, 401);
-    return ctx.redirect('/setup');
+    // pre-setup the app is OPEN (owner decision 2026-10-09): nothing exists to
+    // log into yet, so pages and APIs pass; the app shell offers "set up 2FA"
+    // instead of lock/log out until /setup has run
+    return next();
   }
   if (SETUP_PATHS.has(p)) {
     if (p.startsWith('/api/')) return json(ctx, { error: 'already set up' }, 403);

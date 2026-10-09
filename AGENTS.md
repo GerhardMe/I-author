@@ -226,20 +226,25 @@ editor features → `preview.ts`/`sync.ts`, naming → `naming.ts` (pure, both s
 
 ```
 nix develop          # everything below assumes this shell
-run                  # astro dev on :4321
+run                  # astro dev on :4321 (foreground)
+dev                  # detached test server on :4321, all interfaces; idempotent,
+                     # log /tmp/iauthor-dev.log — THIS is the owner's test env
 test-auth            # pnpm test (node --experimental-strip-types, node:test)
 build                # production build
-deploy               # test locally, push main to GitHub; the server pulls, installs,
-                     # builds, restarts and health-checks (see §Deployment)
+deploy               # push main to GitHub; the server pulls, installs, builds,
+                     # restarts and health-checks (see §Deployment) — ONLY on request
 ```
 
-- **Minimal local testing, deploy always.** After every finished feature or fix:
-  commit with a SHORT message, push, and immediately run `scripts/deploy` — the owner
-  tests on the live VPS, never locally. Local verification stops at what `deploy`
-  already runs (`pnpm test` + `pnpm build` inside `nix develop -c`; bare `pnpm`
-  doesn't exist outside the shell); no extra checks, no local servers, no local
-  setup — it wastes time and the local env has no secrets anyway. One deploy per
-  commit; deploying is cheap and expected after every change.
+- **Test env always running, deploy only on request** (owner decision 2026-10-09,
+  replacing "minimal local testing, deploy always"). At session start run `scripts/dev`
+  and report the URL(s) it prints — astro dev hot-reloads, so edits are testable the
+  moment they land; never restart it for code changes. After every finished feature or
+  fix: verify with `nix develop -c pnpm test` (+ `pnpm build` when prudent), commit
+  with a SHORT message — but do NOT push/deploy unless the owner asks. The owner tests
+  in the test env (local `~/writing/works`, git repo, real content).
+- The dev server binds all interfaces; `scripts/dev` sets `IAUTHOR_DOMAINS` to
+  `localhost,[::1],<lan-ip>` at startup — a missing IP there means CSRF 403s on POSTs
+  from the LAN URL.
 
 - Tests run with `node --experimental-strip-types` — no test framework, no TS features
   that need transformation (no enums).
@@ -263,9 +268,16 @@ deploy               # test locally, push main to GitHub; the server pulls, inst
 - Idle lock is **in-memory** (`src/lib/auth/idle.ts`): a token with no entry counts as
   locked — so server restarts lock sessions (PIN re-entry, not full login). `POST /api/lock`
   forces this.
-- Middleware rules: `/setup` reachable only pre-setup; `/api/session` and `/api/logout`
-  always pass; `/api/login` passes (rate-limited inside); everything else needs a valid,
-  non-idle-locked cookie. API requests get JSON 401s; pages get redirects.
+- **Pre-setup the app is OPEN** (owner decision 2026-10-09, identical local/prod):
+  with no secrets file the middleware passes everything — pages, APIs, and `/setup`
+  itself — instead of bouncing to `/setup`; there is nothing to log into yet. The app
+  shell renders a `set up 2FA` link (`/setup`) in the side-foot instead of
+  lock/log out (`authReady` from `loadSecrets()`). The moment `/api/setup` writes
+  secrets, full auth applies (the secrets cache updates on save, no restart).
+- Middleware rules: `/api/session` and `/api/logout` always pass; `/api/login` passes
+  (rate-limited inside); everything else needs a valid, non-idle-locked cookie
+  (skipped entirely pre-setup, see above). API requests get JSON 401s; pages get
+  redirects.
 - **Astro CSRF gotcha**: Astro 403s bodyless POSTs depending on origin normalization.
   All client POSTs must send `content-type: application/json` with a JSON body.
   `security.allowedDomains` is set from `IAUTHOR_DOMAINS` **at build time** (deploy sets it).
@@ -422,7 +434,9 @@ migrations won't be undone by deploys.
   files explicitly, and `pdf.test.ts` was therefore never executed — a whole file of
   passing-looking assertions that no run ever touched. When adding a test file, check
   the count in the summary actually went up.
-- Local dev server binds `::1` — test with `http://[::1]:4321`, not `127.0.0.1`.
+- A bare `run` (astro dev without `--host`) binds `::1` only — test with
+  `http://[::1]:4321`. `scripts/dev` passes `--host`, so localhost and the LAN IP
+  both work there.
 - When verifying UI changes, make sure you're serving the **fresh** dist (stale servers
   from earlier test runs have caused false results). Kill old processes first
   (`pkill -f 'dist/server/entr[y]'` — bracket trick avoids killing your own shell).

@@ -1,5 +1,9 @@
 ---
 import Base from '../layouts/base.astro';
+import { loadSecrets } from '../lib/auth/secrets.ts';
+// pre-setup the app is open and the footer offers the setup path instead of
+// the session buttons (owner decision 2026-10-09 — same behaviour everywhere)
+const authReady = loadSecrets() !== null;
 ---
 <Base title="I author">
   <div class="app">
@@ -22,8 +26,14 @@ import Base from '../layouts/base.astro';
       </div>
       <nav class="tree" id="tree"></nav>
       <div class="side-foot">
-        <button class="btn-tiny" id="lock">lock</button>
-        <button class="btn-tiny" id="logout">log out</button>
+        {authReady ? (
+          <>
+            <button class="btn-tiny" id="lock">lock</button>
+            <button class="btn-tiny" id="logout">log out</button>
+          </>
+        ) : (
+          <a class="btn-tiny" href="/setup">set up 2FA</a>
+        )}
       </div>
     </aside>
     <main class="main">
@@ -1567,8 +1577,8 @@ newRow.hidden = true;
       location.href = url.includes('lock') ? '/login?locked=1' : '/login';
     });
   };
-  document.getElementById('lock')!.addEventListener('click', () => post('/api/lock'));
-  document.getElementById('logout')!.addEventListener('click', () => post('/api/logout'));
+  document.getElementById('lock')?.addEventListener('click', () => post('/api/lock'));
+  document.getElementById('logout')?.addEventListener('click', () => post('/api/logout'));
 
   window.addEventListener('beforeunload', flushDraft);
   document.addEventListener('visibilitychange', () => {

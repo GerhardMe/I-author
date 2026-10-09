@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# detached test server: astro dev on :4321, bound to all interfaces so the
+# owner can open it from this machine or the LAN. Idempotent — if it already
+# runs, just prints the URLs. Log: /tmp/iauthor-dev.log
+set -e
+cd "$(dirname "$0")/.."
+
+up() { curl -sf -o /dev/null http://localhost:4321/api/session; }
+
+if ! up; then
+  lan="$(hostname -I 2>/dev/null | awk '{print $1}')"
+  domains="localhost,[::1]"
+  [ -n "$lan" ] && domains="$domains,$lan"
+  nohup nix develop -c env IAUTHOR_DOMAINS="$domains" pnpm dev --host \
+    >/tmp/iauthor-dev.log 2>&1 &
+  for _ in $(seq 1 60); do
+    up && break
+    sleep 0.5
+  done
+  up || { echo "dev server failed to start — see /tmp/iauthor-dev.log" >&2; exit 1; }
+fi
+
+echo "test server:"
+echo "  http://localhost:4321"
+lan="$(hostname -I 2>/dev/null | awk '{print $1}')"
+[ -n "$lan" ] && echo "  http://$lan:4321"
