@@ -1152,10 +1152,12 @@ newRow.hidden = true;
   // the line's start) changes only its width — both margins move equally, so
   // the line never leaves the centre. The text view (.md-body / #editor-host /
   // .toc) is pinned to the line's start; the right handle (B, ◀ at the field's
-  // right edge) is the ONLY control for the FIELD's width. Constraints: the
-  // line can never be narrower than the field, B never leaves the line, the
-  // field floor is 36ch. State is memorized per browser (localStorage) — the
-  // same measure in every md file, across reloads.
+  // right edge) is the ONLY control for the FIELD's width. Constraints, floor
+  // first: the field never goes below 36ch (ABSOLUTE — no drag and no narrow
+  // line may squash the text), the line can never be narrower than the field
+  // (A stops where the text stops), and B never leaves the line. State is
+  // memorized per browser (localStorage) — the same measure in every md file,
+  // across reloads.
   const mainEl = document.querySelector('.main') as HTMLElement;
   const MIN_FIELD = 36; // ch — the field can never collapse
   const MEASURE_KEY = 'iauthor.measure';
@@ -1185,11 +1187,15 @@ newRow.hidden = true;
     // jailed within it — the topline's width is A's alone, so B can never
     // widen the line or ride off it
     const effLine = linePx ? Math.min(linePx, C) : C;
-    const fw = fieldPx ? Math.min(Math.max(fieldPx, minFw), effLine) : 0;
+    // the field: 36ch floor, ABSOLUTE — no drag and no narrow line may squash
+    // the text below it; above the floor B stays jailed within the line
+    const fw = fieldPx
+      ? Math.min(Math.max(fieldPx, minFw), Math.max(effLine, minFw))
+      : 0;
     const fieldEff = fw || Math.min(ch(72), C);
-    // the line: never below the field, never past the content width;
-    // 0 = default (the 72ch column)
-    const lw = linePx ? Math.max(Math.min(linePx, C), fieldEff) : 0;
+    // the line: the text rides its start, so it can never shrink below the
+    // field — A stops where the text stops; 0 = default (full width)
+    const lw = linePx ? Math.min(Math.max(linePx, fieldEff), C) : 0;
     linePx = lw;
     fieldPx = fw;
     if (lw) mainEl.style.setProperty('--line-w', lw + 'px');

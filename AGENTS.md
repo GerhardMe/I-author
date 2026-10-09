@@ -191,19 +191,17 @@ measure        two handles on .doc-head's underline: A (▶, at the line's START
                line and the field rides its start — the sketch's longer line.
                `--measure` must NOT be named `--line`: that shadows the --line
                colour token and strips every border inside .main (shipped that
-               way once — the topline vanished). Constraints
-               fall out of applyMeasure's clamps — and their ORDER is load-
-               bearing: the field clamps against the CURRENT content width
-               first (36ch floor), then the line clamps ≥ field and ≤ content
-               width; clamping the line first lets a stale (pre-resize) field
-               px force the topline past the viewport, and B rides it off the
-               line. B is additionally jailed within the EFFECTIVE line
-               (72ch when the line is undragged): B can never widen the
-               topline — the topline's width is A's alone, and B only has room
-               once A has made it. `.measure-b`'s left is also CSS-capped at
-               min(--field-w, 100%) as a belt-and-braces guarantee. line ≥
-               field (72ch default), field ≥ 36ch, both ≤ content width; B can
-               therefore never leave the line. State ({linePx, fieldPx}, 0 = default) is
+               way once — the topline vanished).                falls out of applyMeasure's clamps, FLOOR FIRST: the field
+               clamps to the 36ch floor (absolute — no drag and no narrow line
+               may squash the text; the ceiling is max(effLine, minFw), which
+               keeps B jailed within the line above the floor), then the line
+               clamps to [field, content width] — A always stops where the
+               text stops. B can never widen the topline — the topline's
+               width is A's alone, and B only has room once A has made it.
+               `.measure-b`'s left is also CSS-capped at
+               min(--field-w, 100%) as a belt-and-braces guarantee. field ≥
+               36ch, line ≥ field, both ≤ content width; B can therefore
+               never leave the line. State ({linePx, fieldPx}, 0 = default) is
                memorized per browser in localStorage (`iauthor.measure`) — the
                same measure in every md file, across reloads;
                CSS vars --line-w/--field-w on .main; Pointer
