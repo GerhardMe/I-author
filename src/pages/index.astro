@@ -796,7 +796,6 @@ async function showGroup(node: Node): Promise<void> {
     docWords.textContent = `${cur.words ?? 0} words`;
     editorHost.hidden = true;
     docBody.hidden = false;
-    docBody.classList.add('toc-view'); // the index rides 1/3 of the base inset
     currentGroup = node.path;
     pdfBtn.hidden = false; // folder scope: pdf compiles the folder
     applyMeasure(); // the doc just became visible — the clamps need real width
@@ -878,7 +877,6 @@ async function showGroup(node: Node): Promise<void> {
       }
       editorHost.hidden = false;
       docBody.hidden = true;
-      docBody.classList.remove('toc-view');
       applyMeasure(); // the doc just became visible — the clamps need real width
       window.scrollTo(0, 0);
     } catch (err) {
@@ -890,7 +888,6 @@ async function showGroup(node: Node): Promise<void> {
       docTitle.classList.remove('draft');
       editorHost.hidden = true;
       docBody.hidden = false;
-      docBody.classList.remove('toc-view');
       pdfBtn.hidden = true;
       applyMeasure(); // the doc just became visible — the clamps need real width
       docBody.innerHTML = `<p class="error">${esc((err as Error).message)}</p>`;
