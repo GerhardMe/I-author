@@ -83,19 +83,13 @@ src/lib/preview.ts   live-preview engine: widgets, buildDeco, focus field, ctrl+
                      link routing (createPreview(onOpenLink)); table HTML memoized;
                      KaTeX math ($…$ inline, $$…$$ display) via MathWidget; hidden
                      ranges are non-atomic (only the checkbox is atomic) so arrows
-                     traverse raw offsets; VERTICAL motion is hybrid — a
-                     high-precedence ↑/↓ keymap (arrowStep) steps a plain
-                     source-line cursor when it starts inside or would enter a
-                     table/$$ block (native moveVertically pixel-skips block
-                     replaces; char indent in a WeakMap, carried across native
-                     vertical moves (over blank lines), cleared on non-vertical
-                     selection changes; block coverage is strict — a blank line
-                     after a block is regular text (b.to is also that line's
-                     from)), everything else
-                     stays native; pinScreenY scroll-compensates reveals so the
-                     caret doesn't ride block height changes; widget clicks map
-                     back to source (table clicks land in the clicked cell via a
-                     per-cell offset map)
+                     traverse raw offsets; ↑/↓ are a plain source-line cursor
+                     (arrowStep, Prec.highest): one file line per keystroke, char
+                     indent in a WeakMap cleared by any non-arrow selection
+                     change; no pixel/measure machinery — the reveal on entry
+                     just shifts layout around a scrollIntoView'd caret; widget
+                     clicks map back to source (table clicks land in the clicked
+                     cell via a per-cell offset map)
 src/lib/sync.ts      chunked-sync engine: unsynced marks, draft store (sessionStorage),
                      push machine (createSync) — dirty-word accumulator + idle push
 src/lib/git.ts       ensureRepo + commit(msg) in WORKS_DIR (server-local, never pushed)

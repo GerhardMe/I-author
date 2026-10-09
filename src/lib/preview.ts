@@ -3,10 +3,8 @@
 // render compiled output everywhere except on the cursor's line while focused.
 // Hidden ranges are NOT atomic (only the checkbox is): the cursor traverses raw
 // offsets like in a plain markdown file, and every line it enters reveals raw.
-// Vertical motion is hybrid: a high-precedence ↑/↓ keymap steps a plain
-// source-line cursor whenever it starts inside, or would enter, a block widget
-// (tables, $$…$$ — native vertical motion skips block replaces); everywhere
-// else native wrap-aware motion runs.
+// ↑/↓ are a plain source-line cursor over the raw markdown — one file line per
+// keystroke, char indent carried between lines; no pixel motion anywhere.
 // Widget clicks map back to source positions (a table click lands in the clicked
 // cell). Styles for these JS-created DOM elements live in global.css (Astro
 // scoping wouldn't match dynamically created elements).
@@ -113,7 +111,6 @@ class ImgWidget extends WidgetType {
         selection: { anchor: this.pos },
         effects: EditorView.scrollIntoView(this.pos, { y: 'nearest' }),
       });
-      pinScreenY(view, this.pos, e.clientY);
       view.focus();
     });
     return img;
@@ -207,7 +204,6 @@ class TableWidget extends WidgetType {
         selection: { anchor: pos },
         effects: EditorView.scrollIntoView(pos, { y: 'nearest' }),
       });
-      pinScreenY(view, pos, e.clientY); // the clicked cell stays under the cursor
       view.focus();
     });
     return wrap;
@@ -240,7 +236,6 @@ class MathWidget extends WidgetType {
         selection: { anchor: this.pos },
         effects: EditorView.scrollIntoView(this.pos, { y: 'nearest' }),
       });
-      pinScreenY(view, this.pos, e.clientY);
       view.focus();
     });
     return el;
@@ -249,25 +244,6 @@ class MathWidget extends WidgetType {
 
 // ---------- decoration build ----------
 export type OpenLink = (href: string) => boolean;
-
-// keep a position at the same viewport height across a raw reveal — revealing
-// (or hiding) a block widget changes the block's height, and a cursor pinned
-// to its entry edge would otherwise ride the layout shift. Measured in CM's
-// measure phase: right after the dispatch the revealed lines have no heights
-// yet, and a synchronous read returns garbage — the "correction" itself
-// scrolled the view to the top.
-function pinScreenY(view: EditorView, pos: number, y: number | undefined): void {
-  if (y === undefined) return;
-  view.requestMeasure({
-    read: (v) => {
-      const rect = v.coordsAtPos(pos);
-      return rect ? rect.top - y : null;
-    },
-    write: (delta) => {
-      if (delta) view.scrollDOM.scrollTop += delta;
-    },
-  });
-}
 
 // table HTML memo: raw block text → compiled html; cleared whenever the doc changes
 let tableMemo = new Map<string, string>();
@@ -302,16 +278,12 @@ const INLINE_MATH = /(?<![$\\])\$(?!\s)((?:\\.|[^$\n])+?)(?<!\s)\$(?!\$)/g;
 function buildDeco(state: EditorState): {
   deco: DecorationSet;
   atom: DecorationSet;
-  // table and $$…$$ block ranges (line-aligned), flagged by visibility —
-  // drives the hybrid vertical motion in createPreview
-  blocks: { from: number; to: number; hidden: boolean }[];
 } {
   const doc = state.doc;
   const sel = state.selection.main;
   const focused = state.field(focusField);
   const deco: DecoRange[] = [];
   const atom: DecoRange[] = [];
-  const blocks: { from: number; to: number; hidden: boolean }[] = [];
   const active = (from: number, to: number): boolean =>
     focused && from <= sel.to && to >= sel.from;
   const hide = (from: number, to: number): void => {
@@ -470,7 +442,6 @@ function buildDeco(state: EditorState): {
         );
         for (let k = ti; k < j; k++) skip.add(k);
       }
-      blocks.push({ from: blockFrom, to: blockTo, hidden: !active(blockFrom, blockTo) });
       ti = j;
       continue;
     }
@@ -537,7 +508,6 @@ function buildDeco(state: EditorState): {
           );
         }
       }
-      blocks.push({ from: blockFrom, to: blockTo, hidden: !active(blockFrom, blockTo) });
       for (let k = di; k <= closeLine; k++) skip.add(k);
       di = closeLine + 1;
       continue;
@@ -627,16 +597,11 @@ function buildDeco(state: EditorState): {
   return {
     deco: RangeSet.of(deco, true),
     atom: RangeSet.of(atom, true),
-    blocks,
   };
 }
 
 export function createPreview(onOpenLink: OpenLink): Extension[] {
-  const previewField = StateField.define<{
-    deco: DecorationSet;
-    atom: DecorationSet;
-    blocks: { from: number; to: number; hidden: boolean }[];
-  }>({
+  const previewField = StateField.define<{ deco: DecorationSet; atom: DecorationSet }>({
     create: (s) => buildDeco(s),
     update(_v, tr) {
       if (tr.docChanged) invalidatePreviewMemo();
@@ -646,15 +611,11 @@ export function createPreview(onOpenLink: OpenLink): Extension[] {
     },
   });
 
-  // Hybrid vertical motion. Native moveVertically is pixel-perfect for plain
-  // text (wrapped paragraphs included) but pathological around block widgets:
-  // its coordinate scan skips block replaces entirely and lands unpredictably.
-  // So whenever the cursor starts inside a block's raw source, or would step
-  // into a hidden one, ↑/↓ step a plain source-line cursor over the raw
-  // markdown instead (option A: line-by-line entry); everything else returns
-  // false and native motion runs. vgoal is the char indent carried between
-  // blobs: arrowStep keeps it, the update listener below preserves it across
-  // native vertical moves (over blank lines) and drops it on everything else.
+  // ↑/↓ are a plain source-line cursor over the raw markdown: one file line
+  // per keystroke, char indent carried between lines (vgoal), clamped to the
+  // target line's end. No pixel motion, no block-widget special cases — the
+  // reveal on entry just happens around the caret (scrollIntoView keeps it
+  // visible). Multi-cursor and doc boundaries fall through to native (no-ops).
   const vgoal = new WeakMap<EditorView, number>();
   function arrowStep(view: EditorView, dir: 1 | -1, extend: boolean): boolean {
     const { state } = view;
@@ -665,26 +626,13 @@ export function createPreview(onOpenLink: OpenLink): Extension[] {
     const line = state.doc.lineAt(main.head);
     const next = line.number + dir;
     if (next < 1 || next > state.doc.lines) return false;
-    const blocks = state.field(previewField).blocks;
-    // a line belongs to a block only when its content starts strictly inside
-    // the range: b.to (the end of the block's last line) is ALSO the first
-    // position of the blank line below the block — that line is regular text
-    const covered = (l: { from: number; to: number }) =>
-      blocks.find((b) => b.from <= l.from && l.from < b.to && l.to <= b.to);
-    const inside = covered(line);
     const target = state.doc.line(next);
-    const targetBlock = covered(target);
-    if (!inside && !(targetBlock && targetBlock.hidden)) return false;
     const col = vgoal.get(view) ?? main.head - line.from;
-    const anchor = Math.min(target.from + col, target.to);
-    const before = view.coordsAtPos(main.head);
+    const head = Math.min(target.from + col, target.to);
     view.dispatch({
-      selection: extend ? { anchor: main.anchor, head: anchor } : { anchor, head: anchor },
+      selection: extend ? { anchor: main.anchor, head } : { anchor: head, head },
       scrollIntoView: true,
     });
-    // the step revealed, re-hid or crossed a block — its height changed and
-    // the caret would ride the layout shift; scroll the difference instead
-    pinScreenY(view, anchor, before?.top);
     vgoal.set(view, col);
     return true;
   }
@@ -698,21 +646,11 @@ export function createPreview(onOpenLink: OpenLink): Extension[] {
         { key: 'Shift-ArrowUp', run: (v) => arrowStep(v, -1, true) },
       ]),
     ),
-    // indent memory for arrowStep: native vertical moves carry a pixel
-    // goalColumn — when one starts from a populated line, remember that
-    // line's char column (blank starting lines would record 0); any other
-    // selection change (click, horizontal move, typing) clears it
+    // indent memory: any selection change that isn't arrowStep's own dispatch
+    // (click, horizontal move, typing) clears it — arrowStep re-sets it right
+    // after its dispatch, so its indent survives
     EditorView.updateListener.of((u) => {
-      if (!u.selectionSet) return;
-      const main = u.state.selection.main;
-      if (main.goalColumn == null) {
-        vgoal.delete(view);
-        return;
-      }
-      if (vgoal.has(view)) return;
-      const prev = u.startState.selection.main;
-      const prevLine = u.startState.doc.lineAt(prev.head);
-      if (prevLine.text.trim()) vgoal.set(view, prev.head - prevLine.from);
+      if (u.selectionSet) vgoal.delete(view);
     }),
     markdown({ codeLanguages: languages }),
     focusField,
