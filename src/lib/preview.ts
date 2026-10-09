@@ -3,12 +3,15 @@
 // render compiled output everywhere except on the cursor's line while focused.
 // Hidden ranges are NOT atomic (only the checkbox is): the cursor traverses raw
 // offsets like in a plain markdown file, and every line it enters reveals raw.
+// A high-precedence ↑/↓ keymap lets the cursor stop inside hidden block widgets
+// (tables, $$…$$ — native vertical motion skips block replaces).
 // Widget clicks map back to source positions (a table click lands in the clicked
 // cell). Styles for these JS-created DOM elements live in global.css (Astro
 // scoping wouldn't match dynamically created elements).
 import { marked } from 'marked';
 import {
   EditorState,
+  Prec,
   StateEffect,
   StateField,
   RangeSet,
@@ -17,6 +20,7 @@ import {
 import {
   EditorView,
   Decoration,
+  keymap,
   type DecorationSet,
   WidgetType,
 } from '@codemirror/view';
@@ -274,12 +278,14 @@ const INLINE_MATH = /(?<![$\\])\$(?!\s)((?:\\.|[^$\n])+?)(?<!\s)\$(?!\$)/g;
 function buildDeco(state: EditorState): {
   deco: DecorationSet;
   atom: DecorationSet;
+  blocks: { from: number; to: number }[]; // hidden block widgets (tables, $$…$$)
 } {
   const doc = state.doc;
   const sel = state.selection.main;
   const focused = state.field(focusField);
   const deco: DecoRange[] = [];
   const atom: DecoRange[] = [];
+  const blocks: { from: number; to: number }[] = [];
   const active = (from: number, to: number): boolean =>
     focused && from <= sel.to && to >= sel.from;
   const hide = (from: number, to: number): void => {
@@ -436,6 +442,7 @@ function buildDeco(state: EditorState): {
             block: true,
           }),
         );
+        blocks.push({ from: blockFrom, to: blockTo });
         for (let k = ti; k < j; k++) skip.add(k);
       }
       ti = j;
@@ -499,6 +506,7 @@ function buildDeco(state: EditorState): {
             blockTo,
             Decoration.replace({ widget: new MathWidget(src, html, true, blockFrom), block: true }),
           );
+          blocks.push({ from: blockFrom, to: blockTo });
         }
       }
       for (let k = di; k <= closeLine; k++) skip.add(k);
@@ -590,11 +598,16 @@ function buildDeco(state: EditorState): {
   return {
     deco: RangeSet.of(deco, true),
     atom: RangeSet.of(atom, true),
+    blocks,
   };
 }
 
 export function createPreview(onOpenLink: OpenLink): Extension[] {
-  const previewField = StateField.define<{ deco: DecorationSet; atom: DecorationSet }>({
+  const previewField = StateField.define<{
+    deco: DecorationSet;
+    atom: DecorationSet;
+    blocks: { from: number; to: number }[];
+  }>({
     create: (s) => buildDeco(s),
     update(_v, tr) {
       if (tr.docChanged) invalidatePreviewMemo();
@@ -604,7 +617,37 @@ export function createPreview(onOpenLink: OpenLink): Extension[] {
     },
   });
 
+  // vertical arrows must be able to STOP inside a hidden block widget (a
+  // rendered table or $$…$$ block): native motion skips block replaces
+  // entirely, landing past them. When the adjacent line is a hidden block,
+  // place the cursor at its inner edge instead — the block reveals raw and
+  // normal motion takes over from there.
+  function arrowIntoBlock(view: EditorView, dir: 1 | -1): boolean {
+    const { state } = view;
+    const sel = state.selection;
+    if (sel.ranges.length !== 1 || !sel.main.empty) return false;
+    const line = state.doc.lineAt(sel.main.head);
+    const next = line.number + dir;
+    if (next < 1 || next > state.doc.lines) return false;
+    const target = state.doc.line(next);
+    const hit = state
+      .field(previewField)
+      .blocks.find((b) => b.from <= target.from && b.to >= target.to);
+    if (!hit) return false;
+    view.dispatch({
+      selection: { anchor: dir === 1 ? target.from : target.to },
+      scrollIntoView: true,
+    });
+    return true;
+  }
+
   return [
+    Prec.highest(
+      keymap.of([
+        { key: 'ArrowDown', run: (view) => arrowIntoBlock(view, 1) },
+        { key: 'ArrowUp', run: (view) => arrowIntoBlock(view, -1) },
+      ]),
+    ),
     markdown({ codeLanguages: languages }),
     focusField,
     previewField,
