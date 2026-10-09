@@ -387,12 +387,6 @@ input:-webkit-autofill {
   min-height: 100svh;
 }
 
-@media (min-width: 901px) {
-  .main {
-    padding-left: calc(var(--tree-w) + clamp(1rem, 8vw, 10rem)); /* static docked margin */
-  }
-}
-
 .sidebar {
   border-right: 1px solid var(--line);
   background: var(--card);
@@ -751,6 +745,16 @@ body.nav-anim .toolbar {
      NOT named --line: that would shadow the --line colour token and strip
      every border inside .main */
   --measure: min(var(--line-w, 100%), 100%);
+}
+
+@media (min-width: 901px) {
+  /* static docked margin: ALWAYS present on desktop, independent of the tree
+     (owner decision 2026-10-09). Lives after the base rule so its padding-left
+     wins the cascade — a media query earlier in the file was overridden by the
+     base shorthand and the view silently re-centred. */
+  .main {
+    padding-left: calc(var(--tree-w) + clamp(1rem, 8vw, 10rem));
+  }
 }
 
 /* ---------- adjustable measure ----------
