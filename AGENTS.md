@@ -210,15 +210,13 @@ measure        two handles on .doc-head's underline: A (▶, at the line's START
                Events + setPointerCapture (HTML5 DnD is dead on touch); arrow
                keys nudge the focused handle by 1ch; resize re-clamps
 setNav(open)   the ONLY nav mutator (4.7): toggles .app.nav-off, aria-expanded
-               on the brand button, inert on tree/new-row/toolbar/side-foot,
-               then
-               applyMeasure() (the docked track changes the content width).
-               The brand click toggles (slideNav: adds .measure-slide for a
-               0.15s padding-left slide, drops it ~200ms later); Escape closes
-               (unless the create dialog or a menu is open); a mobile tree-row
-               click closes. The sidebar is an overlay; the docked margin is
-               static padding on .main (no animation — a grid track misplaced
-               the view, see §Shipped above)
+               on the brand button, inert on tree/new-row/toolbar/side-foot.
+               The brand click toggles; Escape closes (unless the create
+               dialog or a menu is open); a mobile tree-row click closes.
+               The sidebar is an overlay; the docked margin is STATIC padding
+               on .main, independent of the nav state — nothing moves when
+               the tree hides or shows (no slide, applyMeasure not called —
+               a grid track misplaced the view, see §Shipped above)
 ```
 
 Where a change goes: data/files → `works.ts`, UI shell → `index.astro`,
@@ -552,18 +550,14 @@ Verified against the source (2026-10-04) and **all resolved** — each with a de
 ## Shipped: collapsible tree view (milestone 4.7, 2026-10-06)
 
 The `I author` brand is a `<button>` and the only way to show/hide the tree; the ☰
-hamburger (`#menu-btn`) is deleted outright. **Owner decision (2026-10-06, after the
-docked/focus slide fought the 4.65 measure twice): the sidebar is a fixed overlay, and
-the docked/focus distinction is a STATIC jump — when the tree is open, the markdown
-view's left padding statically widens by the tree width (`@media (min-width: 901px)
-.app:not(.nav-off) .main { padding-left: calc(var(--tree-w) + clamp(1rem, 8vw, 10rem)) }`),
-so the view lives in the smaller container the margin leaves; when the tree is
-minimised, the container takes the whole screen. On USER TOGGLES the jump gets a
-brief slide (`.main.measure-slide`: `transition: padding-left 0.15s ease-out`, class
-added by `slideNav()` and dropped ~200 ms later so drags/measure changes never lag;
-boot's initial `setNav` never slides). `setNav` calls `applyMeasure()` so dragged
-measure px re-clamp against the new content width. (A grid track was tried first: the
-fixed sidebar is out of flow, so `.main` auto-placed into the tree's own 18rem track —
+hamburger (`#menu-btn`) is deleted outright. **Owner decision (2026-10-09, simplifying
+the 2026-10-06 docked jump): the sidebar is a fixed overlay, and the markdown view keeps
+ONE static left margin regardless of the tree — `@media (min-width: 901px)
+.main { padding-left: calc(var(--tree-w) + clamp(1rem, 8vw, 10rem)) }` is unconditional,
+so nothing moves when the tree hides or shows (no slide, no `.measure-slide`, no
+`applyMeasure()` in `setNav` — the content width no longer changes with the nav; the
+measure re-clamps on window resize only). (A grid track was tried first on 2026-10-06:
+the fixed sidebar is out of flow, so `.main` auto-placed into the tree's own 18rem track —
 the view got squashed into it. Padding can't misplace.)**
 
 - **desktop** — click the title → tree, drafts toggle, new-row and the lock/log-out row
@@ -580,7 +574,7 @@ the view got squashed into it. Padding can't misplace.)**
 ```css
 .app { display: grid; grid-template-columns: 1fr; min-height: 100svh; }
 @media (min-width: 901px) {
-  .app:not(.nav-off) .main { padding-left: calc(var(--tree-w) + clamp(1rem, 8vw, 10rem)); }
+  .main { padding-left: calc(var(--tree-w) + clamp(1rem, 8vw, 10rem)); }
 }
 .sidebar { position: fixed; top: 0; bottom: 0; left: 0; width: var(--tree-w); z-index: 20; }
 @media (max-width: 900px) {
@@ -597,8 +591,8 @@ margins) and the field's CSS-derived inset (`margin-left: max(0px, calc((100% - 
 so by default the underline spans the whole markdown area, the field rests at 72ch on the
 line's start and B sits at 72ch (not far right). Dragging A widens or narrows the line
 symmetrically (the field rides the line's start, B moves with it), B sizes the field
-within the line. Toggling the tree changes the container width (0.15s slide on user
-toggles) and `applyMeasure()` re-clamps.
+within the line. The measure re-clamps on window resize only (the nav state no longer
+changes the container width).
 
 ### Collapsed = pointer-transparent
 
@@ -677,8 +671,8 @@ sets the field's width (36ch floor, line-bound, line ≥ field); state persisted
 in localStorage (`iauthor.measure`),
 arrow-key nudge on both handles, touch via Pointer Events + capture ·
 4.7) collapsible tree view — the `I author` title is the only tree toggle (☰ deleted);
-the sidebar is an overlay over the page, and when it is open the markdown view's left
-padding statically widens by the tree width (see §Shipped: collapsible tree view above);
+the sidebar is an overlay over the page, and the markdown view keeps ONE static left
+margin regardless of the tree (see §Shipped: collapsible tree view above);
 mobile expands the tree over the page and starts hidden.
 
 Numbering rework, phase 1 (shipped): printed numbers are positional among same-kind

@@ -1256,6 +1256,7 @@ newRow.hidden = true;
   });
 
   window.addEventListener('resize', applyMeasure);
+  applyMeasure(); // apply the memorized measure at load (setNav no longer re-clamps)
 
 
   // Renumbering changes MANY paths at once (closing a gap renames every later
@@ -1588,16 +1589,6 @@ newRow.hidden = true;
   const navMq = window.matchMedia('(max-width: 900px)');
   const narrow = (): boolean => navMq.matches;
   const navOpen = (): boolean => !appEl.classList.contains('nav-off');
-  let slideTimer = 0;
-
-  // the docked jump gets a brief slide; the class drops right after it plays,
-  // so drags and measure changes never lag behind a running transition
-  function slideNav(open: boolean): void {
-    mainEl.classList.add('measure-slide');
-    clearTimeout(slideTimer);
-    slideTimer = setTimeout(() => mainEl.classList.remove('measure-slide'), 200);
-    setNav(open);
-  }
 
   function setNav(open: boolean): void {
     if (!open && newOpen) return; // the create dialog lives inside the panel
@@ -1607,16 +1598,15 @@ newRow.hidden = true;
       if (open) el.removeAttribute('inert');
       else el.setAttribute('inert', ''); // Tab skips the hidden parts
     }
-    applyMeasure(); // the docked margin changes the content width — re-clamp
   }
 
-  brand.addEventListener('click', () => slideNav(!navOpen()));
+  brand.addEventListener('click', () => setNav(!navOpen()));
 
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape' || !navOpen()) return;
     // menus and the create dialog get Escape first
     if (newOpen || !ctxMenu.hidden || !pdfMenu.hidden) return;
-    slideNav(false);
+    setNav(false);
   });
 
   navMq.addEventListener('change', (e) => {

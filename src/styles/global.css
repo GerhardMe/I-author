@@ -370,13 +370,12 @@ input:-webkit-autofill {
 }
 
 /* ---------- app shell ----------
-   The tree toggles via the title alone (4.7). The sidebar is a fixed overlay,
-   but when it is OPEN the markdown view's left padding statically widens by
-   the tree width (owner decision, 2026-10-06): the view lives in the smaller
-   container that the margin leaves and takes the whole screen when the tree
-   is minimised. No animation — the jump is instant. (A grid track was tried
-   first, but the fixed sidebar is out of flow, so .main auto-placed into the
-   tree's own track — the view got squashed into it. Padding can't misplace.) */
+   The tree toggles via the title alone (4.7). The sidebar is a fixed overlay;
+   the markdown view keeps ONE static left margin regardless of the tree
+   (owner decision, 2026-10-09): nothing moves when the tree hides or shows.
+   (A grid track was tried first, but the fixed sidebar is out of flow, so
+   .main auto-placed into the tree's own track — the view got squashed into
+   it. Padding can't misplace.) */
 :root {
   --nav-dur: 0.2s;
   --tree-w: 18rem;
@@ -389,16 +388,9 @@ input:-webkit-autofill {
 }
 
 @media (min-width: 901px) {
-  .app:not(.nav-off) .main {
+  .main {
     padding-left: calc(var(--tree-w) + clamp(1rem, 8vw, 10rem)); /* static docked margin */
   }
-}
-
-/* the docked jump animates only on toggle: setNav adds .measure-slide and
-   drops it right after the transition, so drags and measure changes never
-   lag behind a running transition */
-.main.measure-slide {
-  transition: padding-left 0.15s ease-out;
 }
 
 .sidebar {
@@ -462,8 +454,7 @@ body.nav-anim .toolbar {
   body.nav-anim .tree,
   body.nav-anim .new-row,
   body.nav-anim .side-foot,
-  body.nav-anim .toolbar,
-  .main.measure-slide {
+  body.nav-anim .toolbar {
     transition: none;
   }
 }
