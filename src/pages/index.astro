@@ -39,18 +39,22 @@ const authReady = loadSecrets() !== null;
     <main class="main">
       <div class="empty" id="empty">Select a chapter, or create your first work.</div>
       <article class="doc" id="doc" hidden>
-        <header class="doc-head" title="click to edit the file name">
-          <h1 id="doc-title"></h1>
-          <input id="doc-rename" class="doc-rename" hidden autocomplete="off" spellcheck="false" />
-        <div class="doc-meta">
-            <span class="chip" id="doc-draft" hidden>(draft)</span>
-            <span class="chip" id="doc-words"></span>
-            <button class="btn-tiny pdf-btn" id="pdf-toggle" hidden
-                    title="pdf — compile this scope, right-click for sizes">pdf</button>
+        <!-- ONE centred column: the topline wraps it, the content rides its
+             start — any inset change lands on .doc-col and the line follows -->
+        <div class="doc-col">
+          <header class="doc-head" title="click to edit the file name">
+            <h1 id="doc-title"></h1>
+            <input id="doc-rename" class="doc-rename" hidden autocomplete="off" spellcheck="false" />
+          <div class="doc-meta">
+              <span class="chip" id="doc-draft" hidden>(draft)</span>
+              <span class="chip" id="doc-words"></span>
+              <button class="btn-tiny pdf-btn" id="pdf-toggle" hidden
+                      title="pdf — compile this scope, right-click for sizes">pdf</button>
+          </div>
+          </header>
+          <div class="md-body" id="doc-body" hidden></div>
+          <div id="editor-host" hidden></div>
         </div>
-        </header>
-        <div class="md-body" id="doc-body" hidden></div>
-        <div id="editor-host" hidden></div>
       </article>
     </main>
   </div>
@@ -1220,9 +1224,11 @@ newRow.hidden = true;
   // ---------- adjustable measure: two handles on the header underline ----------
   // The LINE (.doc-head's border) is always centred: the left handle (A, ▶ at
   // the line's start) changes only its width — both margins move equally, so
-  // the line never leaves the centre. The text view (.md-body / #editor-host /
-  // .toc) is pinned to the line's start; the right handle (B, ◀ at the field's
-  // right edge) is the ONLY control for the FIELD's width. Constraints, floor
+  // the line never leaves the centre. The LINE WRAPS the content: one centred
+  // .doc-col column, the topline spans it and the text view (.md-body /
+  // #editor-host / .toc) rides its start by structure; the right handle (B,
+  // ◀ at the field's right edge) is the ONLY control for the FIELD's width.
+  // Constraints, floor
   // first: the field never goes below 36ch (ABSOLUTE — no drag and no narrow
   // line may squash the text), the line can never be narrower than the field
   // (A stops where the text stops), and B never leaves the line. State is

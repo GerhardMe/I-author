@@ -775,14 +775,22 @@ a.btn-tiny:hover {
 }
 
 /* ---------- adjustable measure ----------
-   The line (.doc-head's border) is always centred: the left handle only
-   changes its width, both margins move equally. The text view is pinned to
-   the line's start; its width is owned by the right handle alone. */
+   ONE centred column (.doc-col) owns the geometry: the LINE (.doc-head's
+   border) wraps the column, so the line is always above the content it
+   labels — never an independent element that can desync. The left handle (A,
+   ▶ at the line's start) changes only the column's width, both margins move
+   equally, so the line never leaves the centre. The text view (.md-body /
+   #editor-host / .toc) rides the column's start BY STRUCTURE (no inset
+   formula); its width is owned by the right handle alone. */
+.doc-col {
+  width: var(--measure); /* the line — centred by the auto margins */
+  margin-inline: auto;
+}
+
 .doc-head {
   font-size: 1rem; /* page-text scale: h1 in em tracks the # heading size */
   position: relative; /* anchors the measure handles on the underline */
-  width: var(--measure); /* the line — centred by the auto margins */
-  margin-inline: auto;
+  width: 100%; /* the line wraps the column */
   display: flex;
   align-items: baseline;
   justify-content: space-between;
@@ -850,16 +858,15 @@ a.btn-tiny:hover {
   color: var(--muted);
 }
 
-/* the text view (field): pinned to the line's start, width owned by B.
-   Geometry applies to the direct children of .doc only — nested .md-body
-   (toc-notes) lives inside the field and must not re-apply it. The inset is
-   derived in CSS ((100% − line)/2) rather than set from JS, so it stays live
-   while the nav track animates and can never go stale; max(0px) guards a
-   stale --line-w wider than the viewport. */
-.doc > .md-body,
-.doc > #editor-host {
-  width: min(var(--field-w, 72ch), calc((100% + var(--measure)) / 2), 100%);
-  margin-left: max(0px, calc((100% - var(--measure)) / 2));
+/* the text view (field): rides the column's start BY STRUCTURE (both are
+   .doc-col children — no inset formula exists to desync), width owned by B.
+   Geometry applies to the direct .doc-col children only — nested .md-body
+   (toc-notes) lives inside the field and must not re-apply it. The 100%
+   ceiling also jails the field inside the column (applyMeasure clamps it to
+   the line, this is the belt-and-braces CSS guarantee). */
+.doc-col > .md-body,
+.doc-col > #editor-host {
+  width: min(var(--field-w, 72ch), 100%);
 }
 
 /* ---------- folder index view (JS-created DOM) ---------- */

@@ -182,14 +182,17 @@ rename         header click (except buttons) → raw-name editor → commitRenam
 measure        two handles on .doc-head's underline: A (▶, at the line's START)
                changes only the LINE's width — the line is always centred, both
                margins move equally (lineW = from − 2·dx, handle rides 1:1);
-               the field (.doc > .md-body / #editor-host) is pinned to the
-               line's start (--field-inset is derived IN CSS as
-               max(0px, (100% − line)/2) so it stays live and can never go
-               stale) and B (◀, positioned
+               the LINE WRAPS the content: one centred `.doc-col` column, the
+               topline spans it and the field (.doc-col > .md-body /
+               #editor-host) rides the column's start BY STRUCTURE — no inset
+               formula exists (a content-side inset once desynced the topline,
+               shipped and reverted 2026-10-09); B (◀, positioned
                at left: min(var(--field-w), 100%)) is the ONLY width
-               control. Both triangles are the buttons themselves (clip-path, so the
-               hover/click area is the triangular shape and the apex sits
-               exactly on its anchor); `font: inherit` on the handle is load-
+               control. Both triangles are the buttons themselves (clip-path,
+               so the hover/click area is the triangular shape and the apex
+               sits exactly on its anchor — offset 0.1ch inward so the apex
+               stays on the line at max width); `font: inherit` on the handle
+               is load-
                bearing — without it B's 72ch fallback resolves against the
                button's UA font and the handle teleports on first grab. Hover
                brightens the triangle only, no tint box.
@@ -614,11 +617,10 @@ the view got squashed into it. Padding can't misplace.)**
 
 `.main` keeps its fluid width and the `clamp` padding. The measure (4.65) lives inside it
 and is **independent of the nav state**: the resting geometry is a FULL-width line —
-`--measure = min(var(--line-w, 100%), 100%)` drives `.doc-head` (the line, centred by auto
-margins) and the field's CSS-derived inset (`margin-left: max(0px, calc((100% - var(--measure)) / 2))`),
-so by default the underline spans the whole markdown area, the field rests at 72ch on the
-line's start and B sits at 72ch (not far right). Dragging A widens or narrows the line
-symmetrically (the field rides the line's start, B moves with it), B sizes the field
+`--measure = min(var(--line-w, 100%), 100%)` sizes ONE centred `.doc-col` column; the
+topline (`.doc-head`) spans it and the field rests at 72ch on the
+column's start, B at 72ch (not far right). Dragging A widens or narrows the line
+symmetrically (the field rides the column's start, B moves with it), B sizes the field
 within the line. The measure re-clamps on window resize only (the nav state no longer
 changes the container width).
 
