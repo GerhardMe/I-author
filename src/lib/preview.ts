@@ -111,6 +111,7 @@ class ImgWidget extends WidgetType {
         selection: { anchor: this.pos },
         effects: EditorView.scrollIntoView(this.pos, { y: 'nearest' }),
       });
+      pinScreenY(view, this.pos, e.clientY);
       view.focus();
     });
     return img;
@@ -204,6 +205,7 @@ class TableWidget extends WidgetType {
         selection: { anchor: pos },
         effects: EditorView.scrollIntoView(pos, { y: 'nearest' }),
       });
+      pinScreenY(view, pos, e.clientY); // the clicked cell stays under the cursor
       view.focus();
     });
     return wrap;
@@ -236,6 +238,7 @@ class MathWidget extends WidgetType {
         selection: { anchor: this.pos },
         effects: EditorView.scrollIntoView(this.pos, { y: 'nearest' }),
       });
+      pinScreenY(view, this.pos, e.clientY);
       view.focus();
     });
     return el;
@@ -244,6 +247,15 @@ class MathWidget extends WidgetType {
 
 // ---------- decoration build ----------
 export type OpenLink = (href: string) => boolean;
+
+// keep a position at the same viewport height across a raw reveal — revealing
+// (or hiding) a block widget changes the block's height, and a cursor pinned
+// to its entry edge would otherwise ride the layout shift
+function pinScreenY(view: EditorView, pos: number, y: number | undefined): void {
+  if (y === undefined) return;
+  const after = view.coordsAtPos(pos);
+  if (after) view.scrollDOM.scrollTop += after.top - y;
+}
 
 // table HTML memo: raw block text → compiled html; cleared whenever the doc changes
 let tableMemo = new Map<string, string>();
@@ -634,10 +646,17 @@ export function createPreview(onOpenLink: OpenLink): Extension[] {
       .field(previewField)
       .blocks.find((b) => b.from <= target.from && b.to >= target.to);
     if (!hit) return false;
+    const anchor = dir === 1 ? target.from : target.to;
+    // the reveal that follows changes the block's height; the caret sits on
+    // its entry edge (top for ↓ — stable — bottom for ↑ — it rides the height
+    // change and teleports). Pin the caret to its pre-keystroke screen
+    // position by scrolling the difference instead.
+    const before = view.coordsAtPos(sel.main.head);
     view.dispatch({
-      selection: { anchor: dir === 1 ? target.from : target.to },
+      selection: { anchor },
       scrollIntoView: true,
     });
+    pinScreenY(view, anchor, before?.top);
     return true;
   }
 
