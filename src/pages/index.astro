@@ -373,7 +373,7 @@ const authReady = loadSecrets() !== null;
   let dragCard: HTMLElement | null = null; // the floating clone that follows the cursor
   let grabX = 0; // where the hand grabbed the row, so the card stays under it
   let grabY = 0;
-  let dragExpandPath: string | null = null; // folder a hover opened — temporary, closed on hover-away
+  let dragOpened: string[] = []; // folders a hover opened — temporary, closed on hover-away
   let dragPreview = false; // a drag asked for the preview: keep empty folders
   let dropHandled = false; // the drop handler already re-rendered the tree
 
@@ -540,38 +540,45 @@ const authReady = loadSecrets() !== null;
     placeLine(row.offsetTop + row.offsetHeight, row.offsetLeft + CHILD_INDENT, row.offsetWidth - CHILD_INDENT);
   }
 
-  // Is the current aim still on the folder the drag opened, or inside it?
-  function onOpenedFolder(anchor: string): boolean {
-    return (
-      !!dragExpandPath &&
-      (anchor === dragExpandPath || anchor.startsWith(dragExpandPath + '/'))
-    );
+  // Folders the aim has left close again — per folder, not all at once: in an
+  // A -> B chain aiming back into A (off B) closes B and keeps A. A drop's
+  // anchor carries the intent, so a move to a new intent prunes whatever the
+  // aim left; a drop into one of them re-opens it via reorderTo's expanded.add.
+  function pruneDragOpened(anchor: string | null): void {
+    if (!dragOpened.length) return;
+    const kept = anchor
+      ? dragOpened.filter((p) => anchor === p || anchor.startsWith(p + '/'))
+      : [];
+    if (kept.length === dragOpened.length) return;
+    for (const p of dragOpened) if (!kept.includes(p)) expanded.delete(p);
+    dragOpened = kept;
+    saveExpanded();
+    renderTree();
   }
 
   // A hover-opened folder is temporary: the aim moving off it closes it again,
-  // as does a drag that ends without a drop inside it. Only the drop
-  // destination stays open, and that because reorderTo expands it. A folder
-  // the author had open before the drag is never touched here.
+  // as does a drag that ends without a drop inside it. A folder the author had
+  // open before the drag is never touched here.
   function closeDragOpened(render = true): void {
-    if (!dragExpandPath) return;
-    expanded.delete(dragExpandPath);
+    if (!dragOpened.length) return;
+    for (const p of dragOpened) expanded.delete(p);
+    dragOpened = [];
     saveExpanded();
-    dragExpandPath = null;
     if (render) renderTree();
   }
 
   function showDropLine(intent: DropIntent): void {
     // A closed folder is opened so it can be aimed inside — the same move the
     // "new" preview makes on mouseenter (showInsertLine, below). A folder an
-    // earlier hover opened closes once the aim moves off it, so opening a
-    // second folder retires the first: at most one hover-opened folder is
-    // ever open. Rows are rebuilt by renderTree(), so the anchor has to be
+    // earlier hover opened closes once the aim moves off it — per folder, so a
+    // chain A -> B can be open at once and aiming back into A off B closes
+    // only B. Rows are rebuilt by renderTree(), so the anchor has to be
     // looked up again afterwards.
-    if (dragExpandPath && !onOpenedFolder(intent.anchorPath)) closeDragOpened();
+    pruneDragOpened(intent.anchorPath);
     const node = byPath.get(intent.anchorPath);
     if (intent.kind === 'inside' && node?.children !== undefined && !expanded.has(node.path)) {
       expanded.add(node.path);
-      dragExpandPath = node.path;
+      dragOpened.push(node.path);
       dragPreview = true; // keep an empty folder on screen so it can be aimed at
       saveExpanded();
       renderTree();
@@ -623,10 +630,10 @@ const authReady = loadSecrets() !== null;
     if (!intent) return;
     e.preventDefault();
     const path = dragPath;
-    // a folder the hover opened closes again unless the drop lands in it
-    if (dragExpandPath && dragExpandPath !== intent.parent) closeDragOpened(false);
+    // hover-opened folders close again; the drop destination is re-opened by
+    // reorderTo's expanded.add
+    closeDragOpened(false);
     dragPath = null;
-    dragExpandPath = null;
     dragPreview = false;
     dropHandled = true;
     void reorderTo(path, intent);
@@ -674,10 +681,9 @@ const authReady = loadSecrets() !== null;
     if ((e.target as HTMLElement).closest('.tree-row')) return;
     e.preventDefault();
     const path = dragPath;
-    // any folder the hover opened closes: the drop leaves it for the top level
-    if (dragExpandPath) closeDragOpened(false);
+    // all hover-opened folders close: the drop leaves them for the top level
+    closeDragOpened(false);
     dragPath = null;
-    dragExpandPath = null;
     dragPreview = false;
     dropHandled = true;
     clearDropMarks();

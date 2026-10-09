@@ -153,8 +153,10 @@ drop preview    ONE `#insert-line` element for both create and move; only the
                line belongs below it, not above).
                Hovering a CLOSED folder expands it (like the
                `new` preview does on mouseenter) — but only temporarily: the
-               aim moving off the folder (or a drop landing elsewhere) closes
-               it again (`dragExpandPath` + `closeDragOpened`); only the drop
+               aim moving off a folder closes it again, per folder (`dragOpened`
+               list + `pruneDragOpened(anchor)`: a chain A→B can be open at
+               once, aiming back into A off B closes only B; a drop landing
+               elsewhere closes all via `closeDragOpened`); only the drop
                destination stays open, because `reorderTo` expands it.
                `visible()` keeps such an empty folder on screen via `dragPreview`
                (the `keepEmpty` callback in `visibility.ts`), and `isVisibleNode`
