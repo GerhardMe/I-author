@@ -482,6 +482,8 @@ body.nav-anim .toolbar {
   padding: 0;
   text-align: left;
   cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .toolbar {
@@ -499,6 +501,8 @@ body.nav-anim .toolbar {
   padding: 0.15rem 0.35rem;
   border-radius: 2px;
   white-space: nowrap;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .btn-tiny:hover {
@@ -576,6 +580,9 @@ a.btn-tiny:hover {
   cursor: pointer;
   border-radius: 2px;
   font-size: 0.86rem;
+  user-select: none; /* a row is a handle, not text: no accidental selection
+                        while dragging or double-clicking */
+  -webkit-user-select: none;
 }
 
 .tree-row:hover {
