@@ -252,11 +252,21 @@ export type OpenLink = (href: string) => boolean;
 
 // keep a position at the same viewport height across a raw reveal — revealing
 // (or hiding) a block widget changes the block's height, and a cursor pinned
-// to its entry edge would otherwise ride the layout shift
+// to its entry edge would otherwise ride the layout shift. Measured in CM's
+// measure phase: right after the dispatch the revealed lines have no heights
+// yet, and a synchronous read returns garbage — the "correction" itself
+// scrolled the view to the top.
 function pinScreenY(view: EditorView, pos: number, y: number | undefined): void {
   if (y === undefined) return;
-  const after = view.coordsAtPos(pos);
-  if (after) view.scrollDOM.scrollTop += after.top - y;
+  view.requestMeasure({
+    read: (v) => {
+      const rect = v.coordsAtPos(pos);
+      return rect ? rect.top - y : null;
+    },
+    write: (delta) => {
+      if (delta) view.scrollDOM.scrollTop += delta;
+    },
+  });
 }
 
 // table HTML memo: raw block text → compiled html; cleared whenever the doc changes
