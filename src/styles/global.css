@@ -1027,7 +1027,7 @@ a.btn-tiny:hover {
   height: 11px;
   padding: 0;
   border: 0;
-  background: var(--line); /* the same token as the underline they sit on */
+  background: var(--line-strong); /* the same token as the underline they sit on */
   font: inherit;
   /* no cursor of its own: the handles keep the header's text cursor */
   touch-action: none;
