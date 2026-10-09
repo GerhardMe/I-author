@@ -504,6 +504,13 @@ body.nav-anim .toolbar {
   border-color: var(--line);
 }
 
+/* an anchor styled as a button (the setup link) is a button, not a text
+   link — the global a:hover underline does not belong on it */
+a.btn-tiny,
+a.btn-tiny:hover {
+  text-decoration: none;
+}
+
 .new-row {
   padding: 0.5rem 1rem;
   border-bottom: 1px solid var(--line);
