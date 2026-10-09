@@ -97,6 +97,7 @@ const authReady = loadSecrets() !== null;
   };
 
   const treeEl = document.getElementById('tree')!;
+  const sidebarEl = document.getElementById('sidebar')!;
   const empty = document.getElementById('empty')!;
   const doc = document.getElementById('doc')!;
   const docTitle = document.getElementById('doc-title')!;
@@ -629,6 +630,68 @@ const authReady = loadSecrets() !== null;
     dragPreview = false;
     dropHandled = true;
     void reorderTo(path, intent);
+  });
+
+  // The rest of the panel viewport is a drop zone too: aiming anywhere that is
+  // NOT a row (the empty space under the list, the toolbar, the side-foot)
+  // lands the drag at TOP level, appended under everything — the quick way out
+  // of a folder. Rows keep their own band semantics; these handlers only catch
+  // aims off the rows. The line is drawn under the LAST visible row, flush at
+  // top-level indent, so "after everything" reads even when that last row is a
+  // nested child deep inside an expanded folder.
+  function showTopLevelLine(): void {
+    const rows = treeEl.querySelectorAll<HTMLElement>('.tree-row');
+    if (!rows.length) {
+      lineEl.style.top = '0.35rem';
+      lineEl.style.left = '0.5rem';
+      lineEl.style.right = '0.5rem';
+      lineEl.style.width = 'auto';
+      lineEl.hidden = false;
+      return;
+    }
+    const last = rows[rows.length - 1]!;
+    const tops = treeEl.querySelectorAll<HTMLElement>(':scope > ul > li > .tree-row');
+    const head = tops[0] ?? last;
+    placeLine(last.offsetTop + last.offsetHeight, head.offsetLeft, head.offsetWidth);
+    lineEl.classList.add('moving');
+  }
+
+  // runs after the treeEl handlers (bubbling): a row target has already been
+  // served there and returns early here; everything else is top level
+  sidebarEl.addEventListener('dragover', (e) => {
+    if (!dragPath) return;
+    if ((e.target as HTMLElement).closest('.tree-row')) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+    // the aim is off any folder the hover opened
+    closeDragOpened();
+    clearDropMarks();
+    showTopLevelLine();
+  });
+
+  sidebarEl.addEventListener('drop', (e) => {
+    if (!dragPath) return;
+    if ((e.target as HTMLElement).closest('.tree-row')) return;
+    e.preventDefault();
+    const path = dragPath;
+    // any folder the hover opened closes: the drop leaves it for the top level
+    if (dragExpandPath) closeDragOpened(false);
+    dragPath = null;
+    dragExpandPath = null;
+    dragPreview = false;
+    dropHandled = true;
+    clearDropMarks();
+    void reorderTo(path, { parent: '', before: null, anchorPath: '', kind: 'below' });
+  });
+
+  // leaving the panel (not just the rows) hides the top-level line; the tree
+  // rows' own dragleave handles their marks
+  sidebarEl.addEventListener('dragleave', (e) => {
+    if (!dragPath) return;
+    if ((e.target as HTMLElement).closest('.tree-row')) return;
+    const to = e.relatedTarget as HTMLElement | null;
+    if (to && sidebarEl.contains(to)) return; // still inside the panel
+    clearDropMarks();
   });
 
   function endDrag(): void {

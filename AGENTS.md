@@ -159,6 +159,11 @@ drop preview    ONE `#insert-line` element for both create and move; only the
                `visible()` keeps such an empty folder on screen via `dragPreview`
                (the `keepEmpty` callback in `visibility.ts`), and `isVisibleNode`
                walks the same rule instead of reimplementing it.
+               The rest of the sidebar viewport is also a drop zone (sidebar-level
+               dragover/drop/dragleave, guarded against row targets): aiming off
+               the rows lands the drag at TOP level, appended under everything —
+               the quick way out of a folder; the line draws under the LAST
+               visible row at top-level indent.
 openFile(p)    revealPath(p) first — expand ancestors + select the row (the opened md
                is always visible/highlighted in the tree) — then GET /api/file →
                makeEditor(content); restores sessionStorage draft if newer
