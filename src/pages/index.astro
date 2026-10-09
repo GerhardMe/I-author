@@ -540,20 +540,17 @@ const authReady = loadSecrets() !== null;
     placeLine(row.offsetTop + row.offsetHeight, row.offsetLeft + CHILD_INDENT, row.offsetWidth - CHILD_INDENT);
   }
 
-  // Folders the aim has left close again — per folder, not all at once: in an
-  // A -> B chain aiming back into A (off B) closes B and keeps A. A drop's
-  // anchor carries the intent, so a move to a new intent prunes whatever the
-  // aim left; a drop into one of them re-opens it via reorderTo's expanded.add.
+  // Folders the aim has left close together with their owner: the chain lives
+  // or dies with its outermost opened folder (dragOpened[0] — pushes only
+  // happen outer -> inner). While the aim roams ANYWHERE inside that folder
+  // (other books, parts, chapters, the folder row itself) the whole chain
+  // stays open; once it leaves, everything it opened closes at once.
   function pruneDragOpened(anchor: string | null): void {
     if (!dragOpened.length) return;
-    const kept = anchor
-      ? dragOpened.filter((p) => anchor === p || anchor.startsWith(p + '/'))
-      : [];
-    if (kept.length === dragOpened.length) return;
-    for (const p of dragOpened) if (!kept.includes(p)) expanded.delete(p);
-    dragOpened = kept;
-    saveExpanded();
-    renderTree();
+    const top = dragOpened[0]!;
+    const inside = anchor !== null && (anchor === top || anchor.startsWith(top + '/'));
+    if (inside) return;
+    closeDragOpened();
   }
 
   // A hover-opened folder is temporary: the aim moving off it closes it again,
