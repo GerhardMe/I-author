@@ -1036,14 +1036,17 @@ a.btn-tiny:hover {
 }
 
 .measure-a {
-  right: 100%; /* apex exactly at the line's start */
+  /* 0.1ch inward: the apex overlaps the line instead of kissing its edge, so
+     the handle stays visually connected even at maximum width */
+  right: calc(100% - 0.1ch);
   clip-path: polygon(0 0, 100% 50%, 0 100%);
 }
 
 .measure-b {
   /* the 100% ceiling is a CSS-level guarantee: even if state desyncs, the
-     apex can never leave the line */
-  left: min(var(--field-w, 72ch), 100%);
+     apex can never leave the line; the same 0.1ch inward offset as A keeps
+     the apex on the line at maximum width */
+  left: min(calc(var(--field-w, 72ch) - 0.1ch), calc(100% - 0.1ch));
   clip-path: polygon(100% 0, 0 50%, 100% 100%);
 }
 
