@@ -28,6 +28,7 @@ import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
 import { tags as t } from '@lezer/highlight';
 import { markdown } from '@codemirror/lang-markdown';
 import { languages } from '@codemirror/language-data';
+import { cursorCharLeft, cursorCharRight } from '@codemirror/commands';
 import { renderToString as renderKatex } from 'katex';
 import 'katex/dist/katex.min.css';
 
@@ -637,6 +638,25 @@ export function createPreview(onOpenLink: OpenLink): Extension[] {
     return true;
   }
 
+  // ←/→ adjust the carried indent: delegate to the same native commands the
+  // defaultKeymap binds, then either adopt the new column (the move stayed on
+  // its line) or keep the old indent (the move crossed a line boundary — it
+  // expressed no column intent, and short blob lines would otherwise reset it
+  // to 0). Re-set after the dispatch because the update listener wipes vgoal
+  // on every selection change.
+  function horizStep(view: EditorView, dir: 1 | -1): boolean {
+    const sel = view.state.selection;
+    if (sel.ranges.length !== 1 || !sel.main.empty) return false;
+    const lineNo = view.state.doc.lineAt(sel.main.head).number;
+    const col = vgoal.get(view);
+    const moved = dir === -1 ? cursorCharLeft(view) : cursorCharRight(view);
+    if (!moved) return false;
+    const head = view.state.selection.main.head;
+    const line = view.state.doc.lineAt(head);
+    vgoal.set(view, line.number === lineNo ? head - line.from : (col ?? head - line.from));
+    return true;
+  }
+
   return [
     Prec.highest(
       keymap.of([
@@ -644,11 +664,13 @@ export function createPreview(onOpenLink: OpenLink): Extension[] {
         { key: 'ArrowUp', run: (v) => arrowStep(v, -1, false) },
         { key: 'Shift-ArrowDown', run: (v) => arrowStep(v, 1, true) },
         { key: 'Shift-ArrowUp', run: (v) => arrowStep(v, -1, true) },
+        { key: 'ArrowLeft', run: (v) => horizStep(v, -1) },
+        { key: 'ArrowRight', run: (v) => horizStep(v, 1) },
       ]),
     ),
-    // indent memory: any selection change that isn't arrowStep's own dispatch
-    // (click, horizontal move, typing) clears it — arrowStep re-sets it right
-    // after its dispatch, so its indent survives
+    // indent memory: any selection change that isn't arrowStep's/horizStep's
+    // own dispatch (click, typing) clears it — both re-set it right after
+    // their dispatch, so the carried indent survives their own moves
     EditorView.updateListener.of((u) => {
       if (u.selectionSet) vgoal.delete(view);
     }),
