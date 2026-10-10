@@ -1,55 +1,11 @@
-// Chunked sync machinery: unsynced-word marks, local draft (sessionStorage),
-// and the push state machine (dirty-word threshold + idle push).
+// Chunked sync machinery: local draft (sessionStorage) and the push state
+// machine (dirty-word threshold + idle push). Status surface: hooks.onPushStart/
+// onPushEnd + ahead() — the app shell renders dot/spinner from those.
 import { countWords } from './words.ts';
-import { StateEffect, StateField, type Transaction } from '@codemirror/state';
-import { EditorView, Decoration, type DecorationSet } from '@codemirror/view';
+import { EditorView } from '@codemirror/view';
 
 export const PUSH_WORDS = 10; // push when ≥ this many dirty words
 export const IDLE_MS = 5000; // push when typing pauses this long
-const DARKEN_MS = 1300; // unsynced → synced fade
-
-// ---------- unsynced marks ----------
-export const markUnsynced = StateEffect.define<{ from: number; to: number }[]>();
-export const darkenUnsynced = StateEffect.define<null>();
-export const clearUnsynced = StateEffect.define<null>();
-
-// lighter while unsynced; after a confirmed push: fade to full color, then clear
-export const unsyncedField = StateField.define<DecorationSet>({
-  create: () => Decoration.none,
-  update(deco, tr) {
-    if (tr.effects.some((e) => e.is(clearUnsynced))) return Decoration.none;
-    deco = deco.map(tr.changes);
-    for (const e of tr.effects) {
-      if (e.is(markUnsynced)) {
-        deco = deco.update({
-          add: e.value.map((r) => Decoration.mark({ class: 'cm-unsynced' }).range(r.from, r.to)),
-        });
-      } else if (e.is(darkenUnsynced)) {
-        const ranges: { from: number; to: number }[] = [];
-        for (let it = deco.iter(); it.value; it.next()) {
-          if ((it.value as Decoration).spec.class === 'cm-unsynced')
-            ranges.push({ from: it.from, to: it.to });
-        }
-        deco = Decoration.none.update({
-          add: ranges.map((r) => Decoration.mark({ class: 'cm-darkening' }).range(r.from, r.to)),
-        });
-      }
-    }
-    return deco;
-  },
-  provide: (f) => EditorView.decorations.from(f),
-});
-
-// mark inserted text as unsynced, in the same transaction (no extra dispatch)
-export function extendUnsynced(tr: Transaction): { effects: StateEffect<unknown>[] } | null {
-  if (!tr.docChanged) return null;
-  const ranges: { from: number; to: number }[] = [];
-  tr.changes.iterChangedRanges((_a, _b, from, to) => {
-    if (to > from) ranges.push({ from, to });
-  });
-  if (!ranges.length) return null;
-  return { effects: ranges.map((r) => markUnsynced.of([r])) };
-}
 
 // ---------- draft store (sessionStorage — survives reload + PIN lock) ----------
 const DRAFT_KEY = 'iauthor.draft';
@@ -124,13 +80,15 @@ export type SyncHooks = {
   getContent: () => string | null;
   getEditor: () => EditorView | null;
   onSaved: (content: string) => void;
-  onDirtyChange: () => void; // chip/status updates
+  onPushStart: () => void; // request sent → awaiting the reply
+  onPushEnd: (ok: boolean) => void; // reply in; recompute the status
   onAuthLost: () => void; // 401 → hand off to page (flush + redirect)
 };
 
 export type SyncState = {
   setBaseline: (content: string, lastPushedLen: number) => void;
   baselineLen: () => number;
+  ahead: (content: string) => boolean; // the doc differs from the server copy
   dirtyWords: () => number;
   addDirty: (insertedText: string, deletedLen: number) => void;
   schedule: () => void;
@@ -166,6 +124,12 @@ export function createSync(hooks: SyncHooks): SyncState {
     return dirty;
   }
 
+  // status is divergence from the server, not the word counter: a 1-char
+  // deletion rounds to 0 dirty words, yet the doc IS ahead of the server
+  function ahead(content: string): boolean {
+    return content !== baseline;
+  }
+
   function schedule(): void {
     const view = hooks.getEditor();
     if (!view || pushing) return;
@@ -193,6 +157,8 @@ export function createSync(hooks: SyncHooks): SyncState {
       return;
     }
     pushing = true;
+    hooks.onPushStart();
+    let ok = false;
     try {
       const res = await fetch('/api/file', {
         method: 'PUT',
@@ -207,15 +173,12 @@ export function createSync(hooks: SyncHooks): SyncState {
       setBaseline(content, content.length);
       dropDraft(path);
       hooks.onSaved(content);
-      const view = hooks.getEditor();
-      if (view) {
-        view.dispatch({ effects: darkenUnsynced.of(null) });
-        setTimeout(() => view.dispatch({ effects: clearUnsynced.of(null) }), DARKEN_MS);
-      }
+      ok = true;
     } catch {
-      hooks.onDirtyChange();
+      // keep the draft; the status falls back to "dirty"
     } finally {
       pushing = false;
+      hooks.onPushEnd(ok);
       if (hooks.getEditor() && dirty > 0) schedule();
     }
   }
@@ -227,9 +190,8 @@ export function createSync(hooks: SyncHooks): SyncState {
     }
   }
 
-  // the doc matches the server copy: drop the draft, clear the marks AND the
-  // dirty counter — otherwise the chip's "· …" sticks forever (pushNow's
-  // equal-content early return used to leave it set)
+  // the doc matches the server copy: drop the draft AND the dirty counter —
+  // otherwise pushNow's equal-content early return leaves it set forever
   function clearIfClean(): void {
     const path = hooks.getPath();
     const content = hooks.getContent();
@@ -237,14 +199,13 @@ export function createSync(hooks: SyncHooks): SyncState {
     if (content === baseline) {
       dirty = 0;
       dropDraft(path);
-      hooks.getEditor()?.dispatch({ effects: clearUnsynced.of(null) });
-      hooks.onDirtyChange();
     }
   }
 
   return {
     setBaseline,
     baselineLen: () => lastPushedLen,
+    ahead,
     dirtyWords,
     addDirty,
     schedule,

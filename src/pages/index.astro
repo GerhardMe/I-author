@@ -56,6 +56,7 @@ const authReady = loadSecrets() !== null;
           <div id="editor-host" hidden></div>
         </div>
       </article>
+      <div id="sync-indicator" data-state="idle"></div>
     </main>
   </div>
   <script is:inline>
@@ -80,8 +81,6 @@ const authReady = loadSecrets() !== null;
   import { editorExtensions } from '../lib/editor.ts';
   import { pdfWaitPage } from '../lib/pdf-wait.ts';
   import {
-    extendUnsynced,
-    markUnsynced,
     createSync,
     loadDraft,
     saveDraft,
@@ -108,6 +107,7 @@ const authReady = loadSecrets() !== null;
   const docBody = document.getElementById('doc-body')!;
   const docWords = document.getElementById('doc-words')!;
   const docDraft = document.getElementById('doc-draft')!;
+  const syncIndicator = document.getElementById('sync-indicator')!;
   const renameInput = document.getElementById('doc-rename') as HTMLInputElement;
   const hideBtn = document.getElementById('hide-drafts') as HTMLButtonElement;
   const hideEye = document.getElementById('hide-drafts-eye')!;
@@ -195,16 +195,28 @@ const authReady = loadSecrets() !== null;
     });
   }
 
+  // ---------- sync status indicator ----------
+  // idle = hidden (server up to date), dirty = dot, pushing = spinner
+  function setSync(state: 'idle' | 'dirty' | 'pushing'): void {
+    syncIndicator.dataset.state = state;
+  }
+
+  function syncStateFromDoc(content: string): 'idle' | 'dirty' {
+    return sync.ahead(content) ? 'dirty' : 'idle';
+  }
+
   const sync = createSync({
     getPath: () => currentFile,
     getContent: () => (editor ? editor.state.doc.toString() : null),
     getEditor: () => editor,
     onSaved: (content) => {
       docWords.textContent = `${countWords(content)} words`;
+      setSync('idle');
     },
-    onDirtyChange: () => {
-      if (editor && sync.dirtyWords() > 0)
-        docWords.textContent = `${countWords(editor.state.doc.toString())} words`;
+    onPushStart: () => setSync('pushing'),
+    onPushEnd: () => {
+      if (editor) setSync(syncStateFromDoc(editor.state.doc.toString()));
+      else setSync('idle');
     },
     onAuthLost: () => {
       flushDraft();
@@ -215,6 +227,7 @@ const authReady = loadSecrets() !== null;
   function onEditorUpdate(u: { docChanged: boolean; state: { doc: { toString(): string } } }): void {
     if (!u.docChanged) return;
     docWords.textContent = `${countWords(u.state.doc.toString())} words`;
+    setSync(syncStateFromDoc(u.state.doc.toString()));
     scheduleDraft();
     sync.schedule();
   }
@@ -226,8 +239,8 @@ const authReady = loadSecrets() !== null;
     draftTimer = setTimeout(flushDraft, 400);
   }
 
-  // accumulate dirty volume for the push trigger, in the same transaction as the marks
-  function extendTracked(tr: Transaction): { effects: Transaction['effects'] } | null {
+  // accumulate dirty volume for the push trigger
+  function extendTracked(tr: Transaction): null {
     if (!tr.docChanged) return null;
     let insertedText = '';
     let deletedLen = 0;
@@ -237,10 +250,10 @@ const authReady = loadSecrets() !== null;
     });
     if (insertedText || deletedLen)
       sync.addDirty(insertedText, deletedLen);
-    return extendUnsynced(tr);
+    return null;
   }
 
-  function makeEditor(content: string, draft: { synced: number } | null): EditorView {
+  function makeEditor(content: string): EditorView {
     const hooks = {
       onOpenLink: openLink,
       onUpdate: onEditorUpdate,
@@ -255,11 +268,6 @@ const authReady = loadSecrets() !== null;
       parent: editorHost,
     });
     editor = view;
-    if (draft && draft.synced < content.length) {
-      view.dispatch({
-        effects: markUnsynced.of([{ from: draft.synced, to: content.length }]),
-      });
-    }
     return view;
   }
 
@@ -283,7 +291,19 @@ const authReady = loadSecrets() !== null;
     destroyEditor();
     currentFile = null;
     currentGroup = null;
+    setSync('idle'); // the indicator speaks about the open file only
   }
+
+  // Ctrl/Cmd+S: send the current state to the server right now
+  document.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+      e.preventDefault();
+      if (editor && currentFile) {
+        flushDraft();
+        void sync.pushNow();
+      }
+    }
+  });
 
   function openLink(href: string): boolean {
     if (/^(https?:|mailto:)/.test(href)) {
@@ -873,11 +893,13 @@ async function showGroup(node: Node): Promise<void> {
 
       const draft = loadDraft(p);
       if (draft && draft.content !== content) {
-        editor = makeEditor(draft.content, draft);
+        editor = makeEditor(draft.content);
+        setSync(syncStateFromDoc(draft.content));
         sync.schedule();
       } else {
         if (draft) dropDraft(p);
-        editor = makeEditor(content, null);
+        editor = makeEditor(content);
+        setSync('idle');
       }
       editorHost.hidden = false;
       docBody.hidden = true;

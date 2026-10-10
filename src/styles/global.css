@@ -274,9 +274,8 @@ input:-webkit-autofill {
 
 /* ---------- theme toggle ---------- */
 /* the theme flips in one hard cut: the toggle suspends every transition for
-   the instant of the flip — the nav fades (sidebar bg/border, unsynced
-   colour) are the only animated properties, and they would otherwise run on
-   the var changes */
+   the instant of the flip — the nav fades (sidebar bg/border) are the only
+   animated properties, and they would otherwise run on the var changes */
 body.theme-switching * {
   transition: none !important;
 }
@@ -1110,14 +1109,52 @@ a.btn-tiny:hover {
   font-style: italic;
 }
 
-/* unsynced words render lighter; fade to full color once the server confirms */
-#editor-host .cm-unsynced {
-  color: var(--muted);
+/* ---------- sync status indicator (bottom-right corner) ----------
+   idle: hidden — the page matches the server; dirty: dot — the doc is ahead
+   of the server; pushing: spinner — an update is awaiting the server's reply */
+#sync-indicator {
+  position: fixed;
+  right: 1.25rem;
+  bottom: 1rem;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--muted);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s;
 }
 
-#editor-host .cm-darkening {
-  color: var(--fg);
-  transition: color 1.2s;
+#sync-indicator[data-state='dirty'] {
+  opacity: 1;
+}
+
+#sync-indicator[data-state='pushing'] {
+  width: 0.75rem;
+  height: 0.75rem;
+  background: transparent;
+  border: 2px solid var(--muted);
+  border-top-color: var(--accent);
+  opacity: 1;
+  animation: pdf-spin 0.8s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #sync-indicator[data-state='pushing'] {
+    animation: sync-pulse 0.8s ease-in-out infinite alternate;
+    background: var(--accent);
+    border-color: var(--accent);
+    border-radius: 1px; /* a rotating ring reads as motion; pulse a square */
+  }
+}
+
+@keyframes sync-pulse {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0.3;
+  }
 }
 
 /* live preview: compiled styling on non-active lines */
