@@ -204,7 +204,7 @@ const authReady = loadSecrets() !== null;
     },
     onDirtyChange: () => {
       if (editor && sync.dirtyWords() > 0)
-        docWords.textContent = `${countWords(editor.state.doc.toString())} words · …`;
+        docWords.textContent = `${countWords(editor.state.doc.toString())} words`;
     },
     onAuthLost: () => {
       flushDraft();
@@ -214,7 +214,7 @@ const authReady = loadSecrets() !== null;
 
   function onEditorUpdate(u: { docChanged: boolean; state: { doc: { toString(): string } } }): void {
     if (!u.docChanged) return;
-    docWords.textContent = `${countWords(u.state.doc.toString())} words${sync.dirtyWords() > 0 ? ' · …' : ''}`;
+    docWords.textContent = `${countWords(u.state.doc.toString())} words`;
     scheduleDraft();
     sync.schedule();
   }
