@@ -35,6 +35,8 @@ export function pdfWaitPage(statusUrl: string, force: boolean): string {
 *{box-sizing:border-box}
 html,body{margin:0;background:var(--bg);color:var(--fg)}
 body{font:0.95rem/1.6 'Literata Variable',Georgia,'Times New Roman',serif;-webkit-font-smoothing:antialiased}
+.back{position:fixed;top:.6rem;left:.6rem;z-index:1;padding:.5rem .8rem;font:inherit;font-size:1.1rem;line-height:1;color:var(--muted);background:transparent;border:none;cursor:pointer}
+.back:hover{color:var(--fg)}
 main{max-width:33rem;margin:0 auto;padding:11vh 1.5rem 3rem}
 h1{font-size:1.05rem;font-weight:600;margin:0;overflow-wrap:anywhere}
 .meta{color:var(--muted);font-size:.78rem;margin:.3rem 0 1.8rem}
@@ -56,6 +58,7 @@ li.ch.ready .t{color:var(--fg)}
 </style>
 </head>
 <body>
+<button class="back" id="back" type="button" aria-label="back to the app" hidden>←</button>
 <main>
 <h1 id="scope">compiling…</h1>
 <div class="meta" id="meta">lualatex</div>
@@ -145,6 +148,20 @@ function tick() {
 }
 
 tick();
+
+// the tab was opened by the app's window.open (no noopener), so the opener
+// is the app tab. The arrow hands the focus back there — the compiler tab
+// itself stays open and still becomes the pdf when the compile lands
+if (window.opener) {
+  var back = document.getElementById('back') as HTMLButtonElement;
+  back.hidden = false;
+  back.addEventListener('click', function () {
+    try { window.opener.focus(); } catch (e) {}
+    // some browsers ignore a cross-tab focus(); the app listens for this
+    // message and focuses a real element instead — the stronger signal
+    try { window.opener.postMessage('iauthor:focus', '*'); } catch (e) {}
+  });
+}
 </script>
 </body>
 </html>`;

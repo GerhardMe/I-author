@@ -33,7 +33,11 @@ export const GET: APIRoute = async (ctx) => {
         `<h1 style="font-size:1.2em">pdf failed (${status})</h1><pre style="white-space:pre-wrap">${msg.replace(
           /[&<>]/g,
           (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]!,
-        )}</pre></body>`,
+        )}</pre>` +
+        // direct visits (the compiler tab lands here when a compile
+        // fails) need a way back — there is no browser chrome for it
+        // on a phone
+        `<p style="margin-top:1.5rem"><a href="/">&#8592; back to the app</a></p></body>`,
       { status, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'x-iauthor-error': msg.slice(0, 800) } },
     );
   }

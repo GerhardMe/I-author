@@ -1565,17 +1565,12 @@ newRow.hidden = true;
   // compile on the server, open only when the pdf is fully there; the button
   // carries a worker animation while LaTeX runs. Folder aggregates follow the
   // sidebar's drafts toggle: drafts hidden -> excluded, visible -> included
-  let pdfObjectUrl: string | null = null;
 
   function pdfBusy(): boolean {
     return pdfBtn.classList.contains('busy');
   }
 
   async function fetchPdf(scope: string, force: boolean): Promise<void> {
-    if (pdfObjectUrl) {
-      URL.revokeObjectURL(pdfObjectUrl);
-      pdfObjectUrl = null;
-    }
     pdfBtn.classList.add('busy');
     const base =
       `path=${encodeURIComponent(scope)}&preset=${presetId}` +
@@ -1614,9 +1609,13 @@ newRow.hidden = true;
         else location.assign('/login');
         return;
       }
-      pdfObjectUrl = URL.createObjectURL(await res.blob());
-      if (tab) tab.location.replace(pdfObjectUrl);
-      else location.assign(pdfObjectUrl); // popups blocked entirely: same tab
+      // WebKit refuses top-level navigation to blob: URLs ("Unsupported
+      // URL" on iOS), so the tab goes to the server route instead. The
+      // fetch above just refreshed the fragment cache, so it streams at
+      // once — no recompile flag here, that would rebuild everything twice.
+      const target = `/pdf?${base}`;
+      if (tab) tab.location.replace(target);
+      else location.assign(target); // popups blocked entirely: same tab
     } catch (err) {
       tab?.close();
       alert(`pdf: ${(err as Error).message}`);
@@ -1625,6 +1624,16 @@ newRow.hidden = true;
       syncPdfBtnTitle();
     }
   }
+
+  // the compiler page's back arrow asks the app (its opener) to take the
+  // focus back — a plain window.opener.focus() is ignored by some browsers,
+  // so the message handler also focuses a real element here
+  window.addEventListener('message', (e) => {
+    if (e.data === 'iauthor:focus') {
+      window.focus();
+      pdfBtn.focus({ preventScroll: true });
+    }
+  });
 
   function syncPdfMenu(): void {
     for (const b of pdfMenu.querySelectorAll<HTMLButtonElement>('.ctx-item'))
