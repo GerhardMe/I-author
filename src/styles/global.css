@@ -281,26 +281,22 @@ body.theme-switching * {
   transition: none !important;
 }
 
-/* the theme toggle lives in the title bar, past the toolbar (the app shell
-   renders it there; bare screens take the --fixed variant instead) */
+/* the theme toggle is DOM-wise a child of .side-head (one element for every
+   breakpoint) but pins to the viewport's top-right — above the sidebar
+   overlay (20), below the drag card (40) and the menus (60) */
 .theme-toggle {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  z-index: 30;
   border: none;
   background: transparent;
   color: var(--muted);
-  font-size: 1.1rem;
+  font-size: 1.25rem;
   cursor: pointer;
   padding: 0.25rem 0.5rem;
   user-select: none;
   -webkit-user-select: none;
-}
-
-/* login/setup have no .side-head — the old floating button */
-.theme-toggle--fixed {
-  position: fixed;
-  top: 1rem;
-  right: 1rem;
-  z-index: 10;
-  font-size: 1.25rem;
 }
 
 .theme-toggle:hover {
@@ -1296,6 +1292,9 @@ a.btn-tiny:hover {
 
   .side-head {
     background: var(--bg); /* same as the page — no separate bar */
+    /* the theme toggle pins to the viewport's top-right (z above this
+       overlay) — keep the drafts toolbar clear of the corner */
+    padding-right: 3.5rem;
   }
 
   /* the title bar stays full-bleed; only its underline insets half a char
