@@ -4,12 +4,9 @@ import '../styles/global.css';
 
 interface Props {
   title?: string;
-  // bare screens (login/setup) have no title bar to host the toggle — they
-  // keep the old floating button; the app shell renders its own in .side-head
-  fixedTheme?: boolean;
 }
 
-const { title = 'I author', fixedTheme = false } = Astro.props;
+const { title = 'I author' } = Astro.props;
 ---
 
 <!doctype html>
@@ -33,10 +30,10 @@ const { title = 'I author', fixedTheme = false } = Astro.props;
     </script>
   </head>
   <body>
-    {fixedTheme && (
-      <button id="theme-toggle" class="theme-toggle" aria-label="Toggle theme" title="Toggle theme">◐</button>
-    )}
     <slot />
+    <!-- after the page: .app.nav-off ~ & picks it up to rise above the
+         closed panel's opaque title-bar strip (see global.css) -->
+    <button id="theme-toggle" class="theme-toggle" aria-label="Toggle theme" title="Toggle theme">◐</button>
     <script>
       document.getElementById('theme-toggle')?.addEventListener('click', () => {
         // suspend the transitions for the flip (double rAF waits for the new

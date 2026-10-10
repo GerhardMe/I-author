@@ -281,14 +281,14 @@ body.theme-switching * {
   transition: none !important;
 }
 
-/* the theme toggle is DOM-wise a child of .side-head (one element for every
-   breakpoint) but pins to the viewport's top-right — above the sidebar
-   overlay (20), below the drag card (40) and the menus (60) */
+/* the theme toggle floats at the viewport's top-right. z below the sidebar
+   (20): when the tree overlay is open on mobile it lies in front of the
+   button — the button "goes away" while the tree is shown. */
 .theme-toggle {
   position: fixed;
   top: 1rem;
   right: 1rem;
-  z-index: 30;
+  z-index: 10;
   border: none;
   background: transparent;
   color: var(--muted);
@@ -297,6 +297,13 @@ body.theme-switching * {
   padding: 0.25rem 0.5rem;
   user-select: none;
   -webkit-user-select: none;
+}
+
+/* panel closed: rise above the title-bar strip — on mobile it is an opaque
+   page-coloured band (it masks the page scrolling beneath it) that would
+   otherwise hide the button */
+.app.nav-off ~ .theme-toggle {
+  z-index: 30;
 }
 
 .theme-toggle:hover {
@@ -427,9 +434,8 @@ body.theme-switching * {
   border-bottom-color: transparent;
 }
 
-/* the title and the theme toggle stay live when the panel closes */
-.app.nav-off .brand,
-.app.nav-off .theme-toggle {
+/* the title stays live when the panel closes */
+.app.nav-off .brand {
   pointer-events: auto;
 }
 
@@ -475,6 +481,7 @@ body.nav-anim .toolbar {
   border-bottom: 1px solid var(--line);
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 0.5rem;
 }
 
@@ -495,7 +502,6 @@ body.nav-anim .toolbar {
 .toolbar {
   display: flex;
   gap: 0.15rem;
-  margin-left: auto; /* brand left, toolbar + theme right */
 }
 
 .btn-tiny {
@@ -1292,9 +1298,6 @@ a.btn-tiny:hover {
 
   .side-head {
     background: var(--bg); /* same as the page — no separate bar */
-    /* the theme toggle pins to the viewport's top-right (z above this
-       overlay) — keep the drafts toolbar clear of the corner */
-    padding-right: 3.5rem;
   }
 
   /* the title bar stays full-bleed; only its underline insets half a char
