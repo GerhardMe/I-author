@@ -1,11 +1,11 @@
 // Chunked sync machinery: local draft (sessionStorage) and the push state
-// machine (dirty-word threshold + idle push). Status surface: hooks.onPushStart/
+// machine. Trigger: a 1s interval — armed whenever the doc is ahead of the
+// server, restarted after each confirmed push only if it is still ahead
+// (typing pauses → one last save → idle). Status surface: hooks.onPushStart/
 // onPushEnd + ahead() — the app shell renders dot/spinner from those.
-import { countWords } from './words.ts';
 import { EditorView } from '@codemirror/view';
 
-export const PUSH_WORDS = 10; // push when ≥ this many dirty words
-export const IDLE_MS = 5000; // push when typing pauses this long
+export const PUSH_MS = 1000; // save every second while the doc is ahead
 
 // ---------- draft store (sessionStorage — survives reload + PIN lock) ----------
 const DRAFT_KEY = 'iauthor.draft';
@@ -89,39 +89,20 @@ export type SyncState = {
   setBaseline: (content: string, lastPushedLen: number) => void;
   baselineLen: () => number;
   ahead: (content: string) => boolean; // the doc differs from the server copy
-  dirtyWords: () => number;
-  addDirty: (insertedText: string, deletedLen: number) => void;
   schedule: () => void;
   pushNow: () => Promise<void>;
   cancel: () => void;
-  clearIfClean: () => void;
 };
 
 export function createSync(hooks: SyncHooks): SyncState {
   let baseline = ''; // content the server last confirmed
   let lastPushedLen = 0;
-  let dirty = 0; // cumulative dirty words since last confirmed push
   let pushTimer: ReturnType<typeof setTimeout> | null = null;
   let pushing = false;
 
   function setBaseline(content: string, pushedLen: number): void {
     baseline = content;
     lastPushedLen = pushedLen;
-    dirty = 0;
-  }
-
-  // called from the transaction extender path: accumulate real dirty volume
-  // (inserted words + deleted chars/6 approximates deleted words) — immune to
-  // insert-then-delete-same-amount cancellation that a net delta would suffer
-  function addDirty(
-    insertedText: string,
-    deletedLen: number,
-  ): void {
-    dirty += countWords(insertedText) + Math.round(deletedLen / 6);
-  }
-
-  function dirtyWords(): number {
-    return dirty;
   }
 
   // status is divergence from the server, not the word counter: a 1-char
@@ -130,18 +111,14 @@ export function createSync(hooks: SyncHooks): SyncState {
     return content !== baseline;
   }
 
+  // arm the interval — once, not per keystroke: it fires PUSH_MS after the
+  // first change since the last arm (a true second-tick, not a debounce)
   function schedule(): void {
-    const view = hooks.getEditor();
-    if (!view || pushing) return;
-    if (dirty >= PUSH_WORDS) {
-      void pushNow();
-      return;
-    }
-    if (pushTimer) clearTimeout(pushTimer);
+    if (pushing || pushTimer) return;
     pushTimer = setTimeout(() => {
       pushTimer = null;
       void pushNow();
-    }, IDLE_MS);
+    }, PUSH_MS);
   }
 
   async function pushNow(): Promise<void> {
@@ -179,7 +156,11 @@ export function createSync(hooks: SyncHooks): SyncState {
     } finally {
       pushing = false;
       hooks.onPushEnd(ok);
-      if (hooks.getEditor() && dirty > 0) schedule();
+      // re-arm only if typing continued while the push was in flight —
+      // otherwise the last save already caught up and we idle until the
+      // next keystroke
+      const now = hooks.getContent();
+      if (hooks.getEditor() && now !== null && ahead(now)) schedule();
     }
   }
 
@@ -190,14 +171,13 @@ export function createSync(hooks: SyncHooks): SyncState {
     }
   }
 
-  // the doc matches the server copy: drop the draft AND the dirty counter —
-  // otherwise pushNow's equal-content early return leaves it set forever
+  // the doc matches the server copy: drop the draft so it can't shadow the
+  // confirmed content (pushNow's equal-content early return runs this)
   function clearIfClean(): void {
     const path = hooks.getPath();
     const content = hooks.getContent();
     if (!path || !content) return;
     if (content === baseline) {
-      dirty = 0;
       dropDraft(path);
     }
   }
@@ -206,11 +186,8 @@ export function createSync(hooks: SyncHooks): SyncState {
     setBaseline,
     baselineLen: () => lastPushedLen,
     ahead,
-    dirtyWords,
-    addDirty,
     schedule,
     pushNow,
     cancel,
-    clearIfClean,
   };
 }

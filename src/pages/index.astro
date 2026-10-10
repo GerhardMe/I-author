@@ -75,7 +75,7 @@ const authReady = loadSecrets() !== null;
   import { NOTES, parseName } from '../lib/naming.ts';
   import { visibleNodes } from '../lib/visibility.ts';
   import { marked } from 'marked';
-  import { EditorState, type Transaction } from '@codemirror/state';
+  import { EditorState } from '@codemirror/state';
   import { EditorView } from '@codemirror/view';
 
   import { editorExtensions } from '../lib/editor.ts';
@@ -239,25 +239,10 @@ const authReady = loadSecrets() !== null;
     draftTimer = setTimeout(flushDraft, 400);
   }
 
-  // accumulate dirty volume for the push trigger
-  function extendTracked(tr: Transaction): null {
-    if (!tr.docChanged) return null;
-    let insertedText = '';
-    let deletedLen = 0;
-    tr.changes.iterChangedRanges((a, b, c, d) => {
-      if (d > c) insertedText += tr.state.doc.sliceString(c, d);
-      if (b - a > d - c) deletedLen += b - a - (d - c);
-    });
-    if (insertedText || deletedLen)
-      sync.addDirty(insertedText, deletedLen);
-    return null;
-  }
-
   function makeEditor(content: string): EditorView {
     const hooks = {
       onOpenLink: openLink,
       onUpdate: onEditorUpdate,
-      onTrackTransaction: extendTracked,
       getView: () => editor,
     };
     const view = new EditorView({
@@ -280,7 +265,7 @@ const authReady = loadSecrets() !== null;
   }
 
   function dirty(): boolean {
-    return sync.dirtyWords() > 0;
+    return !!editor && !!currentFile && sync.ahead(editor.state.doc.toString());
   }
 
   // flush + push before leaving a file (tree switch, delete)
