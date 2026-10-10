@@ -281,17 +281,26 @@ body.theme-switching * {
   transition: none !important;
 }
 
+/* the theme toggle lives in the title bar, past the toolbar (the app shell
+   renders it there; bare screens take the --fixed variant instead) */
 .theme-toggle {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 1.1rem;
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* login/setup have no .side-head — the old floating button */
+.theme-toggle--fixed {
   position: fixed;
   top: 1rem;
   right: 1rem;
   z-index: 10;
-  border: none;
-  background: transparent;
-  color: var(--muted);
   font-size: 1.25rem;
-  cursor: pointer;
-  padding: 0.25rem 0.5rem;
 }
 
 .theme-toggle:hover {
@@ -422,7 +431,9 @@ body.theme-switching * {
   border-bottom-color: transparent;
 }
 
-.app.nav-off .brand {
+/* the title and the theme toggle stay live when the panel closes */
+.app.nav-off .brand,
+.app.nav-off .theme-toggle {
   pointer-events: auto;
 }
 
@@ -468,7 +479,6 @@ body.nav-anim .toolbar {
   border-bottom: 1px solid var(--line);
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 0.5rem;
 }
 
@@ -489,6 +499,7 @@ body.nav-anim .toolbar {
 .toolbar {
   display: flex;
   gap: 0.15rem;
+  margin-left: auto; /* brand left, toolbar + theme right */
 }
 
 .btn-tiny {

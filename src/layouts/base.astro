@@ -4,9 +4,12 @@ import '../styles/global.css';
 
 interface Props {
   title?: string;
+  // bare screens (login/setup) have no title bar to host the toggle — they
+  // keep the old floating button; the app shell renders its own in .side-head
+  fixedTheme?: boolean;
 }
 
-const { title = 'I author' } = Astro.props;
+const { title = 'I author', fixedTheme = false } = Astro.props;
 ---
 
 <!doctype html>
@@ -30,7 +33,9 @@ const { title = 'I author' } = Astro.props;
     </script>
   </head>
   <body>
-    <button id="theme-toggle" class="theme-toggle" aria-label="Toggle theme" title="Toggle theme">◐</button>
+    {fixedTheme && (
+      <button id="theme-toggle" class="theme-toggle theme-toggle--fixed" aria-label="Toggle theme" title="Toggle theme">◐</button>
+    )}
     <slot />
     <script>
       document.getElementById('theme-toggle')?.addEventListener('click', () => {
