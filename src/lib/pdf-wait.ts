@@ -35,8 +35,8 @@ export function pdfWaitPage(statusUrl: string, force: boolean): string {
 *{box-sizing:border-box}
 html,body{margin:0;background:var(--bg);color:var(--fg)}
 body{font:0.95rem/1.6 'Literata Variable',Georgia,'Times New Roman',serif;-webkit-font-smoothing:antialiased}
-.back{position:fixed;top:.6rem;left:.6rem;z-index:1;padding:.5rem .8rem;font:inherit;line-height:1;color:var(--muted);background:transparent;border:none;cursor:pointer}
-.back svg{display:block;width:1.05rem;height:1.05rem}
+.back{position:fixed;top:.6rem;left:.6rem;z-index:1;padding:1rem;font:inherit;line-height:1;color:var(--muted);background:transparent;border:none;cursor:pointer}
+.back i{display:block;width:.55rem;height:.55rem;border-left:2px solid currentColor;border-bottom:2px solid currentColor;transform:rotate(45deg)}
 .back:hover{color:var(--fg)}
 main{max-width:33rem;margin:0 auto;padding:11vh 1.5rem 3rem}
 h1{font-size:1.05rem;font-weight:600;margin:0;overflow-wrap:anywhere}
@@ -59,7 +59,7 @@ li.ch.ready .t{color:var(--fg)}
 </style>
 </head>
 <body>
-<button class="back" id="back" type="button" aria-label="back to the app"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M15 5 L7 12 L15 19"/></svg></button>
+<button class="back" id="back" type="button" aria-label="back to the app"><i></i></button>
 <main>
 <h1 id="scope">compiling…</h1>
 <div class="meta" id="meta">lualatex</div>
@@ -150,19 +150,23 @@ function tick() {
 
 tick();
 
+// plain ES5 only below — this page is a string written with
+// document.write, so nothing here is type-checked or transpiled.
+//
 // the tab was opened by the app's window.open (no noopener), so the opener
 // is the app tab. The arrow hands the focus back there — the compiler tab
-// itself stays open and still becomes the pdf when the compile lands. In
-// the same-tab fallback there is no opener, so it just goes back in history
-var back = document.getElementById('back') as HTMLButtonElement;
+// itself stays open and still becomes the pdf when the compile lands
+var back = document.getElementById('back');
 back.addEventListener('click', function () {
   if (window.opener) {
     try { window.opener.focus(); } catch (e) {}
     // some browsers ignore a cross-tab focus(); the app listens for this
     // message and focuses a real element instead — the stronger signal
     try { window.opener.postMessage('iauthor:focus', '*'); } catch (e) {}
+  } else if (history.length > 1) {
+    history.back(); // same-tab fallback: the app is the previous entry
   } else {
-    history.back();
+    location.assign('/');
   }
 });
 </script>
