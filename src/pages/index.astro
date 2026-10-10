@@ -196,7 +196,15 @@ const authReady = loadSecrets() !== null;
   }
 
   // ---------- sync status indicator ----------
-  // idle = hidden (server up to date), dirty = dot, pushing = spinner
+  // idle = hidden (server up to date), dirty = dot, pushing = spinner.
+  // The spinner waits half a second before appearing (no flash on quick
+  // replies) and, once shown, stays up at least a tenth of a second.
+  const SPINNER_DELAY_MS = 500;
+  const SPINNER_MIN_MS = 100;
+  let spinnerDelay: ReturnType<typeof setTimeout> | null = null; // before showing
+  let spinnerHold: ReturnType<typeof setTimeout> | null = null; // min display
+  let spinnerShownAt = 0;
+
   function setSync(state: 'idle' | 'dirty' | 'pushing'): void {
     syncIndicator.dataset.state = state;
   }
@@ -205,18 +213,48 @@ const authReady = loadSecrets() !== null;
     return sync.ahead(content) ? 'dirty' : 'idle';
   }
 
+  // recomputed at every transition point, so typing during a spinner hold
+  // still lands on the right end state
+  function pushEndState(): 'idle' | 'dirty' {
+    return editor ? syncStateFromDoc(editor.state.doc.toString()) : 'idle';
+  }
+
   const sync = createSync({
     getPath: () => currentFile,
     getContent: () => (editor ? editor.state.doc.toString() : null),
     getEditor: () => editor,
     onSaved: (content) => {
       docWords.textContent = `${countWords(content)} words`;
-      setSync('idle');
     },
-    onPushStart: () => setSync('pushing'),
+    onPushStart: () => {
+      if (spinnerHold) {
+        clearTimeout(spinnerHold); // a new push supersedes the old hold
+        spinnerHold = null;
+      }
+      if (syncIndicator.dataset.state === 'pushing') return; // already shown
+      spinnerDelay = setTimeout(() => {
+        spinnerDelay = null;
+        setSync('pushing');
+        spinnerShownAt = performance.now();
+      }, SPINNER_DELAY_MS);
+    },
     onPushEnd: () => {
-      if (editor) setSync(syncStateFromDoc(editor.state.doc.toString()));
-      else setSync('idle');
+      if (spinnerDelay) {
+        clearTimeout(spinnerDelay); // the reply beat the delay: never shown
+        spinnerDelay = null;
+        setSync(pushEndState());
+        return;
+      }
+      if (syncIndicator.dataset.state !== 'pushing') return;
+      const left = SPINNER_MIN_MS - (performance.now() - spinnerShownAt);
+      if (left <= 0) {
+        setSync(pushEndState());
+      } else {
+        spinnerHold = setTimeout(() => {
+          spinnerHold = null;
+          setSync(pushEndState());
+        }, left);
+      }
     },
     onAuthLost: () => {
       flushDraft();
@@ -227,7 +265,10 @@ const authReady = loadSecrets() !== null;
   function onEditorUpdate(u: { docChanged: boolean; state: { doc: { toString(): string } } }): void {
     if (!u.docChanged) return;
     docWords.textContent = `${countWords(u.state.doc.toString())} words`;
-    setSync(syncStateFromDoc(u.state.doc.toString()));
+    // while a reply is awaited the spinner owns the corner; the dot comes
+    // back when the push ends (pushEndState recomputes)
+    if (syncIndicator.dataset.state !== 'pushing')
+      setSync(syncStateFromDoc(u.state.doc.toString()));
     scheduleDraft();
     sync.schedule();
   }
