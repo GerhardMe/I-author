@@ -5,6 +5,7 @@
 import fs from 'node:fs';
 import type { APIRoute } from 'astro';
 import { ensurePdf } from '../lib/pdf.ts';
+import { NotFoundError } from '../lib/http.ts';
 
 export const GET: APIRoute = async (ctx) => {
   const rel = ctx.url.searchParams.get('path') ?? '';
@@ -24,7 +25,7 @@ export const GET: APIRoute = async (ctx) => {
     });
   } catch (e) {
     const msg = (e as Error).message;
-    const status = msg === 'not found' ? 404 : 500;
+    const status = e instanceof NotFoundError ? 404 : 500;
     // direct visits need a readable page; the client's fetch flow alerts on
     // this same text
     return new Response(

@@ -11,6 +11,8 @@
   --danger: #d1242f;
   --ok: #1a7f37;
   --tint: rgba(31, 111, 235, 0.08);
+  --nav-dur: 0.2s;
+  --tree-w: 18rem;
 }
 
 .dark {
@@ -397,10 +399,6 @@ body.theme-switching * {
    (A grid track was tried first, but the fixed sidebar is out of flow, so
    .main auto-placed into the tree's own track — the view got squashed into
    it. Padding can't misplace.) */
-:root {
-  --nav-dur: 0.2s;
-  --tree-w: 18rem;
-}
 
 .app {
   display: grid;

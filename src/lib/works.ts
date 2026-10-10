@@ -153,8 +153,7 @@ export function toRoman(n: number): string {
   return out;
 }
 
-function kindNumber(kind: Kind, num: number | '?'): string {
-  if (num === '?') return '?';
+function kindNumber(kind: Kind, num: number): string {
   // books get Roman numerals; parts and chapters are Arabic
   return kind === 'book' ? toRoman(num) : String(num);
 }
@@ -194,7 +193,11 @@ function findExisting(parentAbs: string, slug: string): boolean {
     .some((e) => parseName(e).stem.toLowerCase() === slug.toLowerCase());
 }
 
-export function createEntry(kind: 'folder' | 'file', parent: string, name: string): { path: string } {
+export function createEntry(
+  kind: 'folder' | 'file',
+  parent: string,
+  name: string,
+): { path: string; renumbered: Record<string, string> } {
   const slug = slugify(name);
   if (!slug) throw new Error('invalid name');
   let parentAbs: string;
@@ -225,8 +228,9 @@ export function createEntry(kind: 'folder' | 'file', parent: string, name: strin
 export function readChapter(rel: string): string {
   const abs = safePath(rel);
   if (!abs || !MD.test(rel)) throw new Error('invalid path');
-  if (!fs.statSync(abs).isFile()) throw new Error('not found');
-  if (fs.statSync(abs).size > MAX_FILE) throw new Error('too large');
+  const st = fs.statSync(abs); // a missing file throws ENOENT here, as before
+  if (!st.isFile()) throw new Error('not found');
+  if (st.size > MAX_FILE) throw new Error('too large');
   return fs.readFileSync(abs, 'utf8');
 }
 

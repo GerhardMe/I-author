@@ -9,16 +9,11 @@ export const PUSH_MS = 1000; // save every second while the doc is ahead
 export const PUSH_TIMEOUT_MS = 10_000; // hung connection → failed push
 
 // ---------- draft store (sessionStorage — survives reload + PIN lock) ----------
-const DRAFT_KEY = 'iauthor.draft';
 
 export type Draft = { content: string; synced: number; at: number };
 
 export function draftKey(p: string): string {
   return `iauthor.draft.${p}`;
-}
-
-export function lastDraftPath(): string | null {
-  return sessionStorage.getItem(DRAFT_KEY);
 }
 
 export function loadDraft(p: string): Draft | null {
@@ -34,14 +29,10 @@ export function loadDraft(p: string): Draft | null {
 }
 
 export function saveDraft(p: string, draft: Draft): void {
-  sessionStorage.setItem(DRAFT_KEY, p);
   sessionStorage.setItem(draftKey(p), JSON.stringify(draft));
 }
 
 export function dropDraft(p: string): void {
-  // only clear the pointer when it names THIS draft — another file's draft
-  // must stay restorable at boot (boot() reads lastDraftPath())
-  if (sessionStorage.getItem(DRAFT_KEY) === p) sessionStorage.removeItem(DRAFT_KEY);
   sessionStorage.removeItem(draftKey(p));
 }
 
@@ -51,7 +42,6 @@ export function moveDraft(oldP: string, newP: string): void {
   if (raw === null) return;
   sessionStorage.setItem(draftKey(newP), raw);
   sessionStorage.removeItem(draftKey(oldP));
-  if (sessionStorage.getItem(DRAFT_KEY) === oldP) sessionStorage.setItem(DRAFT_KEY, newP);
 }
 
 // Renumbering renames every later sibling, and moving a folder changes the path
@@ -71,7 +61,6 @@ export function remapDrafts(map: (path: string) => string): void {
     if (raw === null) continue;
     sessionStorage.setItem(draftKey(next), raw);
     sessionStorage.removeItem(k);
-    if (sessionStorage.getItem(DRAFT_KEY) === path) sessionStorage.setItem(DRAFT_KEY, next);
   }
 }
 

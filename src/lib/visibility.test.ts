@@ -2,18 +2,18 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { visibleNodes } from './visibility.ts';
 
-type N = { path: string; draft: boolean; children?: N[] };
+type N = { name: string; path: string; draft: boolean; children?: N[] };
 
 const tree: N[] = [
-  { path: '01_work', draft: false, children: [
-    { path: '01_work/01_book', draft: false, children: [
-      { path: '01_work/01_book/01_intro.md', draft: false },
-      { path: '01_work/01_book/notes.md', draft: false },
+  { name: '01_work', path: '01_work', draft: false, children: [
+    { name: '01_book', path: '01_work/01_book', draft: false, children: [
+      { name: '01_intro.md', path: '01_work/01_book/01_intro.md', draft: false },
+      { name: 'notes.md', path: '01_work/01_book/notes.md', draft: false },
     ] },
-    { path: '01_work/draft_sketch.md', draft: true },
-    { path: '01_work/02_empty', draft: false, children: [] },
+    { name: 'draft_sketch.md', path: '01_work/draft_sketch.md', draft: true },
+    { name: '02_empty', path: '01_work/02_empty', draft: false, children: [] },
   ] },
-  { path: '02_poems.md', draft: false },
+  { name: '02_poems.md', path: '02_poems.md', draft: false },
 ];
 
 const ALL = { drafts: true, notes: true, empty: true };
@@ -26,7 +26,9 @@ test('visible: drafts, notes and empty directories drop together', () => {
 });
 
 test('visible: a folder whose children all vanish is dropped', () => {
-  const t: N[] = [{ path: 'w', draft: false, children: [{ path: 'w/d.md', draft: true }] }];
+  const t: N[] = [
+    { name: 'w', path: 'w', draft: false, children: [{ name: 'd.md', path: 'w/d.md', draft: true }] },
+  ];
   assert.deepEqual(visibleNodes(t, ALL).map((n) => n.path), []);
 });
 

@@ -63,13 +63,13 @@ export const NOTES = /^notes\.md$/i;
 // numbered. An optional NN_ prefix orders the file WITHOUT giving it a
 // number, so matter can sit between two books. Compiled into the book
 // (unlike notes.md), as unnumbered front/back matter in the contents.
-export const MATTER =
-  /^(?:\d{1,4}[-_])?(front_matter|appendix|afterword|preface|foreword|epilogue|acknowledgements|colophon|dedication|epigraph|prologue)\.md$/i;
+const MATTER_NAMES =
+  'front_matter|appendix|afterword|preface|foreword|epilogue|acknowledgements|colophon|dedication|epigraph|prologue';
+export const MATTER = new RegExp(`^(?:\\d{1,4}[-_])?(${MATTER_NAMES})\\.md$`, 'i');
 
 // the same names with no prefix: they keep no prefix at all, so renumbering
 // must skip them — only a PREFIXED matter file takes part in ordering
-const BARE_MATTER =
-  /^(front_matter|appendix|afterword|preface|foreword|epilogue|acknowledgements|colophon|dedication|epigraph|prologue)\.md$/i;
+const BARE_MATTER = new RegExp(`^(${MATTER_NAMES})\\.md$`, 'i');
 
 // the work-in-progress chapter: a normal chapter, unnumbered by name
 const WIP = /^title\.md$/i;

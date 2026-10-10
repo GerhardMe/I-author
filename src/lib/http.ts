@@ -1,6 +1,10 @@
 import type { APIContext } from 'astro';
 import { FORCE_SECURE_COOKIES } from './config.ts';
 
+// a missing works entry: routes decide the status by TYPE, not by comparing
+// error message text (a renamed message once meant a silently wrong status)
+export class NotFoundError extends Error {}
+
 export function json(ctx: APIContext, data: unknown, status = 200, noStore = false): Response {
   const headers: Record<string, string> = { 'content-type': 'application/json' };
   // one-time secrets (setup) must never sit in a shared or browser cache

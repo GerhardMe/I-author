@@ -16,6 +16,7 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { WORKS_DIR } from './config.ts';
+import { NotFoundError } from './http.ts';
 import { parseName, slugify } from './naming.ts';
 import { type Node, listWorks, readChapter, safePath } from './works.ts';
 import { visibleNodes } from './visibility.ts';
@@ -194,14 +195,6 @@ function openerFallbacks(): string[] {
   ];
 }
 
-// the chapter's small-caps label comes from the same positional numbering the
-// sidebar shows; bare entries (top level, notes, matter) have none. Looked up
-// in the UNCLEANED tree, like chapterTitle.
-function chapterLabel(rel: string): string {
-  const node = findNode(listWorks(), rel);
-  return node ? node.label : '';
-}
-
 // the chapter's print piece: the bare title (no "Chapter N:" fusion — the
 // label prints as its own line above it), with the tree-stale fallback
 // (exported for tests)
@@ -247,15 +240,31 @@ function dropcapInput(
 // numbering is the only one. One pass: fragments carry no TOC.
 function chapterFragTex(it: FragItem, preamble: string, files: Record<string, string>): string {
   const dc = dropcapOf(it.content ?? '');
+  return chapterTex(preamble, it.label, it.raw, it.abs, dc, files, '\\pagestyle{empty}');
+}
+
+// the chapter body's LaTeX wrapper, shared by the standalone chapter compile
+// (ensurePdf) and the book's fragment compile (chapterFragTex) — the fragment
+// alone silences the pagestyle, so the wrapper's footer numbering is the only
+// one on those pages
+function chapterTex(
+  preamble: string,
+  label: string,
+  title: string,
+  abs: string,
+  dc: ReturnType<typeof dropcapOf>,
+  files: Record<string, string>,
+  pagestyle?: string,
+): string {
   return [
     preamble,
     '\\markdownSetup{shiftHeadings=1}',
     ...openerFallbacks(),
-    '\\pagestyle{empty}',
+    ...(pagestyle ? [pagestyle] : []),
     '\\begin{document}',
-    ...(it.label ? [`\\chapterlabel{${texEsc(it.label)}}`] : []),
-    `\\section*{${texEsc(it.raw)}}`,
-    dc ? dropcapInput(dc, files) : `\\markdownInput{${it.abs}}`,
+    ...(label ? [`\\chapterlabel{${texEsc(label)}}`] : []),
+    `\\section*{${texEsc(title)}}`,
+    dc ? dropcapInput(dc, files) : `\\markdownInput{${abs}}`,
     '\\end{document}',
     '',
   ].join('\n');
@@ -397,12 +406,12 @@ export async function ensurePdf(
 ): Promise<EnsureResult> {
   const isFile = MD.test(rel);
   const abs = safePath(rel);
-  if (!abs) throw new Error('not found');
-  if (!fs.existsSync(abs)) throw new Error('not found');
+  if (!abs) throw new NotFoundError('not found');
+  if (!fs.existsSync(abs)) throw new NotFoundError('not found');
   if (isFile) {
-    if (!fs.statSync(abs).isFile()) throw new Error('not found');
+    if (!fs.statSync(abs).isFile()) throw new NotFoundError('not found');
   } else if (!fs.statSync(abs).isDirectory()) {
-    throw new Error('not found');
+    throw new NotFoundError('not found');
   }
 
   const targetAbs = isFile ? abs.replace(MD, '.pdf') : `${abs}.pdf`;
@@ -437,17 +446,7 @@ export async function ensurePdf(
     } catch {}
     const dc = dropcapOf(content);
     const files: Record<string, string> = {};
-    const tex = [
-      style.preamble,
-      '\\markdownSetup{shiftHeadings=1}',
-      ...openerFallbacks(),
-      '\\begin{document}',
-      ...(piece.label ? [`\\chapterlabel{${texEsc(piece.label)}}`] : []),
-      `\\section*{${texEsc(piece.title)}}`,
-      dc ? dropcapInput(dc, files) : `\\markdownInput{${abs}}`,
-      '\\end{document}',
-      '',
-    ].join('\n');
+    const tex = chapterTex(style.preamble, piece.label, piece.title, abs, dc, files);
     const data = await runLatex(tex, path.basename(abs, path.extname(abs)), 1, files);
     await writeArtifact(targetAbs, data);
     const fresh = readStore();
@@ -458,10 +457,10 @@ export async function ensurePdf(
 
   // ---- book: fragment assembly ----
   const node = findNode(clean(listWorks(), includeDrafts), rel);
-  if (!node) throw new Error('not found');
+  if (!node) throw new NotFoundError('not found');
   const items: FragItem[] = [];
   collectItems(node, styleHash, items);
-  if (!items.length) throw new Error('not found');
+  if (!items.length) throw new NotFoundError('not found');
 
   const keys = items.map((i) => i.key).join('\n');
   const sig = sha(`${style.id}\n${includeDrafts}\n${keys}`);
@@ -549,7 +548,7 @@ export function pdfPlan(
   const styleHash = sha(style.preamble);
   const isFile = MD.test(rel);
   const abs = safePath(rel);
-  if (!abs || !fs.existsSync(abs)) throw new Error('not found');
+  if (!abs || !fs.existsSync(abs)) throw new NotFoundError('not found');
 
   if (isFile) {
     const store = readStore();
@@ -568,10 +567,10 @@ export function pdfPlan(
   }
 
   const node = findNode(clean(listWorks(), includeDrafts), rel);
-  if (!node) throw new Error('not found');
+  if (!node) throw new NotFoundError('not found');
   const items: FragItem[] = [];
   collectItems(node, styleHash, items);
-  if (!items.length) throw new Error('not found');
+  if (!items.length) throw new NotFoundError('not found');
   return {
     scope: scopeTitle(rel),
     style: style.id,

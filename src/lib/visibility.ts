@@ -5,6 +5,7 @@ import { NOTES } from './naming.ts';
 
 // structural subset of the works tree node (works.ts's Node satisfies it)
 type VisNode = {
+  name: string; // disk name — the notes.md rule tests it
   path: string;
   draft: boolean;
   children?: VisNode[];

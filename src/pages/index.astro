@@ -93,6 +93,8 @@ const authReady = loadSecrets() !== null;
     name: string;
     path: string;
     title: string;
+    label: string; // the division label ("Chapter 2", "Book I"); bare entries: ''
+    raw: string; // the filename's own title, prefix stripped
     draft: boolean; // self: owns the (draft) chip
     inDraft: boolean; // inside a draft subtree: grays titles
     words?: number; // self (md) or recursive total of all descendant mds
@@ -377,7 +379,7 @@ const authReady = loadSecrets() !== null;
     );
   }
 
-  async function api(url: string, opts?: RequestInit): Promise<any> {
+  async function api<T = any>(url: string, opts?: RequestInit): Promise<T> {
     const res = await fetch(url, { cache: 'no-store', ...opts });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error ?? res.statusText);
@@ -828,10 +830,9 @@ const authReady = loadSecrets() !== null;
     if (isFolder) {
       row.innerHTML = `<span class="toc-title">${esc(n.title)}</span>`;
     } else {
-      // "Chapter 2: First flight" -> name left, "Chapter 2" right, dots between
-      const m = /^Chapter [IVX\d?]+: /.exec(n.title);
-      const name = m ? n.title.slice(m[0].length) : n.title;
-      const label = m ? m[0].slice(0, -2) : '';
+      // the server's split: bare name left, "Chapter 2" right, dots between
+      const name = n.raw;
+      const label = n.label;
       row.innerHTML = `<span class="toc-name">${esc(name)}</span>${
         label ? '<span class="toc-leader"></span>' : ''
       }<span class="toc-num">${esc(label)}</span>`;

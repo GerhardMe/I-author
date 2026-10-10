@@ -4,7 +4,7 @@
 // Hashing only, no LaTeX — cheap enough to poll while a compile runs.
 import type { APIRoute } from 'astro';
 import { pdfPlan } from '../../lib/pdf.ts';
-import { json } from '../../lib/http.ts';
+import { NotFoundError, json } from '../../lib/http.ts';
 
 export const GET: APIRoute = async (ctx) => {
   const rel = ctx.url.searchParams.get('path') ?? '';
@@ -13,7 +13,7 @@ export const GET: APIRoute = async (ctx) => {
   try {
     return json(ctx, pdfPlan(rel, preset, includeDrafts));
   } catch (e) {
-    const msg = (e as Error).message;
-    return json(ctx, { error: msg }, msg === 'not found' ? 404 : 500);
+    const status = e instanceof NotFoundError ? 404 : 500;
+    return json(ctx, { error: (e as Error).message }, status);
   }
 };
