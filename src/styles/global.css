@@ -834,11 +834,6 @@ a.btn-tiny:hover {
   cursor: text;
 }
 
-.doc-head h1:hover {
-  text-decoration: underline dotted var(--muted);
-  text-underline-offset: 5px;
-}
-
 .doc-head h1.draft {
   color: var(--muted);
 }
@@ -1111,7 +1106,9 @@ a.btn-tiny:hover {
 
 /* ---------- sync status indicator (bottom-right corner) ----------
    idle: hidden — the page matches the server; dirty: dot — the doc is ahead
-   of the server; pushing: spinner — an update is awaiting the server's reply */
+   of the server; pushing: spinner — an update is awaiting the server's reply;
+   error: red ! — a push failed or is stuck, unsynced text at risk (the ! is
+   static text, revealed only here) */
 #sync-indicator {
   position: fixed;
   right: 1.25rem;
@@ -1120,12 +1117,25 @@ a.btn-tiny:hover {
   height: 0.5rem;
   border-radius: 50%;
   background: var(--muted);
+  color: transparent;
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.3s;
 }
 
 #sync-indicator[data-state='dirty'] {
+  opacity: 1;
+}
+
+#sync-indicator[data-state='error'] {
+  width: auto;
+  height: auto;
+  background: transparent;
+  border-radius: 0;
+  color: var(--danger);
+  font-weight: 700;
+  font-size: 0.75rem;
+  line-height: 1;
   opacity: 1;
 }
 

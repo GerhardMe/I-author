@@ -56,7 +56,7 @@ const authReady = loadSecrets() !== null;
           <div id="editor-host" hidden></div>
         </div>
       </article>
-      <div id="sync-indicator" data-state="idle"></div>
+      <div id="sync-indicator" data-state="idle">!</div>
     </main>
   </div>
   <script is:inline>
@@ -196,7 +196,9 @@ const authReady = loadSecrets() !== null;
   }
 
   // ---------- sync status indicator ----------
-  // idle = hidden (server up to date), dirty = dot, pushing = spinner.
+  // idle = hidden (server up to date), dirty = dot (doc ahead of the server),
+  // pushing = spinner (update awaiting the reply), error = red ! (a push has
+  // failed or is stuck — unsynced text at risk; stays until a push confirms).
   // The spinner waits half a second before appearing (no flash on quick
   // replies) and, once shown, stays up at least a tenth of a second.
   const SPINNER_DELAY_MS = 500;
@@ -205,7 +207,7 @@ const authReady = loadSecrets() !== null;
   let spinnerHold: ReturnType<typeof setTimeout> | null = null; // min display
   let spinnerShownAt = 0;
 
-  function setSync(state: 'idle' | 'dirty' | 'pushing'): void {
+  function setSync(state: 'idle' | 'dirty' | 'pushing' | 'error'): void {
     syncIndicator.dataset.state = state;
   }
 
@@ -238,21 +240,24 @@ const authReady = loadSecrets() !== null;
         spinnerShownAt = performance.now();
       }, SPINNER_DELAY_MS);
     },
-    onPushEnd: () => {
+    onPushEnd: (ok) => {
       if (spinnerDelay) {
         clearTimeout(spinnerDelay); // the reply beat the delay: never shown
         spinnerDelay = null;
-        setSync(pushEndState());
+        setSync(ok ? pushEndState() : 'error');
         return;
       }
-      if (syncIndicator.dataset.state !== 'pushing') return;
+      if (syncIndicator.dataset.state !== 'pushing') {
+        if (!ok) setSync('error'); // retry failed while the ! was up: keep it
+        return;
+      }
       const left = SPINNER_MIN_MS - (performance.now() - spinnerShownAt);
       if (left <= 0) {
-        setSync(pushEndState());
+        setSync(ok ? pushEndState() : 'error');
       } else {
         spinnerHold = setTimeout(() => {
           spinnerHold = null;
-          setSync(pushEndState());
+          setSync(ok ? pushEndState() : 'error');
         }, left);
       }
     },
@@ -262,12 +267,23 @@ const authReady = loadSecrets() !== null;
     },
   });
 
+  // connection loss: the ! only when unsynced text is at stake (a hanging
+  // push lands here on its own via the fetch timeout); back online: recompute
+  // to the dot and retry — the next push verifies the connection for real
+  document.addEventListener('offline', () => {
+    if (editor && currentFile && sync.ahead(editor.state.doc.toString())) setSync('error');
+  });
+  document.addEventListener('online', () => {
+    if (syncIndicator.dataset.state === 'error') setSync(pushEndState());
+    sync.schedule();
+  });
+
   function onEditorUpdate(u: { docChanged: boolean; state: { doc: { toString(): string } } }): void {
     if (!u.docChanged) return;
     docWords.textContent = `${countWords(u.state.doc.toString())} words`;
-    // while a reply is awaited the spinner owns the corner; the dot comes
-    // back when the push ends (pushEndState recomputes)
-    if (syncIndicator.dataset.state !== 'pushing')
+    // while a reply is awaited (or a push has failed) the spinner/! own the
+    // corner; the dot comes back when a push confirms (pushEndState recomputes)
+    if (syncIndicator.dataset.state !== 'pushing' && syncIndicator.dataset.state !== 'error')
       setSync(syncStateFromDoc(u.state.doc.toString()));
     scheduleDraft();
     sync.schedule();

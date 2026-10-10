@@ -6,6 +6,7 @@
 import { EditorView } from '@codemirror/view';
 
 export const PUSH_MS = 1000; // save every second while the doc is ahead
+export const PUSH_TIMEOUT_MS = 10_000; // hung connection → failed push
 
 // ---------- draft store (sessionStorage — survives reload + PIN lock) ----------
 const DRAFT_KEY = 'iauthor.draft';
@@ -141,6 +142,8 @@ export function createSync(hooks: SyncHooks): SyncState {
         method: 'PUT',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ path, content }),
+        // a silently dropped connection must count as a failure, not spin forever
+        signal: AbortSignal.timeout(PUSH_TIMEOUT_MS),
       });
       if (res.status === 401) {
         hooks.onAuthLost();
