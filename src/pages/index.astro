@@ -93,6 +93,7 @@ const authReady = loadSecrets() !== null;
   import { EditorView } from '@codemirror/view';
 
   import { editorExtensions } from '../lib/editor.ts';
+  import { appConfirm } from '../lib/confirm.ts';
   import { pdfWaitPage } from '../lib/pdf-wait.ts';
   import {
     createSync,
@@ -1353,15 +1354,17 @@ newRow.hidden = true;
       target.children !== undefined ? `"${target.title}" and everything in it` : `"${target.title}"`;
     // the deletion preview rides the confirm window: the doomed subtree is
     // expanded and flashed while the dialog asks (touch has no hover, so a
-    // phone would otherwise confirm blind). The browser paints pending
-    // changes before the native dialog shows — the pulse holds there
-    // statically and resumes the moment it is dismissed.
+    // phone would otherwise confirm blind). The dialog does not block the
+    // event loop — the pulse keeps animating while it is up.
     expandDeletePreview(target);
     ctxLi = treeEl
       .querySelector(`.tree-row[data-path="${target.path}"]`)
       ?.closest('li') as HTMLElement | null;
     ctxLi?.classList.add('del-flash');
-    const ok = confirm(`Delete ${what}? Git history keeps a copy on the server.`);
+    const ok = await appConfirm(`Delete ${what}? Git history keeps a copy on the server.`, {
+      ok: 'delete',
+      danger: true,
+    });
     revertDeletePreview();
     if (!ok) return;
     try {

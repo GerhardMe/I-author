@@ -113,6 +113,9 @@ src/layouts/         base.astro (theme pre-paint script, Literata import)
 src/styles/global.css  design tokens + shared components + app shell + markdown styles
 src/lib/editor.ts    CodeMirror extension set (editor_extensions assembled once)
 src/lib/pdf-wait.ts  client-side loader polling /api/pdfstatus
+src/lib/confirm.ts   in-app confirm dialog (appConfirm) — promise-based,
+                     non-blocking replacement for window.confirm; general
+                     (ok/cancel labels, danger styling), styles in global.css
 src/lib/*.test.ts    node:test suites (test-auth runs the src/lib/*.test.ts glob)
 ```
 
@@ -205,8 +208,8 @@ context menu   right-click (desktop) or long-press (touch — iOS never fires
                the popups instead — the insert line shows while the create
                dialog is open (itemNew click calls showInsertLine), the delete
                flash expands + flashes the subtree during the confirm window
-               (deleteNode re-applies the preview before confirm(), reverts
-               after); pendingParent/pendingAnchorPath feed the create
+               (deleteNode re-applies the preview before appConfirm, reverts
+               after — the in-app dialog does not block, so the pulse animates); pendingParent/pendingAnchorPath feed the create
                dialog (deprecated, appearance-only mobile bump: 16px input)
 rename         header click (except buttons) → raw-name editor → commitRename()
                (+ moveDraft, remapExpanded so subtree stays open)

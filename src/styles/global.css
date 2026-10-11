@@ -764,6 +764,87 @@ a.btn-tiny:hover {
   color: var(--danger);
 }
 
+/* ---------- in-app confirm dialog (src/lib/confirm.ts) ----------
+   The general replacement for window.confirm — created by JS, so global
+   styles. It does not block the event loop: page animations keep running
+   while it asks. Backdrop tap = cancel; Escape = cancel (capture handler,
+   so the app's own Escape paths stand down); Enter = the focused button
+   (cancel owns focus — the safe default). */
+.confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 70; /* above the context menus (60) */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: color-mix(in srgb, var(--fg) 18%, transparent);
+  animation: confirm-in 0.15s ease;
+}
+
+.confirm-card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.3);
+  max-width: 22rem;
+  padding: 1.1rem 1.2rem;
+}
+
+.confirm-msg {
+  margin: 0 0 1.1rem;
+  font-size: 0.92rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.confirm-row {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.4rem;
+}
+
+.confirm-row button {
+  font: inherit;
+  font-size: 0.8rem;
+  padding: 0.35rem 0.85rem;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.confirm-row button:hover {
+  color: var(--fg);
+  border-color: var(--muted);
+}
+
+.confirm-row .confirm-ok {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.confirm-card.danger .confirm-ok {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+@keyframes confirm-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .confirm-backdrop {
+    animation: none;
+  }
+}
+
 .side-foot {
   padding: 0.5rem 1rem;
   border-top: 1px solid var(--line);
