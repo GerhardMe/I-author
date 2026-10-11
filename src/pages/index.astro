@@ -74,6 +74,7 @@ const authReady = loadSecrets() !== null;
        nav-off / bar-away sibling selectors keep working; it runs the same
        ladder as the desktop keymap — native CM undo first, git undo on
        exhaustion -->
+  <button id="redo-btn" class="redo-btn" aria-label="Redo" title="redo">↷</button>
   <button id="undo-btn" class="undo-btn" aria-label="Undo" title="undo">↶</button>
   <script is:inline>
     // pre-paint nav state: on mobile the overlay starts closed so the page is
@@ -111,7 +112,7 @@ const authReady = loadSecrets() !== null;
   import { marked } from 'marked';
   import { EditorState, EditorSelection } from '@codemirror/state';
   import { EditorView } from '@codemirror/view';
-  import { undo } from '@codemirror/commands';
+  import { undo, redo } from '@codemirror/commands';
 
   import { editorExtensions } from '../lib/editor.ts';
   import { appConfirm } from '../lib/confirm.ts';
@@ -442,9 +443,7 @@ const authReady = loadSecrets() !== null;
       onGitUndo: () => {
         void gitUndo();
       },
-      onRedoExhausted: () => {
-        // the git history view (forward jumps) arrives with its own milestone
-      },
+      onRedoExhausted: redoExhausted,
     };
     const view = new EditorView({
       state: EditorState.create({
@@ -1272,13 +1271,24 @@ async function showGroup(node: Node): Promise<void> {
     }
   });
 
-  // the mobile undo button: the same ladder as Ctrl+Z — native CM undo
-  // first, git undo on exhaustion (gitUndo's in-flight guard debounces);
-  // no confirmation, the roundtrip surfaces through the sync markers
+  // the mobile undo/redo buttons: the same ladders as Ctrl+Z / Ctrl+Shift+Z —
+  // native first, git undo / the history view on exhaustion (gitUndo's
+  // in-flight guard debounces); no confirmation, the roundtrip surfaces
+  // through the sync markers
+  function redoExhausted(): void {
+    // the git history view (the forward jump) arrives with its own milestone
+  }
+
   const undoBtn = document.getElementById('undo-btn') as HTMLButtonElement;
   undoBtn.addEventListener('click', () => {
     if (editor && undo(editor)) return;
     void gitUndo();
+  });
+
+  const redoBtn = document.getElementById('redo-btn') as HTMLButtonElement;
+  redoBtn.addEventListener('click', () => {
+    if (editor && redo(editor)) return;
+    redoExhausted();
   });
 
   // ---------- context menu on the tree: new / delete ----------
