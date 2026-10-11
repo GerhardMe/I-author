@@ -70,6 +70,11 @@ const authReady = loadSecrets() !== null;
       </article>
     </main>
   </div>
+  <!-- the mobile undo button (no Ctrl+Z on touch): a sibling of .app so the
+       nav-off / bar-away sibling selectors keep working; it runs the same
+       ladder as the desktop keymap — native CM undo first, git undo on
+       exhaustion -->
+  <button id="undo-btn" class="undo-btn" aria-label="Undo" title="undo">↶</button>
   <script is:inline>
     // pre-paint nav state: on mobile the overlay starts closed so the page is
     // never covered by a flash before the app script runs; desktop starts
@@ -106,6 +111,7 @@ const authReady = loadSecrets() !== null;
   import { marked } from 'marked';
   import { EditorState, EditorSelection } from '@codemirror/state';
   import { EditorView } from '@codemirror/view';
+  import { undo } from '@codemirror/commands';
 
   import { editorExtensions } from '../lib/editor.ts';
   import { appConfirm } from '../lib/confirm.ts';
@@ -1264,6 +1270,15 @@ async function showGroup(node: Node): Promise<void> {
       e.preventDefault();
       void gitUndo();
     }
+  });
+
+  // the mobile undo button: the same ladder as Ctrl+Z — native CM undo
+  // first, git undo on exhaustion (gitUndo's in-flight guard debounces);
+  // no confirmation, the roundtrip surfaces through the sync markers
+  const undoBtn = document.getElementById('undo-btn') as HTMLButtonElement;
+  undoBtn.addEventListener('click', () => {
+    if (editor && undo(editor)) return;
+    void gitUndo();
   });
 
   // ---------- context menu on the tree: new / delete ----------

@@ -331,6 +331,58 @@ body.nav-anim .theme-toggle {
   color: var(--fg);
 }
 
+/* the mobile undo button (no Ctrl+Z on touch): hidden by default, shown in
+   the mobile query only — desktop has the keymap. It duplicates the theme
+   toggle's sibling rules: with the tree overlay open it sits at z 10 behind
+   the sidebar like ◐ (fine: no editing while the tree is open), nav-off
+   raises it above the title-bar strip, and bar-away slides it away with the
+   topbar. It sits LEFT of the theme toggle, same top rhythm. */
+.undo-btn {
+  display: none;
+  position: fixed;
+  top: 1rem;
+  right: 3.5rem;
+  z-index: 10;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 1.25rem;
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+@media (max-width: 900px) {
+  .undo-btn {
+    display: block;
+  }
+}
+
+.app.nav-off ~ .undo-btn {
+  z-index: 30;
+}
+
+.app.bar-away ~ .undo-btn {
+  transform: translateY(calc(-100% - 1.5rem));
+  opacity: 0;
+  pointer-events: none;
+}
+
+body.nav-anim .undo-btn {
+  transition: transform var(--nav-dur) ease, opacity var(--nav-dur) ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body.nav-anim .undo-btn {
+    transition: none;
+  }
+}
+
+.undo-btn:hover {
+  color: var(--fg);
+}
+
 /* ---------- bare login screen ---------- */
 .bare {
   display: flex;
