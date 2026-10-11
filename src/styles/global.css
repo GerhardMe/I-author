@@ -457,7 +457,6 @@ body.nav-anim .theme-toggle {
 }
 
 .app.nav-off .tree,
-.app.nav-off .new-row,
 .app.nav-off .side-foot,
 .app.nav-off .toolbar {
   opacity: 0;
@@ -476,7 +475,6 @@ body.nav-anim .side-head {
 }
 
 body.nav-anim .tree,
-body.nav-anim .new-row,
 body.nav-anim .side-foot,
 body.nav-anim .toolbar {
   transition: opacity var(--nav-dur) ease, transform var(--nav-dur) ease;
@@ -486,7 +484,6 @@ body.nav-anim .toolbar {
   body.nav-anim .sidebar,
   body.nav-anim .side-head,
   body.nav-anim .tree,
-  body.nav-anim .new-row,
   body.nav-anim .side-foot,
   body.nav-anim .toolbar {
     transition: none;
@@ -552,18 +549,13 @@ a.btn-tiny:hover {
   text-decoration: none;
 }
 
-.new-row {
-  padding: 0.5rem 1rem;
-  border-bottom: 1px solid var(--line);
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-  align-items: center;
-}
-
+/* the create dialog: shares the confirm card's backdrop/button styling;
+   created as static markup but JS toggles it, so the classes stay global */
 .new-kind {
   display: flex;
   gap: 0.15rem;
+  align-items: baseline;
+  margin-bottom: 0.7rem;
 }
 
 .kind-btn.is-on,
@@ -573,21 +565,36 @@ a.btn-tiny:hover {
   background: var(--tint);
 }
 
-.new-row input {
-  flex: 1;
-  min-width: 0;
+.new-in {
+  margin-left: auto;
+  font-size: 0.72rem;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.new-card input {
+  display: block;
+  width: 100%;
   font: inherit;
-  font-size: 0.8rem;
-  padding: 0.25rem 0.4rem;
+  font-size: 0.9rem;
+  padding: 0.35rem 0.5rem;
   border: 1px solid var(--line);
   background: var(--bg);
   color: var(--fg);
   border-radius: 2px;
 }
 
-.new-row input:focus {
+.new-card input:focus {
   outline: none;
   border-color: var(--accent);
+}
+
+.new-err {
+  margin: 0.5rem 0 0;
+  font-size: 0.8rem;
+  color: var(--danger);
 }
 
 .tree {
@@ -819,6 +826,12 @@ a.btn-tiny:hover {
   background: color-mix(in srgb, var(--fg) 18%, transparent);
   pointer-events: none; /* the page stays live behind the dim */
   animation: confirm-in 0.15s ease;
+}
+
+/* author display beats the UA [hidden] rule — appConfirm adds/removes its
+   backdrop, but #new-dialog toggles hidden and must actually disappear */
+.confirm-backdrop[hidden] {
+  display: none;
 }
 
 .confirm-card {
@@ -1549,15 +1562,14 @@ a.btn-tiny:hover {
     right: -0.5rem;
   }
 
-  /* the deprecated create strip, usable on touch — appearance only, a
-     replacement is planned: a 16px field (iOS zooms smaller inputs) and
-     taller targets */
-  .new-row input {
+  /* the create dialog on touch: a 16px field (iOS zooms smaller inputs)
+     and taller targets */
+  .new-card input {
     font-size: 1rem;
     padding: 0.4rem 0.5rem;
   }
 
-  .new-row .btn-tiny {
+  .new-card .btn-tiny {
     padding: 0.4rem 0.6rem;
   }
 

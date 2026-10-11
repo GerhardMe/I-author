@@ -10,21 +10,12 @@ const authReady = loadSecrets() !== null;
     <aside class="sidebar" id="sidebar">
       <div class="side-head">
         <button class="brand" id="brand" type="button" aria-expanded="true" aria-controls="tree">I author</button>
-        <div class="toolbar">
-          <button class="btn-tiny" id="hide-drafts" title="Show drafts and notes">drafts <span id="hide-drafts-eye">◡</span></button>
-        </div>
+      <div class="toolbar">
+        <button class="btn-tiny" id="hide-drafts" title="Show drafts and notes">drafts <span id="hide-drafts-eye">◡</span></button>
       </div>
-      <div class="new-row" id="new-row" hidden>
-        <div class="new-kind">
-          <button class="btn-tiny kind-btn is-on" data-kind="file" type="button">md</button>
-          <button class="btn-tiny kind-btn" data-kind="folder" type="button">dir</button>
-        </div>
-        <span class="note" id="new-ctx"></span>
-        <input id="new-name" placeholder="name" autocomplete="off" />
-        <button class="btn-tiny" id="new-ok">add</button>
-        <button class="btn-tiny" id="new-cancel">✕</button>
-      </div>
-      <nav class="tree" id="tree"></nav>
+    </div>
+  </div>
+  <nav class="tree" id="tree"></nav>
       <div class="side-foot">
         {authReady ? (
           <>
@@ -81,6 +72,24 @@ const authReady = loadSecrets() !== null;
       document.querySelector('.app').classList.add('nav-off');
     }
   </script>
+  <!-- the create dialog: a confirm-style card, not panel chrome — outside
+       click, Escape and cancel dismiss it, Enter adds; the insert line and
+       the anchored folder preview stay up while it is open -->
+  <div class="confirm-backdrop" id="new-dialog" hidden>
+    <div class="confirm-card new-card" id="new-card">
+      <div class="new-kind">
+        <button class="btn-tiny kind-btn is-on" data-kind="file" type="button">md</button>
+        <button class="btn-tiny kind-btn" data-kind="folder" type="button">dir</button>
+        <span class="new-in" id="new-in"></span>
+      </div>
+      <input id="new-name" placeholder="name" autocomplete="off" />
+      <p class="new-err" id="new-err" hidden></p>
+      <div class="confirm-row">
+        <button type="button" id="new-cancel">cancel</button>
+        <button type="button" class="confirm-ok" id="new-ok">add</button>
+      </div>
+    </div>
+  </div>
   <div id="pdf-menu" hidden></div>
 </Base>
 <script>
@@ -127,8 +136,10 @@ const authReady = loadSecrets() !== null;
   const renameInput = document.getElementById('doc-rename') as HTMLInputElement;
   const hideBtn = document.getElementById('hide-drafts') as HTMLButtonElement;
   const hideEye = document.getElementById('hide-drafts-eye')!;
-  const newRow = document.getElementById('new-row')!;
-  const newCtx = document.getElementById('new-ctx')!;
+  const newDialog = document.getElementById('new-dialog')!;
+  const newCard = document.getElementById('new-card')!;
+  const newIn = document.getElementById('new-in')!;
+  const newErr = document.getElementById('new-err')!;
   const newName = document.getElementById('new-name') as HTMLInputElement;
   const editorHost = document.getElementById('editor-host')!;
 
@@ -1359,7 +1370,12 @@ async function showGroup(node: Node): Promise<void> {
   });
 
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && !ctxMenu.hidden) closeMenu();
+    if (e.key !== 'Escape') return;
+    if (newOpen) {
+      closeNewDialog();
+      return;
+    }
+    if (!ctxMenu.hidden) closeMenu();
   });
 
   itemNew.addEventListener('mouseenter', () => {
@@ -1393,8 +1409,9 @@ async function showGroup(node: Node): Promise<void> {
     showInsertLine(); // the line stays up while the dialog is open (touch has no hover)
     ctxTarget = null;
     ctxMenu.hidden = true;
-    newCtx.textContent = 'in ' + (pendingParent ? byPath.get(pendingParent)!.title : 'works/');
-    newRow.hidden = false;
+    newIn.textContent = 'in ' + (pendingParent ? byPath.get(pendingParent)!.title : 'works/');
+    newErr.hidden = true;
+    newDialog.hidden = false;
     newName.focus();
     newName.setSelectionRange(newName.value.length, newName.value.length);
   });
@@ -1418,10 +1435,10 @@ async function showGroup(node: Node): Promise<void> {
   });
 
   function syncKindUI(): void {
-    for (const b of newRow.querySelectorAll<HTMLButtonElement>('.kind-btn'))
+    for (const b of newCard.querySelectorAll<HTMLButtonElement>('.kind-btn'))
       b.classList.toggle('is-on', b.dataset.kind === pendingKind);
   }
-  for (const b of newRow.querySelectorAll<HTMLButtonElement>('.kind-btn')) {
+  for (const b of newCard.querySelectorAll<HTMLButtonElement>('.kind-btn')) {
     b.addEventListener('click', () => {
       pendingKind = b.dataset.kind === 'folder' ? 'folder' : 'file';
       syncKindUI();
@@ -1429,15 +1446,29 @@ async function showGroup(node: Node): Promise<void> {
     });
   }
 
-  document.getElementById('new-cancel')!.addEventListener('click', () => {
-    newRow.hidden = true;
+  function closeNewDialog(): void {
+    newDialog.hidden = true;
     newName.value = '';
+    newErr.hidden = true;
     newOpen = false;
     pendingAnchorPath = '';
     lineEl.hidden = true;
-  });
+  }
 
-  document.getElementById('new-ok')!.addEventListener('click', async () => {
+  // a click outside the card cancels — captured so nothing behind the dialog
+  // acts on it (a tree row must not open), the same contract as appConfirm
+  document.addEventListener(
+    'click',
+    (e) => {
+      if (!newOpen || newCard.contains(e.target as Node)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      closeNewDialog();
+    },
+    true,
+  );
+
+  async function createNow(): Promise<void> {
     const name = newName.value.trim();
     if (!name) return;
     try {
@@ -1447,11 +1478,8 @@ async function showGroup(node: Node): Promise<void> {
         body: JSON.stringify({ kind: pendingKind, parent: pendingParent, name }),
       });
       remapPaths(renumbered);
-newRow.hidden = true;
-    newName.value = '';
-    newOpen = false;
-    lineEl.hidden = true;
-    if (pendingParent) expanded.add(pendingParent);
+      closeNewDialog();
+      if (pendingParent) expanded.add(pendingParent);
       saveExpanded();
       await loadTree();
       selected = path;
@@ -1466,7 +1494,20 @@ newRow.hidden = true;
         await openFile(path);
       }
     } catch (err) {
-      newCtx.textContent = (err as Error).message;
+      // the dialog stays up; the reason shows inside it
+      newErr.textContent = (err as Error).message;
+      newErr.hidden = false;
+    }
+  }
+
+  document.getElementById('new-cancel')!.addEventListener('click', closeNewDialog);
+
+  document.getElementById('new-ok')!.addEventListener('click', () => void createNow());
+
+  newName.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      void createNow();
     }
   });
 
@@ -2069,7 +2110,7 @@ newRow.hidden = true;
   }, { passive: true });
 
   function setNav(open: boolean): void {
-    if (!open && newOpen) return; // the create dialog lives inside the panel
+    if (!open && newOpen) return; // the create popup owns the open panel (line, anchor)
     appEl.classList.toggle('nav-off', !open);
     appEl.classList.remove('bar-away'); // a fresh panel shows its title bar
     barLastY = window.scrollY;
@@ -2077,7 +2118,7 @@ newRow.hidden = true;
     // behind (a hold under the last file row scrolled the document otherwise)
     if (narrow()) document.body.style.overflow = open ? 'hidden' : '';
     brand.setAttribute('aria-expanded', String(open));
-    for (const el of [treeEl, newRow, toolbarEl, sideFootEl]) {
+    for (const el of [treeEl, toolbarEl, sideFootEl]) {
       if (open) el.removeAttribute('inert');
       else el.setAttribute('inert', ''); // Tab skips the hidden parts
     }
@@ -2090,13 +2131,7 @@ newRow.hidden = true;
   async function showWelcome(): Promise<void> {
     closeMenu();
     pdfMenu.hidden = true;
-    if (newOpen) {
-      newRow.hidden = true;
-      newName.value = '';
-      newOpen = false;
-      pendingAnchorPath = '';
-      lineEl.hidden = true;
-    }
+    closeNewDialog();
     await leavingFile();
     selected = null;
     currentGroup = null;

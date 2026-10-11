@@ -227,7 +227,7 @@ context menu   right-click (desktop) or the touch profile (owner spec
                flash expands + flashes the subtree during the confirm window
                (deleteNode re-applies the preview before appConfirm, reverts
                after — the in-app dialog does not block, so the pulse animates); pendingParent/pendingAnchorPath feed the create
-               dialog (deprecated, appearance-only mobile bump: 16px input).
+               popup (confirm-style card, see §State, a11y, files).
                Mobile tree extras (same owner spec): `.tree > ul` gets
                `min-height: 100%; padding-bottom: 8rem` so the list is always
                scrollable (a row behind the fixed menu can be dragged clear),
@@ -277,7 +277,7 @@ measure        two handles on .doc-head's underline: A (▶, at the line's START
                Events + setPointerCapture (HTML5 DnD is dead on touch); arrow
                keys nudge the focused handle by 1ch; resize re-clamps
 setNav(open)   the ONLY nav mutator (4.7): toggles .app.nav-off, aria-expanded
-               on the brand button, inert on tree/new-row/toolbar/side-foot.
+               on the brand button, inert on tree/toolbar/side-foot.
                Also owns two mobile concerns (2026-10-11): the overlay scroll
                lock (body overflow hidden while open on mobile — a hold under
                the last file row scrolled the page behind the overlay) and
@@ -664,7 +664,7 @@ measure re-clamps on window resize only). (A grid track was tried first on 2026-
 the fixed sidebar is out of flow, so `.main` auto-placed into the tree's own 18rem track —
 the view got squashed into it. Padding can't misplace.)**
 
-- **desktop** — click the title → tree, drafts toggle, new-row and the lock/log-out row
+- **desktop** — click the title → tree, drafts toggle and the lock/log-out row
   fade out (`opacity` + a 0.5rem slide), the sidebar's background and right border fade
   to transparent, and only the title stays live at the top-left. The theme toggle stays
   floating at the viewport's top-right.
@@ -717,16 +717,24 @@ dropped under `prefers-reduced-motion`.
 ### State, a11y, files
 
 - `.app.nav-off` is the only state, `setNav(open)` the only mutator; it also
-  toggles `inert` on tree/new-row/toolbar/side-foot so Tab skips the hidden parts, and
-  refuses to close while the create dialog is open (the dialog lives inside the panel).
+  toggles `inert` on tree/toolbar/side-foot so Tab skips the hidden parts, and
+  refuses to close while the create popup is open.
 - **No nav persistence** (owner decision): desktop always boots with the tree open — a
   reload undoes a close; mobile always boots hidden (the pre-paint inline script applies
   `nav-off`). Shrinking to mobile (mq change) hides the panel the same way.
 - `brand` is `<button aria-expanded aria-controls="tree">`, styled to look like the old
   span (`font: inherit` is load-bearing for buttons).
-- `Escape` closes — but only when the create dialog and both menus are closed; they get
-  Escape first. The create dialog and the tree context menu force `setNav(true)` first,
+- `Escape` closes — but only when the create popup and both menus are closed; they get
+  Escape first. The create popup and the tree context menu force `setNav(true)` first,
   so no control can ever sit behind a closed panel.
+- **The create popup** (owner request 2026-10-11; the in-panel `.new-row` strip is
+  deleted): `#new-dialog` is a confirm-style card at body level (shares
+  `.confirm-backdrop`/`.confirm-card`/`.confirm-row` styles; `.new-card` adds the
+  md/dir toggle, the `in <title>` context, the input and an inline error line).
+  Outside click is capture-intercepted to cancel (nothing behind it acts), Escape
+  cancels (it gets Escape before nav), Enter adds. The insert line + anchored folder
+  preview stay up while it is open (touch has no hover); on ok they close and the
+  result opens as before. On error the dialog stays up with the message inside.
 - Tree row click: `if (narrow()) setNav(false)` — on desktop the tree stays open
   while switching chapters.
 - Touches `index.astro` (markup: brand button, menu-btn deleted, pre-paint inline
