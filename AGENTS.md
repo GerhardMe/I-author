@@ -201,7 +201,12 @@ context menu   right-click (desktop) or long-press (touch — iOS never fires
                contextmenu; a 500ms timer, cancelled by movement/second finger,
                with a 700ms window suppressing Android's own contextmenu and the
                trailing synthetic tap): ctxTarget + hover previews (insert-line,
-               delete flash); pendingParent/pendingAnchorPath feed the create
+               delete flash); on touch there is no hover, so the previews ride
+               the popups instead — the insert line shows while the create
+               dialog is open (itemNew click calls showInsertLine), the delete
+               flash expands + flashes the subtree during the confirm window
+               (deleteNode re-applies the preview before confirm(), reverts
+               after); pendingParent/pendingAnchorPath feed the create
                dialog (deprecated, appearance-only mobile bump: 16px input)
 rename         header click (except buttons) → raw-name editor → commitRename()
                (+ moveDraft, remapExpanded so subtree stays open)

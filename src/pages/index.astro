@@ -1267,6 +1267,7 @@ async function showGroup(node: Node): Promise<void> {
     newName.value = nextPrefix(pendingParent);
     newOpen = true;
     pendingAnchorPath = ctxTarget ? ctxTarget.path : '';
+    showInsertLine(); // the line stays up while the dialog is open (touch has no hover)
     ctxTarget = null;
     ctxMenu.hidden = true;
     newCtx.textContent = 'in ' + (pendingParent ? byPath.get(pendingParent)!.title : 'works/');
@@ -1350,7 +1351,19 @@ newRow.hidden = true;
   async function deleteNode(target: Node): Promise<void> {
     const what =
       target.children !== undefined ? `"${target.title}" and everything in it` : `"${target.title}"`;
-    if (!confirm(`Delete ${what}? Git history keeps a copy on the server.`)) return;
+    // the deletion preview rides the confirm window: the doomed subtree is
+    // expanded and flashed while the dialog asks (touch has no hover, so a
+    // phone would otherwise confirm blind). The browser paints pending
+    // changes before the native dialog shows — the pulse holds there
+    // statically and resumes the moment it is dismissed.
+    expandDeletePreview(target);
+    ctxLi = treeEl
+      .querySelector(`.tree-row[data-path="${target.path}"]`)
+      ?.closest('li') as HTMLElement | null;
+    ctxLi?.classList.add('del-flash');
+    const ok = confirm(`Delete ${what}? Git history keeps a copy on the server.`);
+    revertDeletePreview();
+    if (!ok) return;
     try {
       const open = currentFile;
       if (open && (open === target.path || open.startsWith(target.path + '/'))) {
