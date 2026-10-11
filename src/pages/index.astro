@@ -847,6 +847,8 @@ const authReady = loadSecrets() !== null;
   }
 
   treeEl.addEventListener('click', async (e) => {
+    // the synthetic tap a long-press leaves behind must not open the row
+    if (Date.now() - lastLongPressAt < 700) return;
     const caret = (e.target as HTMLElement).closest('[data-caret]');
     if (caret) {
       const crow = caret.closest('.tree-row') as HTMLElement;
@@ -1158,20 +1160,78 @@ async function showGroup(node: Node): Promise<void> {
     }
   }
 
-  treeEl.addEventListener('contextmenu', (e) => {
-    e.preventDefault();
+  // long-press opens the same menu on touch: iOS Safari never fires
+  // contextmenu and HTML5 drag is dead on touch, so without this there is
+  // no way to new/delete a tree entry on a phone. Movement or a second
+  // finger cancels — it is a scroll or a pinch, not a press.
+  let lastLongPressAt = 0;
+  let lpTimer: ReturnType<typeof setTimeout> | null = null;
+  let lpX = 0;
+  let lpY = 0;
+  let lpRow: HTMLElement | null = null;
+
+  function lpCancel(): void {
+    if (lpTimer) {
+      clearTimeout(lpTimer);
+      lpTimer = null;
+    }
+  }
+
+  treeEl.addEventListener(
+    'touchstart',
+    (e) => {
+      if (e.touches.length !== 1 || lpTimer) return;
+      const t = e.touches[0];
+      lpX = t.clientX;
+      lpY = t.clientY;
+      lpRow = (t.target as HTMLElement).closest('.tree-row') as HTMLElement | null;
+      lpTimer = setTimeout(() => {
+        lpTimer = null;
+        lastLongPressAt = Date.now();
+        navigator.vibrate?.(10); // a tiny tick where the platform has it
+        openCtxMenuAt(lpX, lpY, lpRow);
+      }, 500);
+    },
+    { passive: true },
+  );
+  treeEl.addEventListener(
+    'touchmove',
+    (e) => {
+      if (!lpTimer) return;
+      const t = e.touches[0];
+      if (Math.abs(t.clientX - lpX) > 10 || Math.abs(t.clientY - lpY) > 10) lpCancel();
+    },
+    { passive: true },
+  );
+  treeEl.addEventListener('touchend', lpCancel);
+  treeEl.addEventListener('touchcancel', lpCancel);
+
+  function openCtxMenuAt(x: number, y: number, row: HTMLElement | null): void {
     if (!navOpen()) setNav(true); // no control behind a closed panel
-    const row = (e.target as HTMLElement).closest('.tree-row') as HTMLElement | null;
     ctxTarget = row ? (byPath.get(row.dataset.path!) ?? null) : null;
-    ctxLi = row ? (row.closest('li') as HTMLElement) : null;
+    ctxLi = row ? (row.closest('li') as HTMLElement | null) : null;
     itemDel.hidden = !ctxTarget;
     ctxMenu.hidden = false;
     const r = ctxMenu.getBoundingClientRect();
-    ctxMenu.style.left = `${Math.min(e.clientX, window.innerWidth - r.width - 8)}px`;
-    ctxMenu.style.top = `${Math.min(e.clientY, window.innerHeight - r.height - 8)}px`;
+    ctxMenu.style.left = `${Math.min(x, window.innerWidth - r.width - 8)}px`;
+    ctxMenu.style.top = `${Math.min(y, window.innerHeight - r.height - 8)}px`;
+  }
+
+  treeEl.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    // Android fires a real contextmenu for a long-press too; the touch path
+    // opened the menu already and a second open would just blink
+    if (Date.now() - lastLongPressAt < 700) return;
+    openCtxMenuAt(
+      e.clientX,
+      e.clientY,
+      (e.target as HTMLElement).closest('.tree-row') as HTMLElement | null,
+    );
   });
 
   document.addEventListener('click', () => {
+    // the synthetic tap after a long-press must not close the menu it opened
+    if (Date.now() - lastLongPressAt < 700) return;
     if (!ctxMenu.hidden) closeMenu();
   });
 

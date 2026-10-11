@@ -197,8 +197,12 @@ sync hooks     onSaved/onDirtyChange update the doc-words chip (header); the syn
                state (setSync → refreshRowStatus, targeted DOM update, never a
                renderTree mid-drag), unopened files show a dot when a
                sessionStorage draft exists (rowStatus at buildList time)
-context menu   right-click: ctxTarget + hover previews (insert-line, delete flash);
-               pendingParent/pendingAnchorPath feed the create dialog
+context menu   right-click (desktop) or long-press (touch — iOS never fires
+               contextmenu; a 500ms timer, cancelled by movement/second finger,
+               with a 700ms window suppressing Android's own contextmenu and the
+               trailing synthetic tap): ctxTarget + hover previews (insert-line,
+               delete flash); pendingParent/pendingAnchorPath feed the create
+               dialog (deprecated, appearance-only mobile bump: 16px input)
 rename         header click (except buttons) → raw-name editor → commitRename()
                (+ moveDraft, remapExpanded so subtree stays open)
 measure        two handles on .doc-head's underline: A (▶, at the line's START)
