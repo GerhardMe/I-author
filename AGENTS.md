@@ -840,3 +840,47 @@ settle BEFORE building (owner decides):
   as preamble in the folder index, one per scope vs. many.
 - **Any level**: work, book, part — placement in the pdf contents (`pdf.ts`)
   and in the folder index view (`showGroup`) must follow the depth.
+
+## Planned (owner request 2026-10-11, not yet built): git-backed infinite undo
+
+The works-dir git log becomes the undo history. All decisions below are owner
+decisions (settled 2026-10-11) — do not relitigate.
+
+**Commit cadence** — saves stop committing every push. New `src/lib/autosave.ts`:
+`PUT /api/file` writes and calls `markDirty(path, charDelta)`; a single
+coalescer commits when **5s idle** or **≥1000 chars** accumulated, whichever
+first. Message: `path : 2026-10-11 14:03:22` (local server time, exactly this
+format). `flush(path?)`/`flushAll()` force-commit pending bursts before rename/
+delete/reorder (so each mutation stays ONE commit), undo, lock/log-out, pdf
+compile, SIGTERM, and at boot when the worktree is dirty (`recovered : <time>` —
+a crash can only lose the commit, never the text: writes are atomic and already
+on disk). All commits ride the existing serialized queue in `git.ts`.
+
+**Message grammar** (the log must be able to reconstruct everything): save
+`path : <time>` · rename `old -> new` · create `path (new)` · delete
+`path (deleted)` · reorder one `old -> new` line per moved file, single commit.
+
+**Undo = branch + master reset** (owner model — nothing is destroyed, master
+moves back, the log branches): `POST /api/undo` flushes the pending burst →
+records the HEAD sha → `git branch undo-<2026-10-11_14-03-22>` at HEAD (keeps
+the abandoned future reachable forever; these refs are the persistence layer of
+the later history tree view; colons are illegal in ref names) →
+`git reset --hard HEAD~1` → `diff --name-status old..new` → responds with the
+open file's new content, changed paths, and an old→new path map (INVERTED from
+the commit's own renames — paths move back). Whole-tree undo (owner decision):
+master moves back one commit, whatever file it touched — per-file master reset
+is incoherent since the log interleaves files. Root commit → "nothing to undo".
+pdf artifacts stay gitignored; `.texbuild` state files ride along as before.
+
+**Ctrl+Z policy** (owner decision): CM-native undo FIRST (fine-grained, session
+stack), escalate to git undo when the native command returns false (stack
+exhausted) → infinite across sessions. `editor.ts` keymap intercepts `Mod-z`
+before `historyKeymap`; git undo is debounced while in flight and surfaces its
+roundtrip through the existing sync markers (`setSync`). Undo application on
+the client: remap expanded/selection/drafts through the returned map, DROP
+drafts of changed paths (else the reverted "future" resurrects on next open),
+reload tree, reopen the file with a fresh `setBaseline`; if the open file was
+undone out of existence → welcome screen.
+
+**Deferred to its own later milestone**: redo and the history tree view
+(jump anywhere in the DAG) — built on the `undo-*` refs.
