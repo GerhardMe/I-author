@@ -25,7 +25,6 @@ export const POST: APIRoute = async (ctx) => {
     pin: hashSecret(pin),
     totpSecret,
     sessionSecret: randomBytes(32).toString('hex'),
-    masterKey: randomBytes(32).toString('hex'),
     recovery,
   };
   saveSecrets(secrets);
@@ -35,7 +34,6 @@ export const POST: APIRoute = async (ctx) => {
     {
       totpSecret,
       otpauthUri: otpauthUri(totpSecret, 'you', 'Iauthor'),
-      masterKey: secrets.masterKey,
       recoveryCodes,
     },
     200,

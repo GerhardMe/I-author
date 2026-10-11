@@ -54,14 +54,6 @@ import Base from '../layouts/base.astro';
             <p class="note">Add this secret to your authenticator app.</p>
           </section>
           <section>
-            <h2>Master key</h2>
-            <div class="secret-row">
-              <code class="mono" id="master-key"></code>
-              <button type="button" class="copy-btn" id="copy-key" data-copy="master-key">copy</button>
-            </div>
-            <p class="note">Encrypts backups. Without it your backups are unreadable.</p>
-          </section>
-          <section>
             <h2>Recovery codes</h2>
             <div class="secret-row">
               <ul class="mono" id="recovery-list"></ul>
@@ -87,7 +79,6 @@ import Base from '../layouts/base.astro';
 <script>
   type SetupData = {
     totpSecret: string;
-    masterKey: string;
     recoveryCodes: string[];
   };
 
@@ -137,7 +128,6 @@ import Base from '../layouts/base.astro';
 
   function fill(data: SetupData) {
     document.getElementById('totp-secret')!.textContent = data.totpSecret;
-    document.getElementById('master-key')!.textContent = data.masterKey;
     const list = document.getElementById('recovery-list')!;
     for (const code of data.recoveryCodes) {
       const li = document.createElement('li');

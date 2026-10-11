@@ -15,7 +15,6 @@ export interface Secrets {
   pin: { salt: string; hash: string };
   totpSecret: string;
   sessionSecret: string;
-  masterKey: string;
   recovery: RecoveryCode[];
 }
 

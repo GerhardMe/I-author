@@ -342,7 +342,7 @@ deploy               # push main to GitHub; the server pulls, installs, builds,
 ## Auth model (details that matter)
 
 - Secrets live in `secrets/secrets.json` (gitignored, mode 0600): pin hash, totpSecret,
-  sessionSecret, masterKey, recovery codes (`{id, salt, hash, used}`). Written once by
+  sessionSecret, recovery codes (`{id, salt, hash, used}`). Written once by
   `/setup`; there is no UI to rotate — deleting the file re-runs setup.
 - `POST /api/login` logic: rate limit per IP (fails <5 → free; 5th fail → 30s lock,
   doubling to 15 min). `trusted` = valid device cookie. Trusted + correct PIN → login
@@ -878,12 +878,11 @@ commit/add/reset inside the works repo, that would pollute the undo history):
 keep last N; restore = clone the bundle → point `IAUTHOR_WORKS_DIR` at it.
 Concurrent reads are safe (git ref updates are atomic); a burst caught
 uncommitted rides the next snapshot. A remote (off-server) consumer would
-need an API — YAGNI today. The setup page's masterKey field ("Encrypts
-backups" note) is obsolete under this decision — remove or repurpose when
-that page is next touched. 7) Mobile pass.
+need an API — YAGNI today. (The setup page's masterKey field was removed
+2026-10-11 — backups are plaintext under this decision.)
 
-Deferred todo list: project-wide search;
-client-side LLM word-prediction (flag unlikely tokens as possible typos, suggest fixes).
+Deferred todo list: client-side LLM word-prediction
+(flag unlikely tokens as possible typos, suggest fixes).
 
 ## Planned (owner request 2026-10-11, not yet built): scope prefaces
 
