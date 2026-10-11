@@ -10,8 +10,8 @@ import { pdfMenu } from './dom.ts';
 import { openFile, renderWelcomeIndex } from './toc.ts';
 import { closeMenu, closeNewDialog, ctxMenu, newOpen } from './files.ts';
 import { hidePdfMenu, loadPdfStyles } from './pdf.ts';
-import { setNav, showWelcome, syncHideBtn } from './nav.ts';
-import { historyOpen } from './history.ts';
+import { setNav, syncHideBtn } from './nav.ts';
+import { dismissHistory, historyOpen } from './history.ts';
 import { lastLongPressAt } from './gestures.ts';
 
 // a click elsewhere closes the tree context menu — and while it is open,
@@ -59,13 +59,13 @@ document.addEventListener('keydown', (e) => {
   setNav(false);
 });
 
-// the history view's Escape: home (the plan's exit rule). Registered after
-// the pdf menu's listener so the menus get Escape first; the nav toggle is
-// held off — going home must not also fold the tree on desktop.
+// the history graph's Escape: back to the file tree. Registered after the
+// pdf menu's listener so the menus get Escape first; the nav toggle is
+// held off — closing the graph must not also fold the tree panel.
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape' || !historyOpen) return;
   if (newOpen || !ctxMenu.hidden || !pdfMenu.hidden) return; // they get Escape first
-  void showWelcome();
+  dismissHistory();
   e.stopImmediatePropagation();
 });
 

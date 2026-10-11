@@ -1,20 +1,18 @@
-// The undo ladder's git rung and the history view: branch + master reset,
-// the DAG list, and the two restores (fetch file / make master).
+// The undo ladder's git rung, and the history graph in the sidebar:
+// a minimal DAG — hollow dots on lines, HEAD a filled square, master spine
+// on the leftmost lane, branch lanes to the right in fork order. Hover
+// names a node; nothing acts on click yet. The git button swaps the panel
+// with the file tree and relabels itself "files".
 
-import { marked } from 'marked';
 import { undo, redo } from '@codemirror/commands';
 import { dropDraft } from '../lib/sync.ts';
-import { appConfirm } from '../lib/confirm.ts';
 import {
   api,
   byPath,
   currentFile,
-  esc,
   LAST_KEY,
-  narrow,
   pathMapper,
   remapPaths,
-  selected,
   setCurrentFile,
   setCurrentGroup,
   setSelected,
@@ -28,24 +26,17 @@ import {
   editorHost,
   empty,
   gitBtn,
-  histBody,
   histEl,
-  histFiles,
-  histList,
-  histMasterBtn,
-  histMsg,
-  histPreview,
-  histRestoreBtn,
-  histTime,
+  histScroll,
   pdfBtn,
   redoBtn,
+  treeEl,
   undoBtn,
 } from './dom.ts';
 import { loadTree, refreshRowStatus, renderTree, setSync } from './tree.ts';
-import { dirty, destroyEditor, flushDraft, getEditor, leavingFile } from './editor.ts';
+import { dirty, destroyEditor, flushDraft, getEditor } from './editor.ts';
 import { sync } from './sync.ts';
-import { openFile, renderWelcomeIndex, showGroup } from './toc.ts';
-import { setNav } from './nav.ts';
+import { openFile, renderWelcomeIndex } from './toc.ts';
 
 // ---------- git undo: the ladder's second rung ----------
 // Native stack exhausted = the commit boundary is crossed. Server-side
@@ -144,7 +135,7 @@ document.addEventListener('keydown', (e) => {
 // through the sync markers
 export function redoExhausted(): void {
   // native redo gone = the commit boundary crossed forward: the history
-  // view owns the forward jumps (no /api/redo)
+  // graph owns the forward jumps (no /api/redo)
   if (!historyOpen) void openHistory();
 }
 
@@ -160,15 +151,12 @@ redoBtn.addEventListener('click', () => {
   redoExhausted();
 });
 
-// ---------- history view (milestone 5) ----------
-// The third view beside #empty/#doc: a DAG list — main spine at indent 0,
-// undo-* branch commits one level in, "you are here" on HEAD — and a
-// preview panel (message, time, changed files, read-only content via
-// /api/git/show) holding the two restores: fetch file (one file, light)
-// and make master (whole tree, dangerous, appConfirm'd). Entering leaves
-// the file first (flush + push, so the pending burst is in the DAG);
-// `selected` survives as the exit pointer — the git button toggles back
-// to it, Escape goes home, a tree row click just takes over the view.
+// ---------- history graph (sidebar) ----------
+// Pure display: the DAG as dots on lines. Main spine (reachable from HEAD)
+// is lane 0, leftmost; every branch tip opens its own lane to the right, in
+// fork order — the topo order its tip first appears in. Rows are the topo
+// index, so the graph reads newest-first and HEAD sits at the top. Nothing
+// acts on click in this milestone; hover names a node.
 type HistCommit = {
   sha: string;
   parents: string[];
@@ -183,20 +171,15 @@ type HistData = {
 };
 export let historyOpen = false;
 let histData: HistData | null = null;
-let histBySha = new Map<string, HistCommit>();
-let histSha: string | null = null; // the selected commit
-let histFile: string | null = null; // the selected changed file
-let histWorking = false; // one restore at a time
 
-// leaving the history view without rerouting the main view (a tree click
-// takes over, going home): the view's state resets, nothing reopens
-export function dismissHistory(): void {
-  historyOpen = false;
-  histEl.hidden = true;
-  histData = null;
-  histSha = null;
-  histFile = null;
-}
+const SVG_NS = 'http://www.w3.org/2000/svg';
+const LANE_W = 22;
+const ROW_H = 26;
+const PAD_X = 14;
+const PAD_Y = 12;
+const NODE_R = 4; // circle radius — half the HEAD square's side
+
+const svgEl = (name: string): SVGElement => document.createElementNS(SVG_NS, name);
 
 const histWhen = (at: number): string =>
   new Date(at * 1000).toLocaleString(undefined, {
@@ -207,242 +190,205 @@ const histWhen = (at: number): string =>
     minute: '2-digit',
   });
 
-function histBusy(b: boolean): void {
-  histWorking = b;
-  histRestoreBtn.disabled = b || !histFile;
-  histMasterBtn.disabled = b;
+// leaving the graph: the file tree comes back and the button says git again
+export function dismissHistory(): void {
+  if (!historyOpen) return;
+  historyOpen = false;
+  histEl.hidden = true;
+  treeEl.hidden = false;
+  gitBtn.textContent = 'git';
+  gitBtn.title = 'git history';
+  gitBtn.setAttribute('aria-pressed', 'false');
+  histData = null;
+  hideHistTip();
 }
 
 async function openHistory(): Promise<void> {
   if (historyOpen) return;
-  await leavingFile();
   historyOpen = true;
-  histSha = null;
-  histFile = null;
-  histPreview.hidden = true;
-  empty.hidden = true;
-  doc.hidden = true;
+  treeEl.hidden = true;
   histEl.hidden = false;
+  gitBtn.textContent = 'files';
+  gitBtn.title = 'file explorer';
+  gitBtn.setAttribute('aria-pressed', 'true');
   try {
     histData = await api<HistData>('/api/git/history');
-    renderHistory();
   } catch (err) {
     histData = null;
-    histList.innerHTML = `<li><p class="error">${esc((err as Error).message)}</p></li>`;
+    histScroll.replaceChildren(histNote((err as Error).message, 'error'));
+    return;
   }
-  if (narrow()) setNav(false); // the view sits behind the overlay on mobile
+  renderGraph();
 }
-
-// leaving the view via the git button: back to where it was entered from
-// (selected survived leavingFile), or the welcome screen
-async function closeHistory(): Promise<void> {
-  historyOpen = false;
-  histEl.hidden = true;
-  histData = null;
-  histSha = null;
-  histFile = null;
-  const back = selected ? byPath.get(selected) : null;
-  if (back && back.children === undefined) await openFile(back.path);
-  else if (back) await showGroup(back);
-  else {
-    empty.hidden = false;
-    renderWelcomeIndex();
-    renderTree();
-  }
-}
-
-function renderHistory(): void {
-  const data = histData;
-  if (!data) return;
-  histBySha = new Map(data.commits.map((c) => [c.sha, c]));
-  // the spine: everything reachable from HEAD; the rest sits on undo
-  // branches, one indent level in
-  const spine = new Set<string>();
-  const walk = (sha: string | null): void => {
-    if (!sha || spine.has(sha)) return;
-    const c = histBySha.get(sha);
-    if (!c) return; // older than the 200-commit cap
-    spine.add(sha);
-    for (const p of c.parents) walk(p);
-  };
-  if (data.head) walk(data.head);
-  const tips = new Map(data.branches.map((b) => [b.sha, b.name]));
-  const frag = document.createDocumentFragment();
-  if (!data.commits.length) {
-    const li = document.createElement('li');
-    const p = document.createElement('p');
-    p.className = 'note';
-    p.textContent = 'No commits yet.';
-    li.append(p);
-    frag.append(li);
-  }
-  for (const c of data.commits) {
-    const li = document.createElement('li');
-    const row = document.createElement('button');
-    row.type = 'button';
-    const here = c.sha === data.head;
-    row.className =
-      'hist-row' +
-      (spine.has(c.sha) ? '' : ' branch') +
-      (here ? ' here' : '') +
-      (c.sha === histSha ? ' sel' : '');
-    row.title = here ? 'you are here' : c.subject;
-    row.dataset.sha = c.sha;
-    row.innerHTML =
-      `<span class="hist-dot${here ? ' here' : ''}"></span>` +
-      `<span class="hist-subj">${esc(c.subject)}</span>` +
-      `<span class="hist-when">${esc(histWhen(c.at))}</span>` +
-      (tips.get(c.sha) ? `<span class="hist-tip">${esc(tips.get(c.sha)!)}</span>` : '');
-    li.append(row);
-    frag.append(li);
-  }
-  histList.replaceChildren(frag);
-}
-
-histList.addEventListener('click', (e) => {
-  const row = (e.target as HTMLElement).closest('.hist-row') as HTMLElement | null;
-  if (!row || !row.dataset.sha) return;
-  selectCommit(row.dataset.sha);
-});
-
-function selectCommit(sha: string): void {
-  const c = histBySha.get(sha);
-  if (!c) return;
-  histSha = sha;
-  histFile = null;
-  renderHistory(); // the sel class moves
-  histMsg.textContent = c.subject;
-  histTime.textContent = `${histWhen(c.at)} · ${c.sha.slice(0, 7)}`;
-  const frag = document.createDocumentFragment();
-  if (!c.changed.length) {
-    const li = document.createElement('li');
-    li.className = 'note';
-    li.textContent = 'no files changed';
-    frag.append(li);
-  }
-  for (const p of c.changed) {
-    const li = document.createElement('li');
-    const b = document.createElement('button');
-    b.type = 'button';
-    b.className = 'hist-file';
-    b.dataset.path = p;
-    b.textContent = p;
-    li.append(b);
-    frag.append(li);
-  }
-  histFiles.replaceChildren(frag);
-  histBody.hidden = true;
-  histBody.replaceChildren();
-  histPreview.hidden = false;
-  histBusy(false); // restore stays disabled until a file is picked
-}
-
-histFiles.addEventListener('click', async (e) => {
-  const b = (e.target as HTMLElement).closest('.hist-file') as HTMLElement | null;
-  if (!b || !histSha) return;
-  const path = b.dataset.path!;
-  histFile = path;
-  for (const el of histFiles.querySelectorAll('.hist-file'))
-    el.classList.toggle('sel', (el as HTMLElement).dataset.path === path);
-  histBusy(false);
-  histBody.hidden = false;
-  histBody.textContent = '…';
-  try {
-    const { content } = await api<{ content: string }>(
-      `/api/git/show?sha=${encodeURIComponent(histSha)}&path=${encodeURIComponent(path)}`,
-    );
-    if (histFile !== path) return; // the selection moved on while loading
-    histBody.innerHTML = marked.parse(content) as string;
-  } catch (err) {
-    if (histFile !== path) return;
-    histBody.innerHTML = `<p class="error">${esc((err as Error).message)}</p>`;
-  }
-});
-
-// the shared "like undo" epilogue: drop drafts of changed paths (the
-// restored "past" must not resurrect from sessionStorage), remap all
-// path-keyed state through the map, reload the tree, then land on the
-// restored file (fetch file) or the remapped selection (make master) —
-// or the welcome screen when it is gone.
-async function applyRestore(
-  res: { changed: string[]; map: Record<string, string> },
-  restored: string | null,
-): Promise<void> {
-  dismissHistory();
-  for (const p of res.changed) dropDraft(p); // by current (pre-jump) paths
-  remapPaths(res.map);
-  await loadTree();
-  const map = pathMapper(res.map);
-  const target = restored ?? (selected ? map(selected) : null);
-  const node = target ? byPath.get(target) : null;
-  if (node && node.children === undefined) {
-    setSelected(target!);
-    renderTree();
-    await openFile(target!);
-  } else if (node) {
-    setSelected(target!);
-    renderTree();
-    await showGroup(node);
-  } else {
-    setSelected(null);
-    doc.hidden = true;
-    editorHost.hidden = true;
-    docBody.hidden = true;
-    docTitle.hidden = true;
-    docWords.hidden = true;
-    docDraft.hidden = true;
-    docTitle.classList.remove('draft');
-    pdfBtn.hidden = true;
-    empty.hidden = false;
-    renderWelcomeIndex();
-    renderTree();
-  }
-}
-
-histRestoreBtn.addEventListener('click', async () => {
-  if (!histSha || !histFile || histWorking) return;
-  histBusy(true);
-  try {
-    const res = await api<{ changed: string[]; map: Record<string, string> }>(
-      '/api/git/restore-file',
-      {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ sha: histSha, path: histFile }),
-      },
-    );
-    await applyRestore(res, histFile);
-  } catch (err) {
-    histBusy(false);
-    alert((err as Error).message);
-  }
-});
-
-histMasterBtn.addEventListener('click', async () => {
-  if (!histSha || histWorking) return;
-  const ok = await appConfirm(
-    'Make this commit the working state? The current state is branched first — nothing is destroyed.',
-    { ok: 'make master', danger: true },
-  );
-  if (!ok) return;
-  histBusy(true);
-  try {
-    const res = await api<{ changed: string[]; map: Record<string, string> }>(
-      '/api/git/make-master',
-      {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ sha: histSha }),
-      },
-    );
-    await applyRestore(res, null);
-  } catch (err) {
-    histBusy(false);
-    alert((err as Error).message);
-  }
-});
 
 gitBtn.addEventListener('click', () => {
-  if (historyOpen) void closeHistory();
+  if (historyOpen) dismissHistory();
   else void openHistory();
 });
+
+const histNote = (text: string, cls: string): HTMLElement => {
+  const p = document.createElement('p');
+  p.className = cls;
+  p.textContent = text;
+  return p;
+};
+
+// the lanes: master spine (everything reachable from HEAD) at lane 0; each
+// remaining commit starts a new lane in topo order (fork order) and claims
+// its whole parent chain until the walk reaches an already-placed commit —
+// the fork point on the spine or in another branch's lane
+function layoutDag(data: HistData): { lanes: number; pos: Map<string, { lane: number; row: number }> } {
+  const bySha = new Map(data.commits.map((c) => [c.sha, c]));
+  const pos = new Map<string, { lane: number; row: number }>();
+  const spine = new Set<string>();
+  const walk = (sha: string | null): void => {
+    if (!sha || spine.has(sha) || !bySha.has(sha)) return;
+    spine.add(sha);
+    walk(bySha.get(sha)!.parents[0] ?? null);
+  };
+  walk(data.head);
+  for (const sha of spine) pos.set(sha, { lane: 0, row: 0 });
+  let lanes = 1;
+  for (const c of data.commits) {
+    if (pos.has(c.sha)) continue;
+    const lane = lanes++;
+    let cur: string | undefined = c.sha;
+    while (cur && !pos.has(cur)) {
+      pos.set(cur, { lane, row: 0 });
+      cur = bySha.get(cur)?.parents[0];
+    }
+  }
+  // rows: the topo index — newest first, so HEAD tops the graph
+  data.commits.forEach((c, i) => {
+    const p = pos.get(c.sha);
+    if (p) p.row = i;
+  });
+  return { lanes, pos };
+}
+
+function renderGraph(): void {
+  const data = histData;
+  if (!data) return;
+  if (!data.commits.length) {
+    histScroll.replaceChildren(histNote('no commits yet.', 'note'));
+    return;
+  }
+  const { lanes, pos } = layoutDag(data);
+  const width = PAD_X * 2 + lanes * LANE_W;
+  const height = PAD_Y * 2 + data.commits.length * ROW_H;
+  const x = (lane: number): number => PAD_X + lane * LANE_W + LANE_W / 2;
+  const y = (row: number): number => PAD_Y + row * ROW_H + ROW_H / 2;
+
+  const svg = svgEl('svg');
+  svg.classList.add('hist-svg');
+  svg.setAttribute('width', String(width));
+  svg.setAttribute('height', String(height));
+  svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+
+  // edges first — the nodes paint over their ends
+  for (const c of data.commits) {
+    const a = pos.get(c.sha)!;
+    for (const p of c.parents) {
+      const b = pos.get(p);
+      if (!b) continue; // older than the 200-commit cap
+      if (a.lane === b.lane) {
+        const line = svgEl('line');
+        line.setAttribute('x1', String(x(a.lane)));
+        line.setAttribute('y1', String(y(a.row) - NODE_R - 1));
+        line.setAttribute('x2', String(x(a.lane)));
+        line.setAttribute('y2', String(y(b.row) + NODE_R + 1));
+        line.classList.add('hist-edge');
+        svg.append(line);
+      } else {
+        // the fork: down the child's lane, jog across, down to the parent
+        const path = svgEl('path');
+        const fromY = y(a.row) - NODE_R - 1;
+        const toY = y(b.row) + NODE_R + 1;
+        const midY = (fromY + toY) / 2;
+        path.setAttribute(
+          'd',
+          `M ${x(a.lane)} ${fromY} L ${x(a.lane)} ${midY} L ${x(b.lane)} ${midY} L ${x(b.lane)} ${toY}`,
+        );
+        path.classList.add('hist-edge');
+        svg.append(path);
+      }
+    }
+  }
+
+  const tips = new Map(data.branches.map((b) => [b.sha, b.name]));
+  for (const c of data.commits) {
+    const p = pos.get(c.sha)!;
+    const nx = x(p.lane);
+    const ny = y(p.row);
+    if (c.sha === data.head) {
+      const sq = svgEl('rect');
+      sq.setAttribute('x', String(nx - NODE_R));
+      sq.setAttribute('y', String(ny - NODE_R));
+      sq.setAttribute('width', String(NODE_R * 2));
+      sq.setAttribute('height', String(NODE_R * 2));
+      sq.classList.add('hist-node', 'here');
+      svg.append(sq);
+    } else {
+      const dot = svgEl('circle');
+      dot.setAttribute('cx', String(nx));
+      dot.setAttribute('cy', String(ny));
+      dot.setAttribute('r', String(NODE_R));
+      dot.classList.add('hist-node');
+      svg.append(dot);
+    }
+    const name = tips.get(c.sha);
+    if (name) {
+      const chip = svgEl('text');
+      chip.setAttribute('x', String(nx + NODE_R + 6));
+      chip.setAttribute('y', String(ny + 3.5));
+      chip.classList.add('hist-ref');
+      chip.textContent = name;
+      svg.append(chip);
+    }
+    // the fat hit area hover speaks through (touch gets nothing yet —
+    // hover does not exist and no node acts on tap in this milestone)
+    const hit = svgEl('circle');
+    hit.setAttribute('cx', String(nx));
+    hit.setAttribute('cy', String(ny));
+    hit.setAttribute('r', '12');
+    hit.classList.add('hist-hit');
+    hit.addEventListener('mouseenter', () => showHistTip(c));
+    hit.addEventListener('mousemove', (e) => placeHistTip(e.clientX, e.clientY));
+    hit.addEventListener('mouseleave', hideHistTip);
+    svg.append(hit);
+  }
+  histScroll.replaceChildren(svg);
+}
+
+// ---------- the tooltip ----------
+const histTipCard = document.createElement('div');
+histTipCard.className = 'hist-tipcard';
+histTipCard.hidden = true;
+document.body.append(histTipCard);
+
+const tipLine = (cls: string, text: string): HTMLElement => {
+  const d = document.createElement('div');
+  d.className = cls;
+  d.textContent = text;
+  return d;
+};
+
+function showHistTip(c: HistCommit): void {
+  histTipCard.replaceChildren(tipLine('t-subj', c.subject), tipLine('t-when', histWhen(c.at)));
+  histTipCard.hidden = false;
+}
+
+function placeHistTip(px: number, py: number): void {
+  const w = histTipCard.offsetWidth;
+  const h = histTipCard.offsetHeight;
+  let left = px + 14;
+  let top = py + 16;
+  if (left + w > window.innerWidth - 8) left = px - w - 14;
+  if (top + h > window.innerHeight - 8) top = py - h - 12;
+  histTipCard.style.left = `${Math.max(8, left)}px`;
+  histTipCard.style.top = `${Math.max(8, top)}px`;
+}
+
+function hideHistTip(): void {
+  histTipCard.hidden = true;
+}

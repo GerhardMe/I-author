@@ -2,7 +2,6 @@
 import Base from '../layouts/base.astro';
 import Sidebar from '../components/Sidebar.astro';
 import DocView from '../components/DocView.astro';
-import HistoryView from '../components/HistoryView.astro';
 import NewDialog from '../components/NewDialog.astro';
 import { loadSecrets } from '../lib/auth/secrets.ts';
 // pre-setup the app is open and the footer offers the setup path instead of
@@ -14,7 +13,6 @@ const authReady = loadSecrets() !== null;
     <Sidebar authReady={authReady} />
     <main class="main">
       <DocView />
-      <HistoryView />
     </main>
   </div>
   <script is:inline>

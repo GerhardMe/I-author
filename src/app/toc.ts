@@ -41,7 +41,6 @@ import { setSync, syncStateFromDoc } from './tree.ts';
 import { sync } from './sync.ts';
 import { applyMeasure } from './measure.ts';
 import { lastLongPressAt } from './gestures.ts';
-import { dismissHistory, historyOpen } from './history.ts';
 import { setNav } from './nav.ts';
 
 function buildToc(ul: HTMLUListElement, nodes: Node[]): void {
@@ -220,8 +219,6 @@ export async function openFile(p: string) {
 treeEl.addEventListener('click', async (e) => {
   // the synthetic tap a long-press leaves behind must not open the row
   if (Date.now() - lastLongPressAt < 700) return;
-  // any tree click leaves the history view — the row's own handling takes over
-  if (historyOpen) dismissHistory();
   const caret = (e.target as HTMLElement).closest('[data-caret]');
   if (caret) {
     const crow = caret.closest('.tree-row') as HTMLElement;
