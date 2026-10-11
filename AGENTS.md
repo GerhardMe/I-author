@@ -523,8 +523,12 @@ margins equally); B (◀) is the ONLY field-width control. The LINE WRAPS the
 content: one centred `.doc-col` column, the field rides its start BY STRUCTURE —
 no inset formula (a content-side inset once desynced the topline; shipped and
 reverted). Clamps, floor first: field ≥ 36ch (absolute), line ≥ field, both ≤
-content width; B can never widen the topline. `--measure` must NOT be named
-`--line` (shadows the --line colour token — strips every border inside .main).
+content width; B can never widen the topline. The line token must NOT be named
+`--line` (shadows the --line colour token — strips every border inside .main),
+and there is no `--measure` indirection: `.doc-col` consumes `--line-w`
+directly, because a var() substitutes where it is DECLARED — an ancestor-level
+`--measure` declared on `.main` could never see `--line-w` set on the
+descendant `#doc` and would inherit its stale default down.
 `font: inherit` on the handles is load-bearing (else B's 72ch fallback resolves
 against the button's UA font and the handle teleports). State in localStorage
 (`iauthor.measure`), same in every file; Pointer Events + setPointerCapture;

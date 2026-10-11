@@ -1027,12 +1027,6 @@ a.btn-tiny:hover {
   padding: 2rem clamp(1rem, 8vw, 10rem);
   overflow-y: auto;
   min-width: 0;
-  /* the effective line width: the user's drag (px), defaulting to FULL WIDTH
-     — the underline spans the whole markdown area, the field rests at 72ch on
-     the line's start, and B (its right edge) sits at 72ch, not far right.
-     NOT named --line: that would shadow the --line colour token and strip
-     every border inside .main */
-  --measure: min(var(--line-w, 100%), 100%);
 }
 
 @media (min-width: 901px) {
@@ -1055,9 +1049,14 @@ a.btn-tiny:hover {
    formula); its width is owned by the right handle alone.
    The saved --line-w/--field-w live on #doc (doc-scoped measure): the
    welcome screen (#empty) is always at DEFAULT width — its .doc-col
-   inherits no overrides and falls back to min(100%, 100%) + 72ch. */
+   inherits no overrides and falls back to full width + 72ch. */
 .doc-col {
-  width: var(--measure); /* the line — centred by the auto margins */
+  /* the line — centred by the auto margins. The var() substitutes HERE, on
+     .doc-col, not on an ancestor: an indirection declared on .main would
+     compute once there (where --line-w on the DESCENDANT #doc is invisible)
+     and inherit the stale default down. NOT named --line: that would shadow
+     the --line colour token and strip every border inside .main */
+  width: min(var(--line-w, 100%), 100%);
   margin-inline: auto;
 }
 
