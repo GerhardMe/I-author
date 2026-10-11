@@ -7,8 +7,17 @@
      nav-off / bar-away sibling selectors keep working; it runs the same
      ladder as the desktop keymap — native CM undo first, git undo on
      exhaustion -->
-<button id="undo-btn" class="undo-btn" aria-label="Undo" title="undo">↶</button>
-<button id="redo-btn" class="redo-btn" aria-label="Redo" title="redo">↷</button>
+<button id="undo-btn" class="undo-btn" aria-label="Undo" title="undo">
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+    <path d="M8 5 3 10l5 5" /><path d="M3 10h11a7 7 0 0 1 7 7v2" />
+  </svg>
+</button>
+<!-- redo stays hidden until the first undo of the session (history.ts unhides it) -->
+<button id="redo-btn" class="redo-btn" aria-label="Redo" title="redo" hidden>
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+    <path d="m16 5 5 5-5 5" /><path d="M21 10H10a7 7 0 0 0-7 7v2" />
+  </svg>
+</button>
 <!-- the create dialog: a confirm-style card, not panel chrome — outside
      click, Escape and cancel dismiss it, Enter adds; the insert line and
      the anchored folder preview stay up while it is open -->

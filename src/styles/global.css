@@ -1,3 +1,16 @@
+/* Fork Awesome (self-hosted, as on gerhard.page): monochrome UI glyphs where
+   the emoji font would print colour */
+@font-face {
+  font-family: 'Icons';
+  src: url('/fonts/forkawesome-webfont.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+}
+
+.icon {
+  font-family: 'Icons';
+}
+
 /* ---------- variables ---------- */
 :root {
   --bg: #f6f7f8;
@@ -337,7 +350,7 @@ body.nav-anim .theme-toggle {
    they sit at z 10 behind the sidebar like ◐ (fine: no editing while the
    tree is open), nav-off raises them above the title-bar strip, and
    bar-away slides them away with the topbar. They sit LEFT of the theme
-   toggle, same top rhythm: ◐ · ↷ · ↶ from the right edge — undo left,
+   toggle, same top rhythm: ◐ · redo · undo from the right edge — undo left,
    redo right (next to ◐). */
 .undo-btn,
 .redo-btn {
@@ -361,6 +374,17 @@ body.nav-anim .theme-toggle {
 
 .redo-btn {
   right: 3.5rem;
+}
+
+/* redo is hidden until the first undo click (history.ts unhides it);
+   the [hidden] rule must beat the media-query display:block above */
+.redo-btn[hidden] {
+  display: none;
+}
+
+.undo-btn svg,
+.redo-btn svg {
+  display: block;
 }
 
 @media (max-width: 900px) {
@@ -975,6 +999,11 @@ a.btn-tiny:hover {
 
 .side-foot #git-history {
   margin-left: auto;
+  /* the fork/files icons replace the label: a size of its own, on the
+     button's centre line */
+  font-size: 0.95rem;
+  line-height: 1;
+  padding: 0.1rem 0.35rem;
 }
 
 .main {
@@ -1072,6 +1101,10 @@ a.btn-tiny:hover {
   padding: 0.1rem 0.5rem;
   border-radius: 2px;
   white-space: nowrap;
+}
+
+#doc-words {
+  cursor: pointer;
 }
 
 .empty {

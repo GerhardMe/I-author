@@ -1,9 +1,10 @@
 // The undo ladder's git rung, and the history graph in the sidebar:
 // a minimal DAG — hollow dots on lines, HEAD the filled blue dot, master
 // spine on the leftmost lane, branch lanes to the right in fork order, the
-// root commit pinned to the bottom. Hover names a node; nothing acts on
-// click yet. The git button swaps the panel with the file tree and
-// relabels itself "files".
+// root commit pinned to the bottom. Hover names a node — its commit
+// message with the timestamp underneath (owner decision 2026-10-11: no
+// branch names in the UI). Nothing acts on click yet. The git button swaps
+// the panel with the file tree.
 
 import { undo, redo } from '@codemirror/commands';
 import { dropDraft } from '../lib/sync.ts';
@@ -42,7 +43,8 @@ import { openFile, renderWelcomeIndex } from './toc.ts';
 // ---------- git undo: the ladder's second rung ----------
 // Native stack exhausted = the commit boundary is crossed. Server-side
 // (/api/undo): flush the pending burst (it becomes the last commit on the
-// soon-stale branch), branch undo-<ts> at HEAD, reset --hard HEAD~1.
+// soon-stale branch), branch at HEAD under a timestamp name, reset --hard
+// HEAD~1.
 // Client-side: detach the editor WITHOUT pushing — the doc still holds the
 // undone-away text, and a push or a saved draft would resurrect it — drop
 // the drafts of changed paths (the reverted "future" must not resurrect
@@ -141,6 +143,7 @@ export function redoExhausted(): void {
 }
 
 undoBtn.addEventListener('click', () => {
+  redoBtn.hidden = false; // redo only exists once something was undone
   const editor = getEditor();
   if (editor && undo(editor)) return;
   void gitUndo();
@@ -167,13 +170,11 @@ type HistCommit = {
 };
 type HistData = {
   head: string | null;
-  branches: { name: string; sha: string }[];
   commits: HistCommit[];
   root: { sha: string; at: number; subject: string } | null;
 };
 export let historyOpen = false;
 let histData: HistData | null = null;
-let histTips = new Map<string, string>(); // branch tip sha -> branch name
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const LANE_W = 22;
@@ -193,17 +194,16 @@ const histWhen = (at: number): string =>
     minute: '2-digit',
   });
 
-// leaving the graph: the file tree comes back and the button says git again
+// leaving the graph: the file tree comes back and the button shows the fork again
 export function dismissHistory(): void {
   if (!historyOpen) return;
   historyOpen = false;
   histEl.hidden = true;
   treeEl.hidden = false;
-  gitBtn.textContent = 'git';
+  gitBtn.innerHTML = '<span class="icon">&#xf126;</span>';
   gitBtn.title = 'git history';
   gitBtn.setAttribute('aria-pressed', 'false');
   histData = null;
-  histTips = new Map();
   hideHistTip();
 }
 
@@ -212,9 +212,13 @@ async function openHistory(): Promise<void> {
   historyOpen = true;
   treeEl.hidden = true;
   histEl.hidden = false;
-  gitBtn.textContent = 'files';
+  gitBtn.innerHTML = '<span class="icon">&#xf07b;</span>';
   gitBtn.title = 'file explorer';
   gitBtn.setAttribute('aria-pressed', 'true');
+  await refetchHistory();
+}
+
+async function refetchHistory(): Promise<void> {
   try {
     histData = await api<HistData>('/api/git/history');
   } catch (err) {
@@ -236,6 +240,24 @@ async function openHistory(): Promise<void> {
     });
   }
   renderGraph();
+}
+
+// a burst of commits lands as several SSE events seconds apart: coalesce
+// the refetches into one
+let refetchTimer: ReturnType<typeof setTimeout> | null = null;
+
+// the history view is live (owner decision 2026-10-11): the SSE commit
+// stream calls this on every commit — while the view is open the DAG
+// refetches and the new node slides in; closed, it does nothing (the view
+// refetches on every open anyway)
+export function refreshHistory(): void {
+  if (!historyOpen) return;
+  if (refetchTimer) return;
+  refetchTimer = setTimeout(() => {
+    refetchTimer = null;
+    if (!historyOpen) return; // closed while the coalescer waited
+    void refetchHistory();
+  }, 300);
 }
 
 gitBtn.addEventListener('click', () => {
@@ -332,7 +354,6 @@ function renderGraph(): void {
     }
   }
 
-  histTips = new Map(data.branches.map((b) => [b.sha, b.name]));
   for (const c of data.commits) {
     const p = pos.get(c.sha)!;
     const nx = x(p.lane);
@@ -346,8 +367,8 @@ function renderGraph(): void {
     dot.classList.add('hist-node');
     if (c.sha === data.head) dot.classList.add('here');
     svg.append(dot);
-    // nothing is written into the graph itself — branch names live in the
-    // hover tooltip. The fat hit area hover speaks through (touch gets
+    // nothing is written into the graph itself — the hover tooltip names
+    // the node. The fat hit area hover speaks through (touch gets
     // nothing yet — hover does not exist and no node acts on tap here)
     const hit = svgEl('circle');
     hit.setAttribute('cx', String(nx));
@@ -379,7 +400,6 @@ function showHistTip(c: HistCommit): void {
   histTipCard.replaceChildren(
     tipLine('t-subj', c.subject),
     tipLine('t-when', histWhen(c.at)),
-    ...(histTips.get(c.sha) ? [tipLine('t-ref', histTips.get(c.sha)!)] : []),
   );
   histTipCard.hidden = false;
 }
