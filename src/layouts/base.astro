@@ -31,9 +31,11 @@ const { title = 'I author' } = Astro.props;
   </head>
   <body>
     <slot />
-    <!-- the theme toggle itself lives in the pages: floating on the bare
-         screens (login/setup), in the sidebar's title bar on the app page.
-         This script binds every .theme-toggle (no-op where none exist) -->
+    <!-- the theme toggle floats at the viewport's top-right on every page;
+         on the app page it rides the mobile topbar's scroll-away (see the
+         .app.bar-away rules in global.css). The script binds every
+         .theme-toggle (no-op where none exist) -->
+    <button id="theme-toggle" class="theme-toggle" aria-label="Toggle theme" title="Toggle theme">◐</button>
     <script>
       for (const b of document.querySelectorAll('.theme-toggle')) {
         b.addEventListener('click', () => {

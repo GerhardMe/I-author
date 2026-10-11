@@ -649,9 +649,10 @@ measure re-clamps on window resize only). (A grid track was tried first on 2026-
 the fixed sidebar is out of flow, so `.main` auto-placed into the tree's own 18rem track —
 the view got squashed into it. Padding can't misplace.)**
 
-- **desktop** — click the title → tree, drafts toggle, theme toggle, new-row and the
-  lock/log-out row fade out (`opacity` + a 0.5rem slide), the sidebar's background and
-  right border fade to transparent, and only the title stays live at the top-left.
+- **desktop** — click the title → tree, drafts toggle, new-row and the lock/log-out row
+  fade out (`opacity` + a 0.5rem slide), the sidebar's background and right border fade
+  to transparent, and only the title stays live at the top-left. The theme toggle stays
+  floating at the viewport's top-right.
 - **mobile (≤900px)** — the title bar (`.side-head`, page-coloured like everything on
   mobile — no card bar) is always
   visible at the top of the fixed overlay; the tree expands **over the whole page**
@@ -835,10 +836,13 @@ The numbering rework is complete — no further phases.
   0.5ch); the title-bar underline `::after` insets 1ch to keep aligning with
   the text edge.
 
-- **Theme toggle joined the topbar** (2026-10-11): the ◐ button lives in the
-  sidebar's `.side-head` toolbar — it autohides/reappears with the bar-away
-  slide on mobile and fades with the tree chrome on desktop; login/setup keep
-  the floating top-right button (base.astro binds every `.theme-toggle`).
+- **Theme toggle rides the mobile scroll-away** (2026-10-11, revised same day —
+  an earlier attempt moved it into the sidebar's title bar and was backed out):
+  the ◐ button stays floating at the viewport's top-right on every page, but on
+  mobile it hides with the topbar — `.app.bar-away ~ .theme-toggle` slides it
+  above the viewport (transform + fade, `--nav-dur`, gated behind
+  `body.nav-anim` + reduced-motion) and any scroll up brings both back;
+  desktop is unaffected (bar-away only exists while narrow + nav-off).
 
 Next: 6) Backup via the owner's external microservice (separate repo, NOT this
 codebase — iauthor implements nothing): the contract is implicit — the works
