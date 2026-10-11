@@ -523,6 +523,14 @@ content width; B can never widen the topline. `--measure` must NOT be named
 against the button's UA font and the handle teleports). State in localStorage
 (`iauthor.measure`), same in every file; Pointer Events + setPointerCapture;
 arrow keys nudge by 1ch; resize re-clamps. No handles on mobile (full width).
+The two handle buttons are STATIC markup in DocView.astro (so they paint with
+the page instead of arriving with the app bundle); only the wiring lives in
+measure.ts. The saved measure governs the welcome screen too: applyMeasure
+clamps against `#empty` when `#doc` is hidden (the ch probe lives on body —
+a probe inside a hidden element reports 0 widths), and index.astro's
+pre-paint inline script sets `--line-w`/`--field-w` on `.main` from
+localStorage before first paint (key literal duplicated there — inline
+scripts can't import TS constants).
 
 **Welcome pseudo-file & misc UI.** `#empty` is a read-only `.doc-col` with a
 `.doc-head` — deliberately NOT a real file (a top-level welcome.md would take a

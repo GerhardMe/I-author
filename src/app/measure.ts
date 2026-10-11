@@ -2,7 +2,7 @@
 // line width (A, centred) and the field width (B), stored in localStorage.
 
 import { EditorSelection } from '@codemirror/state';
-import { doc, docHead, editorHost, mainEl } from './dom.ts';
+import { doc, editorHost, empty as emptyEl, mainEl, measureA, measureB } from './dom.ts';
 import { getEditor } from './editor.ts';
 
 // The LINE (.doc-head's border) is always centred: the left handle (A, ▶ at
@@ -31,17 +31,27 @@ try {
   /* corrupted store = defaults */
 }
 
+// the handles are static markup in DocView.astro (wired here); the ch probe
+// is invisible, so it is still created in JS — its styles are global CSS.
+// It lives on body, NOT inside #doc: applyMeasure also measures while the
+// welcome screen hides #doc, and a probe inside a hidden element reports
+// zero-width offsets.
 const chProbe = document.createElement('span');
 chProbe.style.cssText = 'position:absolute;visibility:hidden;white-space:pre';
-docHead.append(chProbe);
+document.body.append(chProbe);
 const ch = (n: number): number => {
   chProbe.style.width = n + 'ch';
   return chProbe.offsetWidth;
 };
 
 export function applyMeasure(): void {
-  if (doc.hidden) return; // zero-width layout: nothing to clamp against
-  const C = doc.clientWidth;
+  // #doc is the measuring reference, but the welcome screen (#empty) shows
+  // the same .doc-col geometry — the saved measure governs it too (the
+  // welcome topline is no longer the full-width odd one out). Both views
+  // share the same padded width, so the clamps need no per-view branch.
+  const host = doc.hidden ? emptyEl : doc;
+  if (host.hidden) return; // zero-width layout: nothing to clamp against
+  const C = host.clientWidth;
   const minFw = ch(MIN_FIELD);
   // the effective line: the user's drag, or the default FULL WIDTH. B is
   // jailed within it — the topline's width is A's alone, so B can never
@@ -74,18 +84,6 @@ export function applyMeasure(): void {
   }
 }
 
-const measureA = document.createElement('button');
-measureA.className = 'measure-h measure-a';
-measureA.type = 'button';
-measureA.title = 'drag — page width (stays centred)';
-measureA.setAttribute('aria-label', 'drag to change the page width');
-const measureB = document.createElement('button');
-measureB.className = 'measure-h measure-b';
-measureB.type = 'button';
-measureB.title = 'drag — text width';
-measureB.setAttribute('aria-label', 'drag to change the text width');
-docHead.append(measureA, measureB);
-
 // Pointer Events with capture — HTML5 drag never fires on touch, and the
 // drag needs px deltas per move, not drop targets.
 function dragWidth(
@@ -113,7 +111,10 @@ function dragWidth(
   });
 }
 
-dragWidth(measureA, () => lineEff || doc.clientWidth, (from, dx) => {
+// the drag/nudge default is the content width of whichever view is visible
+const contentWidth = (): number => (doc.hidden ? emptyEl : doc).clientWidth;
+
+dragWidth(measureA, () => lineEff || contentWidth(), (from, dx) => {
   // the handle rides the line's end 1:1 while the line grows 2:1 (centred);
   // starting from lineEff (the clamped, visible width) so the first move
   // doesn't jump from the handle's position to the unclamped intent
@@ -133,7 +134,7 @@ function nudge(el: HTMLElement, step: (sign: number) => void): void {
   });
 }
 nudge(measureA, (sign) => {
-  linePx = (lineEff || doc.clientWidth) - 2 * ch(1) * sign; // right = narrower
+  linePx = (lineEff || contentWidth()) - 2 * ch(1) * sign; // right = narrower
   applyMeasure();
 });
 nudge(measureB, (sign) => {
@@ -142,8 +143,8 @@ nudge(measureB, (sign) => {
 });
 
 window.addEventListener('resize', applyMeasure);
-applyMeasure(); // no-op while the welcome screen hides #doc; real application
-// happens at the first openFile/showGroup, when the clamps have real width
+applyMeasure(); // applies on the welcome screen too — it has the same
+// .doc-col/.doc-head geometry, so the saved measure governs it as well
 
 // ---------- tap the page under the text -> caret to the last newline ----------
 // On a phone the end of a long chapter is unreachable by tap (no pixels of

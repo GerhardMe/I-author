@@ -22,6 +22,19 @@ const authReady = loadSecrets() !== null;
     if (matchMedia('(max-width: 900px)').matches) {
       document.querySelector('.app').classList.add('nav-off');
     }
+    // pre-paint the measure: the saved line/field widths land on .main
+    // before first paint — the welcome topline renders at its saved width
+    // immediately instead of flashing full-width, then snapping (the clamps
+    // in measure.ts reconcile against the real window afterwards; the CSS
+    // min(..., 100%) ceilings guard oversized saved values)
+    try {
+      const m = JSON.parse(localStorage.getItem('iauthor.measure') || '{}');
+      const main = document.querySelector('.main');
+      if (m && typeof m.linePx === 'number' && m.linePx > 0)
+        main.style.setProperty('--line-w', m.linePx + 'px');
+      if (m && typeof m.fieldPx === 'number' && m.fieldPx > 0)
+        main.style.setProperty('--field-w', m.fieldPx + 'px');
+    } catch {}
   </script>
   <NewDialog />
 </Base>

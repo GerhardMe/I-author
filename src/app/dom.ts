@@ -40,3 +40,8 @@ export const sideFootEl = document.querySelector('.side-foot') as HTMLElement;
 // probe or the measure handles — document.querySelector would find THAT
 // header first.
 export const docHead = doc.querySelector('.doc-head')!;
+// the measure handles: static markup in DocView.astro (so they paint with the
+// page instead of arriving with the app bundle); only the wiring lives in
+// measure.ts. The ch probe is invisible, so it stays JS-created.
+export const measureA = docHead.querySelector('.measure-a') as HTMLButtonElement;
+export const measureB = docHead.querySelector('.measure-b') as HTMLButtonElement;
