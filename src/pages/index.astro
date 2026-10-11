@@ -1952,7 +1952,77 @@ newRow.hidden = true;
     }
   }
 
-  brand.addEventListener('click', () => setNav(!navOpen()));
+  // back to the welcome pseudo-file: a deliberate "home" — the open file is
+  // flushed and pushed first, the last-opened pointer is cleared so boot does
+  // not drag the old file back over the choice
+  async function showWelcome(): Promise<void> {
+    await leavingFile();
+    selected = null;
+    currentGroup = null;
+    renderTree();
+    doc.hidden = true;
+    editorHost.hidden = true;
+    docBody.hidden = true;
+    docTitle.hidden = true;
+    docWords.hidden = true;
+    docDraft.hidden = true;
+    docTitle.classList.remove('draft');
+    pdfBtn.hidden = true;
+    empty.hidden = false;
+    try { localStorage.removeItem(LAST_KEY); } catch {}
+    if (narrow()) setNav(false); // mobile: the welcome sits behind the overlay
+  }
+
+  // double-click / long-press on the title goes home; the single click stays
+  // the tree toggle. A long-press leaves a trailing tap behind, so the click
+  // handler stands down for 700 ms after one fired.
+  let brandPressAt = 0;
+  let brandLpTimer: ReturnType<typeof setTimeout> | null = null;
+  let brandLpX = 0;
+  let brandLpY = 0;
+
+  function brandLpCancel(): void {
+    if (brandLpTimer) {
+      clearTimeout(brandLpTimer);
+      brandLpTimer = null;
+    }
+  }
+
+  brand.addEventListener(
+    'touchstart',
+    (e) => {
+      if (e.touches.length !== 1 || brandLpTimer) return;
+      const t = e.touches[0];
+      brandLpX = t.clientX;
+      brandLpY = t.clientY;
+      brandLpTimer = setTimeout(() => {
+        brandLpTimer = null;
+        brandPressAt = Date.now();
+        navigator.vibrate?.(10);
+        void showWelcome();
+      }, 500);
+    },
+    { passive: true },
+  );
+  brand.addEventListener(
+    'touchmove',
+    (e) => {
+      if (!brandLpTimer) return;
+      const t = e.touches[0];
+      if (Math.abs(t.clientX - brandLpX) > 10 || Math.abs(t.clientY - brandLpY) > 10)
+        brandLpCancel();
+    },
+    { passive: true },
+  );
+  brand.addEventListener('touchend', brandLpCancel);
+  brand.addEventListener('touchcancel', brandLpCancel);
+  brand.addEventListener('contextmenu', (e) => e.preventDefault()); // Android long-press
+  brand.addEventListener('dblclick', () => void showWelcome());
+
+  brand.addEventListener('click', () => {
+    if (Date.now() - brandPressAt < 700) return;
+    setNav(!navOpen());
+  });
 
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape' || !navOpen()) return;

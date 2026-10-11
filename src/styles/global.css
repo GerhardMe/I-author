@@ -494,6 +494,11 @@ body.nav-anim .toolbar {
   cursor: pointer;
   user-select: none;
   -webkit-user-select: none;
+  /* the brand is also a double-click/long-press target (goes home):
+     manipulation keeps iOS from zooming instead of firing dblclick, and
+     no callout on the hold */
+  touch-action: manipulation;
+  -webkit-touch-callout: none;
 }
 
 .toolbar {

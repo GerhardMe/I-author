@@ -258,9 +258,13 @@ setNav(open)   the ONLY nav mutator (4.7): toggles .app.nav-off, aria-expanded
                Also owns two mobile concerns (2026-10-11): the overlay scroll
                lock (body overflow hidden while open on mobile — a hold under
                the last file row scrolled the page behind the overlay) and
-               clearing .bar-away (the scroll-away topbar state). The brand
-               click toggles; Escape closes (unless the create
-               dialog or a menu is open); a mobile tree-row click closes.
+clearing .bar-away (the scroll-away topbar state). The brand
+               click toggles; double-click or long-press on it goes home
+               (showWelcome: flush+push first, welcome screen, `iauthor.last`
+               cleared so boot does not drag the old file back; on touch a
+               700ms window suppresses the trailing tap's toggle, like the
+               tree's long-press); Escape closes (unless the create dialog or a
+               menu is open); a mobile tree-row click closes.
                The sidebar is an overlay; the docked margin is STATIC padding
                on .main, independent of the nav state — nothing moves when
                the tree hides or shows (no slide, applyMeasure not called —
