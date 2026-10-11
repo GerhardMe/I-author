@@ -14,12 +14,22 @@ import { setNav, showWelcome, syncHideBtn } from './nav.ts';
 import { historyOpen } from './history.ts';
 import { lastLongPressAt } from './gestures.ts';
 
-// a click elsewhere closes the tree context menu — but the synthetic tap
-// after a long-press must not close the menu it opened
-document.addEventListener('click', () => {
-  if (Date.now() - lastLongPressAt < 700) return;
-  if (!ctxMenu.hidden) closeMenu();
-});
+// a click elsewhere closes the tree context menu — and while it is open,
+// that click ONLY closes: nothing behind the menu acts (a tree row must not
+// open under the dismissing tap). Capture phase + stop, so the whole app is
+// behind this gate; clicks on the menu's own items pass through. The
+// synthetic tap after a long-press must not close the menu it opened.
+document.addEventListener(
+  'click',
+  (e) => {
+    if (ctxMenu.hidden || ctxMenu.contains(e.target as Node)) return;
+    if (Date.now() - lastLongPressAt < 700) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    closeMenu();
+  },
+  true,
+);
 
 document.addEventListener('click', (e) => {
   if (!pdfMenu.hidden && !pdfMenu.contains(e.target as Node)) hidePdfMenu();
