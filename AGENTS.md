@@ -993,8 +993,9 @@ redo — skips the branch, that state is already an ancestor of the target) →
 `reset --hard <sha>` → same response shape as undo).
 
 **Shipped: the history view UI (milestone 5, 2026-10-11)** — a `git`
-btn-tiny in the side-foot (after lock/log out; tree chrome inside the
-authReady block, null-guarded pre-setup). Clicking it: `leavingFile()`
+btn-tiny in the side-foot (after lock/log out — and rendered PRE-SETUP too,
+owner fix 2026-10-11: the app is open pre-setup, so the history view works
+there; it sits outside the authReady conditional). Clicking it: `leavingFile()`
 first (the pending burst is in the DAG), then the main area swaps to a
 third view `#history` beside `#empty`/`#doc` — a DAG list: main spine at
 indent 0 (everything reachable from HEAD), `undo-*` branch commits indented

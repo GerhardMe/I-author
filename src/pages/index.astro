@@ -20,11 +20,11 @@ const authReady = loadSecrets() !== null;
           <>
             <button class="btn-tiny" id="lock">lock</button>
             <button class="btn-tiny" id="logout">log out</button>
-            <button class="btn-tiny" id="git-history" title="git history">git</button>
           </>
         ) : (
           <a class="btn-tiny" href="/setup">set up 2FA</a>
         )}
+        <button class="btn-tiny" id="git-history" title="git history">git</button>
       </div>
     </aside>
     <main class="main">
@@ -1345,9 +1345,7 @@ async function showGroup(node: Node): Promise<void> {
   const histBody = document.getElementById('hist-body')!;
   const histRestoreBtn = document.getElementById('hist-restore') as HTMLButtonElement;
   const histMasterBtn = document.getElementById('hist-master') as HTMLButtonElement;
-  // pre-setup the side-foot offers the setup link instead of the session
-  // buttons — the git toggle does not exist there (tree chrome, authReady block)
-  const gitBtn = document.getElementById('git-history') as HTMLButtonElement | null;
+  const gitBtn = document.getElementById('git-history') as HTMLButtonElement;
 
   type HistCommit = {
     sha: string;
@@ -1616,7 +1614,7 @@ async function showGroup(node: Node): Promise<void> {
     }
   });
 
-  gitBtn?.addEventListener('click', () => {
+  gitBtn.addEventListener('click', () => {
     if (historyOpen) void closeHistory();
     else void openHistory();
   });
