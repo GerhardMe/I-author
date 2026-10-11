@@ -475,9 +475,13 @@ const authReady = loadSecrets() !== null;
       (n.inDraft ? ' draft' : '');
       row.dataset.path = n.path;
       if (isFolder) row.dataset.folder = '1';
-      // the whole row is the drag handle; native drag has its own movement
-      // threshold, so a plain click still opens the entry
-      row.draggable = true;
+      // the whole row is the drag handle on desktop (native drag has its own
+      // movement threshold, so a plain click still opens the entry). NOT on
+      // touch: a phone's browser starts its own long-press drag on a
+      // draggable element and co-opts the gesture — the touch state machine
+      // below must own the hold (armed -> drag or menu), so touch rows are
+      // never advertised as draggable.
+      row.draggable = !narrow();
       row.innerHTML = `<span class="tw"${
         isFolder ? ' data-caret="1"' : ''
       }>${isFolder ? (expanded.has(n.path) ? '▾' : '▸') : '·'}</span><span class="tn">${esc(
@@ -649,6 +653,8 @@ const authReady = loadSecrets() !== null;
   treeEl.addEventListener('dragstart', (e) => {
     const row = (e.target as HTMLElement).closest('.tree-row') as HTMLElement | null;
     if (!row) return;
+    lpCancel(); // a stray dragstart on touch must not leave a stale armed hold
+    armed = false;
     beginDrag(row, e.clientX, e.clientY);
     if (!dragPath) return;
     if (!e.dataTransfer) return;
@@ -2209,6 +2215,7 @@ async function showGroup(node: Node): Promise<void> {
   navMq.addEventListener('change', (e) => {
     if (e.matches) setNav(false); // shrinking to mobile hides the panel
     else document.body.style.overflow = ''; // back to desktop: the lock must not stick
+    renderTree(); // rows rebuilt: draggable flips with the profile (native vs touch)
   });
 
   async function boot(): Promise<void> {
