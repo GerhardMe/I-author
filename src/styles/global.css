@@ -282,9 +282,9 @@ body.theme-switching * {
   transition: none !important;
 }
 
-/* the theme toggle floats at the viewport's top-right. z below the sidebar
-   (20): when the tree overlay is open on mobile it lies in front of the
-   button — the button "goes away" while the tree is shown. */
+/* the theme toggle floats at the viewport's top-right on the bare screens
+   (login/setup). On the app page it lives in the sidebar's title bar (see
+   .side-head .theme-toggle below) and hides with the tree chrome. */
 .theme-toggle {
   position: fixed;
   top: 1rem;
@@ -300,11 +300,14 @@ body.theme-switching * {
   -webkit-user-select: none;
 }
 
-/* panel closed: rise above the title-bar strip — on mobile it is an opaque
-   page-coloured band (it masks the page scrolling beneath it) that would
-   otherwise hide the button */
-.app.nav-off ~ .theme-toggle {
-  z-index: 30;
+/* the in-bar variant: part of the topbar (side-head) — on mobile it
+   autohides/reappears with the bar-away slide, on desktop it fades with
+   the toolbar when the tree closes */
+.side-head .theme-toggle {
+  position: static;
+  z-index: auto;
+  font-size: 0.85rem;
+  padding: 0.15rem 0.35rem;
 }
 
 .theme-toggle:hover {

@@ -645,9 +645,9 @@ measure re-clamps on window resize only). (A grid track was tried first on 2026-
 the fixed sidebar is out of flow, so `.main` auto-placed into the tree's own 18rem track —
 the view got squashed into it. Padding can't misplace.)**
 
-- **desktop** — click the title → tree, drafts toggle, new-row and the lock/log-out row
-  fade out (`opacity` + a 0.5rem slide), the sidebar's background and right border fade
-  to transparent, and only the title stays live at the top-left.
+- **desktop** — click the title → tree, drafts toggle, theme toggle, new-row and the
+  lock/log-out row fade out (`opacity` + a 0.5rem slide), the sidebar's background and
+  right border fade to transparent, and only the title stays live at the top-left.
 - **mobile (≤900px)** — the title bar (`.side-head`, page-coloured like everything on
   mobile — no card bar) is always
   visible at the top of the fixed overlay; the tree expands **over the whole page**
@@ -830,6 +830,11 @@ The numbering rework is complete — no further phases.
 - **Mobile side margins**: `.main` mobile padding is `3.5rem 1ch 2rem` (was
   0.5ch); the title-bar underline `::after` insets 1ch to keep aligning with
   the text edge.
+
+- **Theme toggle joined the topbar** (2026-10-11): the ◐ button lives in the
+  sidebar's `.side-head` toolbar — it autohides/reappears with the bar-away
+  slide on mobile and fades with the tree chrome on desktop; login/setup keep
+  the floating top-right button (base.astro binds every `.theme-toggle`).
 
 Next: 6) Encrypted GitHub
 backup: tar+gzip whole tree → AES-256-GCM with master key → one ciphertext blob per
