@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Deploy Iauthor: test locally, push the repo to GitHub, then the server
+# Deploy Iauthor: push the repo to GitHub, then the server
 # (a git clone) pulls, installs and builds — everything inside the flake
 # shell, so the server hand-installs nothing. Restart + health check.
 set -euo pipefail
@@ -17,9 +17,6 @@ say() { printf '\n==> %s\n' "$*"; }
 run() {
   if command -v pnpm >/dev/null 2>&1; then "$@"; else nix develop -c "$@"; fi
 }
-
-say "tests"
-run pnpm test
 
 say "push to github (deploy ships commits — a dirty tree is an error)"
 if [ -n "$(git status --porcelain)" ]; then

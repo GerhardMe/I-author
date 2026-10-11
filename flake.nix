@@ -46,9 +46,8 @@
             export PATH="$PWD/scripts:$PATH"
             echo "Iauthor dev shell"
             echo "  run        dev server on :4321"
-            echo "  test-auth  auth unit tests"
             echo "  build      production build"
-            echo "  deploy     test + build + sync to VPS + health check"
+            echo "  deploy     build + sync to VPS + health check"
             echo "  lualatex   pdf compiler (texlive, on PATH)"
           '';
         };

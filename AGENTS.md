@@ -68,15 +68,15 @@ the plan. If a change adds complexity, it needs a good reason.
 
 ```
 flake.nix            dev shell: nodejs_22, pnpm, git, rclone; scripts/ on PATH
-scripts/             run (dev :4321), build, test-auth, deploy
+scripts/             run (dev :4321), build, deploy
 src/middleware.ts    auth guard: setup redirect, session check, idle lock, cookie renewal
 src/lib/config.ts    all env vars, cookie name, TTLs
 src/lib/http.ts      json(), clientIp() (socket address only — see §Auth model), isSecure()
 src/lib/visibility.ts  the "what's visible" rule (drafts + notes + empty dirs) in one place;
                      visibleNodes(nodes, opts) — shared by the sidebar and the pdf aggregates
-src/lib/totp.ts      TOTP generate/verify + totpAt(secret, unixSeconds, digits) for tests
+src/lib/totp.ts      TOTP generate/verify + totpAt(secret, unixSeconds, digits)
 src/lib/auth/        secrets, pin (scrypt), device tokens (HMAC), idle lock, rate limit,
-                     recovery codes, auth.test.ts
+                     recovery codes
 src/lib/naming.ts    the filename grammar, defined once (parseName, slugify, naturalCompare,
                      NOTES, MATTER); pure, imported by server and client bundles
 src/lib/works.ts     works tree: listWorks/readChapter/writeChapter/createEntry/renameEntry/
@@ -153,7 +153,6 @@ src/lib/confirm.ts   in-app confirm dialog (appConfirm) — promise-based, non-b
                      replacement for window.confirm; the touch-transparent backdrop
                      keeps the tree scrollable behind it; a click outside the card
                      answers cancel without acting behind the dialog
-src/lib/*.test.ts    node:test suites (test-auth runs the src/lib/*.test.ts glob)
 ```
 
 Where a change goes: data/files → `works.ts`, UI shell → `src/app/` (+ markup
@@ -188,15 +187,15 @@ nix develop          # everything below assumes this shell
 run                  # astro dev on :4321 (foreground)
 dev                  # detached test server on :4321, all interfaces; idempotent,
                      # log /tmp/iauthor-dev.log — THIS is the owner's test env
-test-auth            # pnpm test — exists for the record; the agent NEVER runs it
 build                # production build — the agent NEVER runs it (deploy does)
 deploy               # push main to GitHub; the server pulls, installs, builds,
                      # restarts and health-checks (see §Deployment) — ONLY on request
 ```
 
 - **NO TESTING. NEVER.** (owner decision 2026-10-09: "remove ALL testing. I can test.")
-  The agent does NOT run `pnpm test`, `pnpm build`, `scripts/test-auth`, `scripts/build`,
-  lint, typecheck, or ANY verification/smoke/curl command after a change. Zero. Not
+  There are NO tests in the repo (all suites and scripts/test-auth deleted
+  2026-10-11) and the agent does NOT run `pnpm build`, lint, typecheck, or ANY
+  verification/smoke/curl command after a change. Zero. Not
   "when prudent", not "just once", not "because it's cheap". Finish the change, commit
   with a SHORT message, report, done — broken code is caught by the owner in the test
   env, and a commit can always be reverted. The ONLY commands beyond file edits the
@@ -209,11 +208,6 @@ deploy               # push main to GitHub; the server pulls, installs, builds,
 - The dev server binds all interfaces; `scripts/dev` sets `IAUTHOR_DOMAINS` to
   `localhost,[::1],<lan-ip>` at startup — a missing IP there means CSRF 403s on POSTs
   from the LAN URL.
-- Tests exist (`node --experimental-strip-types`, no TS features that need
-  transformation — no enums) but running them is the deploy script's and the owner's
-  business, never the agent's.
-- `src/lib/test-setup.ts` must be imported **first** in test files that touch `config.ts`,
-  because `WORKS_DIR`/`SECRETS_FILE` are captured at module load.
 - pnpm 10+ blocks build scripts. Since pnpm 12, that config lives in
   `pnpm-workspace.yaml` as `allowBuilds: { esbuild: true, sharp: true }`
   (`pnpm.onlyBuiltDependencies` in `package.json` is dead — pnpm ignores it with a
@@ -371,7 +365,7 @@ migrations won't be undone by deploys.
   PORT=4322`, env `IAUTHOR_WORKS_DIR`, `ExecStart=/home/server/iauthor/scripts/serve`).
   Caddy site: `write.gerhard.page → localhost:4322`
   (auto-TLS; A record → 158.220.109.206).
-- **Always deploy with `scripts/deploy`** — it tests locally, pushes `main` to
+- **Always deploy with `scripts/deploy`** — it pushes `main` to
   GitHub (dirty tree = error), then the server pulls, runs `pnpm install
   --frozen-lockfile` and builds inside `nix develop` (keeping `dist.old` and
   restoring it if the build fails), restarts, and health-checks. Do not hand-roll
