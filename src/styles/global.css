@@ -620,10 +620,19 @@ a.btn-tiny:hover {
   -webkit-user-select: none;
   -webkit-touch-callout: none; /* iOS long-press: no text-selection callout
                                   — long-press opens the context menu here */
+  -webkit-tap-highlight-color: transparent; /* the android scroll flash on the
+                                              pulled-from row is not selection
+                                              vocabulary on a touch tree */
 }
 
-.tree-row:hover {
-  background: var(--tint);
+/* hover is a pointer vocabulary, not a touch one: browsers apply :hover to
+   the row under a finger (chrome android paints it mid-scroll, ios sticks it
+   after a tap), which made a scroll drag look like a highlight. Gating the
+   wash keeps highlight = selection (.sel) and drag visuals only. */
+@media (hover: hover) {
+  .tree-row:hover {
+    background: var(--tint);
+  }
 }
 
 .tree-row.sel {
@@ -1511,6 +1520,33 @@ a.btn-tiny:hover {
 
   .main {
     padding: 3.5rem 1ch 2rem; /* clears the fixed title bar; a char to the sides */
+  }
+
+  /* the tree is always scrollable: the fixed context menu sits where the
+     finger was, and a row behind it must be reachable by dragging the list
+     up/down — which needs slack below the last row even in a short list
+     (8rem clears the two-item menu with room to spare). Desktop needs none
+     of this: the menu is aimed by mouse, not sitting on a finger. */
+  .tree > ul {
+    min-height: 100%;
+    padding-bottom: 8rem;
+  }
+
+  /* the caret glyph stays 1em, but its hit target grows to the row band and
+     a margin around it: the pseudo-element is hit-tested as part of the .tw
+     span (data-caret), so taps near the arrow fold/unfold without touching
+     layout — the row box itself is untouched, the drag bands still read it */
+  .tw[data-caret] {
+    position: relative;
+  }
+
+  .tw[data-caret]::before {
+    content: '';
+    position: absolute;
+    top: -0.4rem;
+    bottom: -0.4rem;
+    left: -0.65rem;
+    right: -0.5rem;
   }
 
   /* the deprecated create strip, usable on touch — appearance only, a

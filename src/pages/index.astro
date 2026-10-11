@@ -527,9 +527,10 @@ const authReady = loadSecrets() !== null;
     return i === -1 ? '' : path.slice(0, i);
   };
 
-  function dropIntent(e: DragEvent): DropIntent | null {
-    const row = (e.target as HTMLElement).closest('.tree-row') as HTMLElement | null;
-    if (!row || !dragPath) return null;
+  // The band logic, parameterized by the row and the pointer height — the
+  // desktop dragover/drop handlers and the touch aim both resolve through it.
+  function intentForRow(row: HTMLElement, clientY: number): DropIntent | null {
+    if (!dragPath) return null;
     const path = row.dataset.path!;
     // no dropping a folder into itself, and not onto the entry being dragged
     if (path === dragPath || path.startsWith(dragPath + '/')) return null;
@@ -537,7 +538,7 @@ const authReady = loadSecrets() !== null;
     if (!node) return null;
     const box = row.getBoundingClientRect();
     const isFolder = node.children !== undefined;
-    const upper = (e.clientY - box.top) / box.height < 0.5;
+    const upper = (clientY - box.top) / box.height < 0.5;
     const parent = parentOf(path);
     // top half of anything: directly above it, at its own level
     if (upper) {
@@ -559,6 +560,12 @@ const authReady = loadSecrets() !== null;
     const rest = siblings.filter((n) => n.path !== dragPath);
     const next = rest[rest.findIndex((n) => n.path === path) + 1];
     return { parent, before: next ? nameOf(next.path) : null, anchorPath: path, kind: 'below' };
+  }
+
+  function dropIntent(e: DragEvent): DropIntent | null {
+    const row = (e.target as HTMLElement).closest('.tree-row') as HTMLElement | null;
+    if (!row) return null;
+    return intentForRow(row, e.clientY);
   }
 
   async function reorderTo(path: string, intent: DropIntent): Promise<void> {
@@ -605,9 +612,10 @@ const authReady = loadSecrets() !== null;
     }
   }
 
-  treeEl.addEventListener('dragstart', (e) => {
-    const row = (e.target as HTMLElement).closest('.tree-row') as HTMLElement | null;
-    if (!row) return;
+  // The one drag starter, shared by the desktop dragstart handler and the
+  // touch drag (HTML5 drag is dead on touch, so the touch state machine
+  // replays this profile by hand — same card, same ghost row, same marks).
+  function beginDrag(row: HTMLElement, x: number, y: number): void {
     dragPath = row.dataset.path ?? null;
     if (!dragPath) return;
     dropHandled = false;
@@ -616,6 +624,23 @@ const authReady = loadSecrets() !== null;
     // mid-drag (a hover opening a folder rebuilds the tree), and drag events on
     // a detached source no longer bubble to treeEl — but they still fire on it.
     row.addEventListener('dragend', endDrag, { once: true });
+    const card = row.cloneNode(true) as HTMLElement;
+    card.classList.remove('dragging');
+    card.classList.add('drag-card');
+    const box = row.getBoundingClientRect();
+    grabX = x - box.left;
+    grabY = y - box.top;
+    card.style.width = `${Math.round(box.width)}px`;
+    document.body.appendChild(card);
+    dragCard = card;
+    moveCard(x, y);
+  }
+
+  treeEl.addEventListener('dragstart', (e) => {
+    const row = (e.target as HTMLElement).closest('.tree-row') as HTMLElement | null;
+    if (!row) return;
+    beginDrag(row, e.clientX, e.clientY);
+    if (!dragPath) return;
     if (!e.dataTransfer) return;
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('text/plain', dragPath);
@@ -626,16 +651,6 @@ const authReady = loadSecrets() !== null;
     // native image is suppressed and a solid clone of the row follows the
     // cursor. pointer-events: none keeps the card from ever blocking a target.
     e.dataTransfer.setDragImage(TRANSPARENT_PX, 0, 0);
-    const card = row.cloneNode(true) as HTMLElement;
-    card.classList.remove('dragging');
-    card.classList.add('drag-card');
-    const box = row.getBoundingClientRect();
-    grabX = e.clientX - box.left;
-    grabY = e.clientY - box.top;
-    card.style.width = `${Math.round(box.width)}px`;
-    document.body.appendChild(card);
-    dragCard = card;
-    moveCard(e.clientX, e.clientY);
   });
 
   // Movement rides on dragover at document level for the same detached-source
@@ -1161,15 +1176,25 @@ async function showGroup(node: Node): Promise<void> {
     }
   }
 
-  // long-press opens the same menu on touch: iOS Safari never fires
-  // contextmenu and HTML5 drag is dead on touch, so without this there is
-  // no way to new/delete a tree entry on a phone. Movement or a second
-  // finger cancels — it is a scroll or a pinch, not a press.
-  let lastLongPressAt = 0;
+  // ---------- touch tree: press-and-hold ARMS, movement drags, an unmoved
+  // lift opens the menu (owner profile, 2026-10-11) ----------
+  // HTML5 drag is dead on touch and iOS never fires contextmenu, so the
+  // desktop profile is replayed by hand: tap = open (the native click),
+  // swipe = native scroll (the arm timer is cancelled by movement), hold
+  // 500ms = ARMED with nothing visible. From armed, real movement starts a
+  // genuine drag (card, insert line, hover-opened folders, drop = reorder);
+  // lifting without having moved opens the context menu at the finger.
+  // Desktop keeps plain HTML5 drag + right-click — nothing here fires there.
+  let lastLongPressAt = 0; // a lift stamp: the trailing synthetic tap / click must not act
+  let touchPressAt = 0; // a touchstart stamp: android's native long-press contextmenu stands down
+  let armed = false; // the hold completed; still invisible until the finger moves or lifts
   let lpTimer: ReturnType<typeof setTimeout> | null = null;
   let lpX = 0;
   let lpY = 0;
   let lpRow: HTMLElement | null = null;
+  const LP_ARM = 500; // hold time before armed
+  const LP_SCROLL_SLOP = 10; // px of movement that still reads as a scroll attempt
+  const LP_DRAG_SLOP = 8; // px past arming that turns the hold into a drag
 
   function lpCancel(): void {
     if (lpTimer) {
@@ -1181,31 +1206,123 @@ async function showGroup(node: Node): Promise<void> {
   treeEl.addEventListener(
     'touchstart',
     (e) => {
-      if (e.touches.length !== 1 || lpTimer) return;
-      const t = e.touches[0];
+      if (e.touches.length !== 1) {
+        // a second finger is a pinch — not a drag, not a press
+        lpCancel();
+        armed = false;
+        lastLongPressAt = Date.now();
+        if (dragCard) endDrag();
+        return;
+      }
+      if (lpTimer || armed || dragCard) return;
+      const t = e.touches[0]!;
+      touchPressAt = Date.now();
       lpX = t.clientX;
       lpY = t.clientY;
       lpRow = (t.target as HTMLElement).closest('.tree-row') as HTMLElement | null;
       lpTimer = setTimeout(() => {
         lpTimer = null;
-        lastLongPressAt = Date.now();
+        armed = true;
         navigator.vibrate?.(10); // a tiny tick where the platform has it
-        openCtxMenuAt(lpX, lpY, lpRow);
-      }, 500);
+      }, LP_ARM);
     },
     { passive: true },
   );
+
   treeEl.addEventListener(
     'touchmove',
     (e) => {
-      if (!lpTimer) return;
-      const t = e.touches[0];
-      if (Math.abs(t.clientX - lpX) > 10 || Math.abs(t.clientY - lpY) > 10) lpCancel();
+      const t = e.touches[0]!;
+      const dx = t.clientX - lpX;
+      const dy = t.clientY - lpY;
+      if (dragCard) {
+        // dragging: the gesture is ours — never a scroll
+        e.preventDefault();
+        moveCard(t.clientX, t.clientY);
+        touchAim(t.clientX, t.clientY);
+        return;
+      }
+      if (!armed) {
+        // pressing: past the slop it is a scroll — give the timer up. No
+        // preventDefault before arming: native scrolling must stay live.
+        if (Math.abs(dx) > LP_SCROLL_SLOP || Math.abs(dy) > LP_SCROLL_SLOP) lpCancel();
+        return;
+      }
+      if (Math.abs(dx) < LP_DRAG_SLOP && Math.abs(dy) < LP_DRAG_SLOP) return;
+      // armed on a row: the drag begins; armed on bare space: nothing to
+      // drag — hand the gesture back to the scroller untouched
+      if (!lpRow) {
+        armed = false;
+        return;
+      }
+      e.preventDefault(); // block the scroll before it can claim the gesture
+      armed = false;
+      beginDrag(lpRow, t.clientX, t.clientY);
+      if (dragCard) touchAim(t.clientX, t.clientY);
     },
-    { passive: true },
+    { passive: false },
   );
-  treeEl.addEventListener('touchend', lpCancel);
-  treeEl.addEventListener('touchcancel', lpCancel);
+
+  treeEl.addEventListener('touchend', (e) => {
+    if (dragCard) {
+      // the drag ends where the finger is: a row under it reorders (the
+      // drop handlers' exact sequence — intent first, dragPath is still
+      // needed for the band logic), anything else cancels plainly
+      const t = e.changedTouches[0]!;
+      const path = dragPath;
+      const el = document.elementFromPoint(t.clientX, t.clientY);
+      const row = (el?.closest('.tree-row') as HTMLElement | null) ?? null;
+      const intent = row ? intentForRow(row, t.clientY) : null;
+      clearDropMarks();
+      closeDragOpened(false);
+      dragPath = null;
+      dragPreview = false;
+      if (intent) {
+        dropHandled = true; // endDrag must not re-render under reorderTo
+        void reorderTo(path, intent);
+        endDrag();
+      } else {
+        endDrag(); // no target: a plain cancel, like dropping outside the panel
+      }
+      lastLongPressAt = Date.now();
+      return;
+    }
+    if (armed) {
+      armed = false;
+      // an unmoved lift IS the menu: the fresh stamp keeps the synthetic tap
+      // this lift leaves behind from opening the row or closing the menu
+      lastLongPressAt = Date.now();
+      openCtxMenuAt(lpX, lpY, lpRow);
+      return;
+    }
+    lpCancel(); // a plain tap or scroll — the native click does the opening
+  });
+  treeEl.addEventListener('touchcancel', () => {
+    lpCancel();
+    armed = false;
+    if (dragCard) endDrag();
+  });
+
+  // the touch drag aims by hit-test: the card is pointer-events: none, so
+  // elementFromPoint sees the row (or the bare panel) under the fingertip —
+  // the desktop dragover pair's exact service, reused through intentForRow
+  function touchAim(x: number, y: number): void {
+    const el = document.elementFromPoint(x, y);
+    if (!el) return;
+    const row = el.closest('.tree-row') as HTMLElement | null;
+    clearDropMarks();
+    if (row) {
+      const intent = intentForRow(row, y);
+      if (intent) showDropLine(intent);
+      return;
+    }
+    if (!sidebarEl.contains(el)) {
+      closeDragOpened(); // the aim left the panel: the opened folders close
+      return;
+    }
+    closeDragOpened(); // bare panel space: top level, appended under everything
+    showTopLevelLine();
+  }
 
   function openCtxMenuAt(x: number, y: number, row: HTMLElement | null): void {
     if (!navOpen()) setNav(true); // no control behind a closed panel
@@ -1220,9 +1337,14 @@ async function showGroup(node: Node): Promise<void> {
 
   treeEl.addEventListener('contextmenu', (e) => {
     e.preventDefault();
-    // Android fires a real contextmenu for a long-press too; the touch path
-    // opened the menu already and a second open would just blink
-    if (Date.now() - lastLongPressAt < 700) return;
+    // Android fires a real contextmenu for a long-press too — but under the
+    // touch profile the armed hold owns that gesture: the menu may open only
+    // on an unmoved lift (or through the touch drag's own flow), never as a
+    // native surprise mid-hold. A fresh touchstart stamp stands down; a
+    // desktop right-click has no touchstart before it and opens as always.
+    const now = Date.now();
+    if (now - lastLongPressAt < 700) return;
+    if (now - touchPressAt < 800) return;
     openCtxMenuAt(
       e.clientX,
       e.clientY,

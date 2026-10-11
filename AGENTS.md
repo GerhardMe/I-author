@@ -208,17 +208,32 @@ sync hooks     onSaved/onDirtyChange update the doc-words chip (header); the syn
                state (setSync → refreshRowStatus, targeted DOM update, never a
                renderTree mid-drag), unopened files show a dot when a
                sessionStorage draft exists (rowStatus at buildList time)
-context menu   right-click (desktop) or long-press (touch — iOS never fires
-               contextmenu; a 500ms timer, cancelled by movement/second finger,
-               with a 700ms window suppressing Android's own contextmenu and the
-               trailing synthetic tap): ctxTarget + hover previews (insert-line,
-               delete flash); on touch there is no hover, so the previews ride
-               the popups instead — the insert line shows while the create
+context menu   right-click (desktop) or the touch profile (owner spec
+               2026-10-11): tap = open (native click), swipe = native scroll
+               (the arm timer cancels on >10px), hold 500ms = ARMED with
+               nothing visible (only a 10ms vibration tick); from armed,
+               moving >8px preventDefaults the scroll away and starts a real
+               drag (beginDrag + touchAim reuse the desktop machinery:
+               drag-card, insert line, dragOpened hover-open, drop =
+               reorderTo), an unmoved lift opens the menu at the finger.
+               lastLongPressAt (700ms window) suppresses the trailing
+               synthetic tap after a lift or drop; touchPressAt (800ms) makes
+               Android's own long-press contextmenu stand down. Hover
+               previews are desktop-only (row :hover is gated behind
+               `@media (hover: hover)` — touch scroll must not tint rows);
+               on touch the previews ride the popups instead — the insert
+               line shows while the create
                dialog is open (itemNew click calls showInsertLine), the delete
                flash expands + flashes the subtree during the confirm window
                (deleteNode re-applies the preview before appConfirm, reverts
                after — the in-app dialog does not block, so the pulse animates); pendingParent/pendingAnchorPath feed the create
-               dialog (deprecated, appearance-only mobile bump: 16px input)
+               dialog (deprecated, appearance-only mobile bump: 16px input).
+               Mobile tree extras (same owner spec): `.tree > ul` gets
+               `min-height: 100%; padding-bottom: 8rem` so the list is always
+               scrollable (a row behind the fixed menu can be dragged clear),
+               and the folder caret's hit target is a ::before box around the
+               1em glyph (row band + margin, mobile only) — hit area, not
+               glyph size
 rename         header click (except buttons) → raw-name editor → commitRename()
                (+ moveDraft, remapExpanded so subtree stays open)
 measure        two handles on .doc-head's underline: A (▶, at the line's START)
@@ -921,6 +936,24 @@ the client: remap expanded/selection/drafts through the returned map, DROP
 drafts of changed paths (else the reverted "future" resurrects on next open),
 reload tree, reopen the file with a fresh `setBaseline`; if the open file was
 undone out of existence → welcome screen.
+
+**Mobile undo button** (owner decisions 2026-10-11, not yet built — rides the undo
+milestone): mobile has no Ctrl+Z, so the undo ladder needs a button. NOT in
+`base.astro` next to ◐ (the theme toggle is global, rendered on every page incl.
+login/pdf; undo is app-only) — its own fixed button in `index.astro`'s markup, a
+sibling of `.app` so the `~` selectors keep working: `<button id="undo-btn"
+class="undo-btn" aria-label="Undo" title="undo">↶</button>`, top-right LEFT of
+the theme toggle, same `top: 1rem` rhythm. `display: none` by default, shown
+inside `@media (max-width: 900px)` (mobile only — desktop has Ctrl+Z). Duplicates
+the theme toggle's sibling rules: `.app.nav-off ~ .undo-btn { z-index: 30 }`,
+`.app.bar-away ~ .undo-btn` slides it away with the topbar, same `body.nav-anim`
+transition + reduced-motion gate. With the tree overlay open it sits at z 10 →
+behind the sidebar like ◐ (fine: no editing while the tree is open). A tap runs
+the SAME ladder as Ctrl+Z — the keymap handler is called directly (native CM undo
+first, git undo on exhaustion), no confirmation, debounced in flight, roundtrip
+surfaced via `setSync`. Not placed in the doc-head next to the pdf button
+considered and rejected: the doc-head scrolls away with the text — undo must stay
+reachable on a long chapter scrolled to the bottom.
 
 **Deferred to its own later milestone**: redo and the history tree view
 (jump anywhere in the DAG) — built on the `undo-*` refs.
