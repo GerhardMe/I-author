@@ -973,6 +973,10 @@ a.btn-tiny:hover {
   gap: 0.4rem;
 }
 
+.side-foot #git-history {
+  margin-left: auto;
+}
+
 .main {
   padding: 2rem clamp(1rem, 8vw, 10rem);
   overflow-y: auto;
