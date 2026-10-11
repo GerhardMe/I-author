@@ -54,6 +54,14 @@ export async function commit(msg: string): Promise<boolean> {
   return next as Promise<boolean>;
 }
 
+// run a multi-command git sequence on the same serialized queue the commits
+// use — a coalescer commit can never interleave with a branch+reset (undo)
+export function transaction<T>(fn: () => Promise<T>): Promise<T> {
+  const next = queue.then(fn);
+  queue = next.catch(() => {});
+  return next;
+}
+
 async function attempt(msg: string): Promise<boolean> {
   try {
     return await runCommit(msg);

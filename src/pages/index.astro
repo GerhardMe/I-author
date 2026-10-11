@@ -294,12 +294,64 @@ const authReady = loadSecrets() !== null;
     return editor ? syncStateFromDoc(editor.state.doc.toString()) : 'idle';
   }
 
+  // ---------- commit boundary: native undo stays uncommitted-only ----------
+  // Native Ctrl+Z/Ctrl+Shift+Z covers only work since the last commit; the
+  // native stack is reset at every commit boundary by rebuilding the editor
+  // with the same doc. Two triggers approximate the server coalescer
+  // (5s idle / >=1000 chars): the PUT response's `committed` flag (the char
+  // trigger fired during that write) and a 5s idle timer armed after each
+  // confirmed push (the idle trigger). When typing is in flight the boundary
+  // waits for the next clean push confirm — a reset never kills native undo
+  // of unsynced text.
+  let boundaryTimer: ReturnType<typeof setTimeout> | null = null;
+  let boundaryPending = false;
+
+  function resetStack(): void {
+    if (!editor || !currentFile) return;
+    const content = editor.state.doc.toString();
+    if (sync.ahead(content)) return; // only at a clean boundary
+    const sel = editor.state.selection;
+    const top = editor.scrollDOM.scrollTop;
+    destroyEditor();
+    const view = makeEditor(content);
+    view.dispatch({ selection: sel });
+    view.scrollDOM.scrollTop = top;
+  }
+
+  function boundary(): void {
+    if (boundaryTimer) {
+      clearTimeout(boundaryTimer);
+      boundaryTimer = null;
+    }
+    if (!editor || dirty()) return; // typing in flight: the next clean confirm fires it
+    resetStack();
+    boundaryPending = false;
+  }
+
+  function armBoundary(): void {
+    if (boundaryTimer) clearTimeout(boundaryTimer);
+    boundaryTimer = setTimeout(() => {
+      boundaryTimer = null;
+      boundary();
+    }, 5000);
+  }
+
+  // after a confirmed push: a pending committed-flag boundary fires at the
+  // next clean confirm, otherwise the idle boundary arms
+  function afterPush(ok: boolean): void {
+    if (!ok) return;
+    if (pushEndState() !== 'idle') return;
+    if (boundaryPending) boundary();
+    else armBoundary();
+  }
+
   const sync = createSync({
     getPath: () => currentFile,
     getContent: () => (editor ? editor.state.doc.toString() : null),
     getEditor: () => editor,
-    onSaved: (content) => {
+    onSaved: (content, committed) => {
       docWords.textContent = `${countWords(content)} words`;
+      if (committed) boundaryPending = true; // fires at the next clean confirm
     },
     onPushStart: () => {
       if (spinnerHold) {
@@ -314,6 +366,7 @@ const authReady = loadSecrets() !== null;
       }, SPINNER_DELAY_MS);
     },
     onPushEnd: (ok) => {
+      afterPush(ok); // the commit boundary rides the confirmed push
       if (spinnerDelay) {
         clearTimeout(spinnerDelay); // the reply beat the delay: never shown
         spinnerDelay = null;
@@ -358,6 +411,12 @@ const authReady = loadSecrets() !== null;
     // row; the dot comes back when a push confirms (pushEndState recomputes)
     if (syncState !== 'pushing' && syncState !== 'error')
       setSync(syncStateFromDoc(u.state.doc.toString()));
+    // typing postpones the idle boundary (the flag from a committed push
+    // survives: it fires at the next clean confirm instead)
+    if (boundaryTimer) {
+      clearTimeout(boundaryTimer);
+      boundaryTimer = null;
+    }
     scheduleDraft();
     sync.schedule();
   }
@@ -374,6 +433,12 @@ const authReady = loadSecrets() !== null;
       onOpenLink: openLink,
       onUpdate: onEditorUpdate,
       getView: () => editor,
+      onGitUndo: () => {
+        void gitUndo();
+      },
+      onRedoExhausted: () => {
+        // the git history view (forward jumps) arrives with its own milestone
+      },
     };
     const view = new EditorView({
       state: EditorState.create({
@@ -1109,6 +1174,97 @@ async function showGroup(node: Node): Promise<void> {
       docBody.innerHTML = `<p class="error">${esc((err as Error).message)}</p>`;
     }
   }
+
+  // ---------- git undo: the ladder's second rung ----------
+  // Native stack exhausted = the commit boundary is crossed. Server-side
+  // (/api/undo): flush the pending burst (it becomes the last commit on the
+  // soon-stale branch), branch undo-<ts> at HEAD, reset --hard HEAD~1.
+  // Client-side: detach the editor WITHOUT pushing — the doc still holds the
+  // undone-away text, and a push or a saved draft would resurrect it — drop
+  // the drafts of changed paths (the reverted "future" must not resurrect
+  // from sessionStorage), remap all path-keyed state through the inverted
+  // map, then reopen the file — or home when the undo deleted it.
+  let undoInFlight = false;
+
+  async function gitUndo(): Promise<void> {
+    if (undoInFlight) return; // debounced while in flight
+    undoInFlight = true;
+    try {
+      flushDraft();
+      // ε-window guard: never undo text the server has not seen
+      if (dirty()) await sync.pushNow();
+      setSync('pushing'); // the roundtrip surfaces on the file's own tree row
+      const res = await api<{
+        changed: string[];
+        map: Record<string, string>;
+        content: string | null;
+        head: string;
+      }>('/api/undo', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ path: currentFile }),
+      });
+      await applyUndo(res);
+    } catch (err) {
+      setSync('idle'); // the doc never moved: the marker goes back to rest
+      alert((err as Error).message); // "nothing to undo" lands here too
+    } finally {
+      undoInFlight = false;
+    }
+  }
+
+  async function applyUndo(res: {
+    changed: string[];
+    map: Record<string, string>;
+    content: string | null;
+    head: string;
+  }): Promise<void> {
+    const was = currentFile;
+    for (const p of res.changed) dropDraft(p); // by current (pre-undo) paths
+    remapPaths(res.map); // expanded, selection, remaining drafts, last-opened
+    // detach without pushing or saving a draft (see above)
+    sync.cancel();
+    destroyEditor();
+    currentFile = null;
+    currentGroup = null;
+    setSync('idle');
+    refreshRowStatus(was);
+    await loadTree();
+    const next = was ? pathMapper(res.map)(was) : null;
+    if (next && byPath.has(next)) {
+      await openFile(next); // fresh content, fresh baseline, fresh native stack
+    } else {
+      // the undo deleted the open file (or nothing was open): home
+      selected = null;
+      doc.hidden = true;
+      editorHost.hidden = true;
+      docBody.hidden = true;
+      docTitle.hidden = true;
+      docWords.hidden = true;
+      docDraft.hidden = true;
+      docTitle.classList.remove('draft');
+      pdfBtn.hidden = true;
+      empty.hidden = false;
+      renderWelcomeIndex();
+      if (was) {
+        try { localStorage.removeItem(LAST_KEY); } catch {}
+      }
+      renderTree();
+    }
+  }
+
+  // no editor open (welcome screen, folder index): Ctrl/Cmd+Z goes straight
+  // to git undo — the ladder's native rung only exists inside the editor.
+  // Text fields keep their own native undo; the guard leaves them alone.
+  document.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z') {
+      if (editor) return; // the editor's keymap owns the ladder
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+      e.preventDefault();
+      void gitUndo();
+    }
+  });
 
   // ---------- context menu on the tree: new / delete ----------
   const ctxMenu = document.createElement('div');
