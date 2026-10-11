@@ -1,0 +1,29 @@
+---
+// The sidebar: brand (the only tree toggle), the drafts toolbar, the tree
+// and the side-foot — session buttons when auth is set up, the setup link
+// before it is (owner decision 2026-10-09 — same behaviour everywhere).
+interface Props {
+  authReady: boolean;
+}
+const { authReady } = Astro.props;
+---
+<aside class="sidebar" id="sidebar">
+  <div class="side-head">
+    <button class="brand" id="brand" type="button" aria-expanded="true" aria-controls="tree">I author</button>
+    <div class="toolbar">
+      <button class="btn-tiny" id="hide-drafts" title="Show drafts and notes">drafts <span id="hide-drafts-eye">◡</span></button>
+    </div>
+  </div>
+  <nav class="tree" id="tree"></nav>
+  <div class="side-foot">
+    {authReady ? (
+      <>
+        <button class="btn-tiny" id="lock">lock</button>
+        <button class="btn-tiny" id="logout">log out</button>
+      </>
+    ) : (
+      <a class="btn-tiny" href="/setup">set up 2FA</a>
+    )}
+    <button class="btn-tiny" id="git-history" title="git history">git</button>
+  </div>
+</aside>

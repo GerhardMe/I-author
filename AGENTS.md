@@ -109,9 +109,33 @@ src/lib/pdf.ts       PDF compiler: LuaLaTeX + `markdown` package; ensurePdf(rel,
 src/pages/api/       setup, login, session, logout, lock, tree, file (GET/PUT), new, delete,
                      rename, reorder, undo, pdfstyles, pdfstatus, git/ (history, show,
                      restore-file, make-master)
-src/pages/           index.astro (app shell), login.astro (PIN is a text field masked
+src/pages/           index.astro (thin shell: components + the boot script import),
+                     login.astro (PIN is a text field masked
                      with ● in JS — mobile keyboards echo the last digit of
                      password fields), setup.astro, pdf.ts (stream)
+src/components/      Sidebar, DocView, HistoryView, NewDialog — static markup
+                     only, deliberately NO per-component scripts (the shell's
+                     JS is one bundle with one shared scope; splitting scripts
+                     across components would break both)
+src/app/             the app shell's client modules (imported by ONE script in
+                     index.astro): main.ts (boot + the order-sensitive
+                     document-level listeners — Escape precedence and the two
+                     click-to-dismiss menus), state.ts (shared state: tree,
+                     byPath, expanded, selected, currentFile/group, keys,
+                     pathMapper/remapPaths/remapExpanded, api, esc, narrow/
+                     navOpen), dom.ts (every static element ref), tree.ts
+                     (renderTree/buildList, visibility, row sync markers,
+                     loadTree, revealPath), editor.ts (CM lifecycle,
+                     flushDraft/leavingFile, the commit boundary, openLink),
+                     sync.ts (the createSync instance + offline/online),
+                     toc.ts (buildToc/showGroup/renderWelcomeIndex/openFile +
+                     the tree click), gestures.ts (desktop DnD + the touch
+                     arm/drag/menu machine + the insert line),
+                     files.ts (context menu, create dialog, delete, rename),
+                     history.ts (gitUndo ladder + the history view + mobile
+                     undo/redo buttons), measure.ts (the two handles),
+                     pdf.ts (style menu + fetchPdf), nav.ts (setNav, topbar
+                     scroll-away, drafts toggle, brand home, lock/logout)
 pdfstyles/           LaTeX preamble "stylesheets" (a4, a5, academic) — single source
                      of truth for the pdf style menu. a4.tex and a5.tex share 51 of
                      54 lines (differences: label, documentclass pt, geometry) and
@@ -129,23 +153,31 @@ src/lib/confirm.ts   in-app confirm dialog (appConfirm) — promise-based, non-b
 src/lib/*.test.ts    node:test suites (test-auth runs the src/lib/*.test.ts glob)
 ```
 
-Where a change goes: data/files → `works.ts`, UI shell → `index.astro`,
-editor features → `preview.ts`/`sync.ts`, naming → `naming.ts` (pure, both sides).
+Where a change goes: data/files → `works.ts`, UI shell → `src/app/` (+ markup
+in `src/components/`), editor features → `preview.ts`/`sync.ts`, naming →
+`naming.ts` (pure, both sides).
 
-### index.astro orientation (~1400 lines, the entire UI; all JS in one `<script>`)
+### App shell orientation (`src/app/`, one bundled module graph)
 
-Key functions: `boot()` (restore expanded state → loadTree() → reopen
+Key functions: `main.ts` `boot()` (restore expanded state → loadTree() → reopen
 `iauthor.last`, remapped through renames; deleted file → welcome screen; desktop
-boots with the tree open), `loadTree()` (GET /api/tree → `tree` + `byPath` Map →
-renderTree()), `openFile(p)` (revealPath first, then GET /api/file → makeEditor;
-restores a newer sessionStorage draft), `showGroup(n)` (folder index TOC, never an
-editor), `leavingFile()` (flushDraft + sync.pushNow if dirty — ALWAYS before
-switching files or entering the history view), `setNav(open)` (the ONLY nav
-mutator — see §Nav invariants), `remapPaths` (see §Path maps below),
-`gitUndo`/`applyUndo`, `applyRestore` (undo/history share it), sync hooks
-(`setSync` → `refreshRowStatus`, a targeted DOM update — never a renderTree
-mid-drag). Orientation map: **read the source for the rest** — this file does not
-duplicate it.
+boots with the tree open) and the document-level listeners whose registration
+order is load-bearing (Escape: create dialog → ctx menu → pdf menu → nav →
+history; the two click-to-dismiss menus). `loadTree()` in tree.ts (GET /api/tree
+→ `tree` + `byPath` Map → renderTree()), `openFile(p)` in toc.ts (revealPath
+first, then GET /api/file → makeEditor; restores a newer sessionStorage draft),
+`showGroup(n)` in toc.ts (folder index TOC, never an editor), `leavingFile()` in
+editor.ts (flushDraft + sync.pushNow if dirty — ALWAYS before switching files or
+entering the history view), `setNav(open)` in nav.ts (the ONLY nav mutator — see
+§Nav invariants), `remapPaths` in state.ts (see §Path maps below),
+`gitUndo`/`applyUndo`/`applyRestore` in history.ts (undo/history share it), sync
+hooks (`setSync` → `refreshRowStatus`, a targeted DOM update — never a
+renderTree mid-drag; the spinner bookkeeping is `pushStart`/`pushEnd` in
+tree.ts). Cross-module writes to shared `let` state go through state.ts setters
+(`setSelected`/`setCurrentFile`/… — an imported binding can only be assigned by
+its declaring module); circular imports between feature modules are fine (every
+cross-call happens inside event handlers, never at module init). Orientation
+map: **read the source for the rest** — this file does not duplicate it.
 
 ## Dev workflow
 

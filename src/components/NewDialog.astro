@@ -1,0 +1,30 @@
+---
+// Outside the .app shell: the mobile undo/redo buttons (siblings of .app so
+// the nav-off / bar-away sibling selectors keep working), the create dialog
+// and the pdf style menu.
+---
+<!-- the mobile undo button (no Ctrl+Z on touch): a sibling of .app so the
+     nav-off / bar-away sibling selectors keep working; it runs the same
+     ladder as the desktop keymap — native CM undo first, git undo on
+     exhaustion -->
+<button id="undo-btn" class="undo-btn" aria-label="Undo" title="undo">↶</button>
+<button id="redo-btn" class="redo-btn" aria-label="Redo" title="redo">↷</button>
+<!-- the create dialog: a confirm-style card, not panel chrome — outside
+     click, Escape and cancel dismiss it, Enter adds; the insert line and
+     the anchored folder preview stay up while it is open -->
+<div class="confirm-backdrop" id="new-dialog" hidden>
+  <div class="confirm-card new-card" id="new-card">
+    <div class="new-kind">
+      <button class="btn-tiny kind-btn is-on" data-kind="file" type="button">md</button>
+      <button class="btn-tiny kind-btn" data-kind="folder" type="button">dir</button>
+      <span class="new-in" id="new-in"></span>
+    </div>
+    <input id="new-name" placeholder="name" autocomplete="off" />
+    <p class="new-err" id="new-err" hidden></p>
+    <div class="confirm-row">
+      <button type="button" id="new-cancel">cancel</button>
+      <button type="button" class="confirm-ok" id="new-ok">add</button>
+    </div>
+  </div>
+</div>
+<div id="pdf-menu" hidden></div>

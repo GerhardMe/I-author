@@ -1,0 +1,45 @@
+---
+// The two reading views: the welcome pseudo-file (the works index) and the
+// document view (header with rename, the preview body, the editor host).
+---
+<!-- welcome: the works index — the boot screen, a read-only pseudo-file
+     (not editable, deliberately NOT a real file: a top-level file would
+     take a number and pollute the user's works tree). The app notes
+     under the index behave like notes.md: read-only, and hidden by the
+     drafts toggle together with the drafts. -->
+<div class="empty" id="empty">
+  <div class="doc-col">
+    <header class="doc-head"><h1>Welcome to I author</h1></header>
+    <div class="md-body" id="empty-body"></div>
+  </div>
+</div>
+<template id="welcome-notes">
+  <div class="md-body toc-notes">
+    <ul>
+      <li><code>draft_</code> in a name = draft; the drafts toggle (the eye) hides drafts, notes, empty folders</li>
+      <li><code>notes.md</code> = folder notes, takes no number; <code>prologue</code>, <code>epilogue</code>, <code>appendix</code> … print bare</li>
+      <li>the hidden <code>NN_</code> prefixes only order — everything is numbered by position</li>
+      <li>saves commit themselves; <code>ctrl/cmd+S</code> pushes now; unsynced text renders lighter until confirmed</li>
+      <li>right-click the tree: new / delete · click a header title: rename · the corner title folds the tree, double-click goes home</li>
+      <li><code>ctrl/cmd+click</code> opens links in the preview; the <em>pdf</em> button sets a text for print</li>
+    </ul>
+  </div>
+</template>
+<article class="doc" id="doc" hidden>
+  <!-- ONE centred column: the topline wraps it, the content rides its
+       start — any inset change lands on .doc-col and the line follows -->
+  <div class="doc-col">
+    <header class="doc-head" title="click to edit the file name">
+      <h1 id="doc-title"></h1>
+      <input id="doc-rename" class="doc-rename" hidden autocomplete="off" spellcheck="false" />
+      <div class="doc-meta">
+        <span class="chip" id="doc-draft" hidden>(draft)</span>
+        <span class="chip" id="doc-words"></span>
+        <button class="btn-tiny pdf-btn" id="pdf-toggle" hidden
+                title="pdf — compile this scope, right-click for sizes">pdf</button>
+      </div>
+    </header>
+    <div class="md-body" id="doc-body" hidden></div>
+    <div id="editor-host" hidden></div>
+  </div>
+</article>
