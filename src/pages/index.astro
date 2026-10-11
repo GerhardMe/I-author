@@ -19,7 +19,7 @@ const authReady = loadSecrets() !== null;
     // pre-paint nav state: on mobile the overlay starts closed so the page is
     // never covered by a flash before the app script runs; desktop starts
     // open, which the static markup already is
-    if (matchMedia('(max-width: 900px)').matches) {
+    if (matchMedia('(max-width: 1100px)').matches) {
       document.querySelector('.app').classList.add('nav-off');
     }
     // pre-paint the measure: the saved line/field widths land on #doc
