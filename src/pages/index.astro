@@ -27,22 +27,27 @@ const authReady = loadSecrets() !== null;
       </div>
     </aside>
     <main class="main">
-      <!-- welcome: a read-only pseudo-file — the boot screen, not editable,
-           deliberately NOT a real welcome.md (a top-level file would take a
-           number and pollute the user's works tree) -->
+      <!-- welcome: the works index — the boot screen, a read-only pseudo-file
+           (not editable, deliberately NOT a real file: a top-level file would
+           take a number and pollute the user's works tree). The app notes
+           under the index behave like notes.md: read-only, and hidden by the
+           drafts toggle together with the drafts. -->
       <div class="empty" id="empty">
         <div class="doc-col">
           <header class="doc-head"><h1>Welcome</h1></header>
-          <div class="md-body">
-            <p>Open a chapter on the left and keep writing — or right-click the tree to start something new. The title in the corner folds the tree away when you want nothing but the page. Click a chapter's title in the header to rename it.</p>
-            <p>Everything here is plain markdown on your own server, and every save is committed to a private git history. Close the tab mid-sentence: the draft will be waiting.</p>
-            <p><strong>Drafts</strong> carry a <code>draft_</code> token in their filename. The <em>drafts</em> toggle in the sidebar (the eye) hides them — together with <em>notes</em> and empty folders — until you are ready to show them.</p>
-            <p><em>notes.md</em> is folder material, never a chapter: it takes no number and shows up under the folder's index. Names like <em>prologue</em>, <em>epilogue</em> or <em>appendix</em> print bare, without a chapter number.</p>
-            <p><strong>Numbers</strong> are earned, not typed: the hidden <code>NN_</code> prefixes order the files behind the scenes and never print. Books and chapters are numbered by position, and the tree renumbers itself on every create, delete and drag.</p>
-            <p>When a text has grown into a book, the <em>pdf</em> button sets it for print.</p>
-          </div>
+          <div class="md-body" id="empty-body"></div>
         </div>
       </div>
+      <template id="welcome-notes">
+        <div class="md-body toc-notes">
+          <p>Open a chapter on the left and keep writing — or right-click the tree to start something new. The title in the corner folds the tree away when you want nothing but the page. Click a chapter's title in the header to rename it.</p>
+          <p>Everything here is plain markdown on your own server, and every save is committed to a private git history. Close the tab mid-sentence: the draft will be waiting.</p>
+          <p><strong>Drafts</strong> carry a <code>draft_</code> token in their filename. The <em>drafts</em> toggle in the sidebar (the eye) hides them — together with <em>notes</em> and empty folders — until you are ready to show them.</p>
+          <p><em>notes.md</em> is folder material, never a chapter: it takes no number and shows up under the folder's index. Names like <em>prologue</em>, <em>epilogue</em> or <em>appendix</em> print bare, without a chapter number.</p>
+          <p><strong>Numbers</strong> are earned, not typed: the hidden <code>NN_</code> prefixes order the files behind the scenes and never print. Books and chapters are numbered by position, and the tree renumbers itself on every create, delete and drag.</p>
+          <p>When a text has grown into a book, the <em>pdf</em> button sets it for print.</p>
+        </div>
+      </template>
       <article class="doc" id="doc" hidden>
         <!-- ONE centred column: the topline wraps it, the content rides its
              start — any inset change lands on .doc-col and the line follows -->
@@ -141,6 +146,8 @@ const authReady = loadSecrets() !== null;
   const newErr = document.getElementById('new-err')!;
   const newName = document.getElementById('new-name') as HTMLInputElement;
   const editorHost = document.getElementById('editor-host')!;
+  const emptyBody = document.getElementById('empty-body')!;
+  const welcomeNotes = document.getElementById('welcome-notes') as HTMLTemplateElement;
 
   let tree: Node[] = [];
   const byPath = new Map<string, Node>();
@@ -612,6 +619,7 @@ const authReady = loadSecrets() !== null;
           doc.hidden = true;
           empty.hidden = false;
           pdfBtn.hidden = true;
+          renderWelcomeIndex(); // home after the drop: the index must reflect it
         }
         if (node?.children !== undefined) await showGroup(node);
         else renderTree();
@@ -994,7 +1002,9 @@ async function showGroup(node: Node): Promise<void> {
     docBody.replaceChildren(frag);
   }
 
-  docBody.addEventListener('click', async (e) => {
+  // one handler for both index views: folder indexes (#doc) and the welcome
+  // screen's works index (#empty) share the same row markup and behaviour
+  async function tocClick(e: MouseEvent): Promise<void> {
     const row = (e.target as HTMLElement).closest('.toc-row') as HTMLElement | null;
     if (!row) return;
     const node = byPath.get(row.dataset.path!);
@@ -1008,7 +1018,30 @@ async function showGroup(node: Node): Promise<void> {
     } else {
       await openFile(node.path); // revealPath selects + renders
     }
-  });
+  }
+  docBody.addEventListener('click', tocClick);
+  emptyBody.addEventListener('click', tocClick);
+
+  // the welcome screen's body: the index of all works (the root TOC — what a
+  // work's index is for its books, one level up), with the read-only app
+  // notes appended under it, hidden together with the notes by the drafts toggle
+  function renderWelcomeIndex(): void {
+    const frag = document.createDocumentFragment();
+    const kids = visible(tree);
+    if (kids.length) {
+      const ul = document.createElement('ul');
+      ul.className = 'toc';
+      buildToc(ul, kids);
+      frag.append(ul);
+    } else {
+      const p = document.createElement('p');
+      p.className = 'note';
+      p.textContent = 'No works yet — right-click the tree to start one.';
+      frag.append(p);
+    }
+    if (!hideDrafts) frag.append(welcomeNotes.content.cloneNode(true));
+    emptyBody.replaceChildren(frag);
+  }
 
   async function openFile(p: string) {
     revealPath(p);
@@ -1547,7 +1580,9 @@ async function showGroup(node: Node): Promise<void> {
         body: JSON.stringify({ path: target.path }),
       });
       remapPaths(res.renumbered);
-      if (selected === target.path || selected?.startsWith(target.path + '/')) {
+      const wentHome =
+        selected === target.path || !!selected?.startsWith(target.path + '/');
+      if (wentHome) {
         selected = null;
         doc.hidden = true;
         empty.hidden = false;
@@ -1558,6 +1593,7 @@ async function showGroup(node: Node): Promise<void> {
       }
       saveExpanded();
       await loadTree();
+      if (wentHome) renderWelcomeIndex(); // the tree is reloaded; now rebuild the index
     } catch (err) {
       alert((err as Error).message);
     }
@@ -1870,9 +1906,12 @@ async function showGroup(node: Node): Promise<void> {
         doc.hidden = true;
         empty.hidden = false;
         pdfBtn.hidden = true;
+        renderWelcomeIndex();
       } else if (node.children !== undefined) {
         void showGroup(node);
       }
+    } else if (!empty.hidden) {
+      renderWelcomeIndex(); // the welcome is the view: its notes ride the toggle
     }
   });
 
@@ -2140,7 +2179,6 @@ async function showGroup(node: Node): Promise<void> {
     await leavingFile();
     selected = null;
     currentGroup = null;
-    renderTree();
     doc.hidden = true;
     editorHost.hidden = true;
     docBody.hidden = true;
@@ -2150,6 +2188,10 @@ async function showGroup(node: Node): Promise<void> {
     docTitle.classList.remove('draft');
     pdfBtn.hidden = true;
     empty.hidden = false;
+    // fresh tree: the works index would otherwise miss saves since the last
+    // load; offline it keeps the tree it has rather than failing to go home
+    try { await loadTree(); } catch {}
+    renderWelcomeIndex();
     try { localStorage.removeItem(LAST_KEY); } catch {}
     if (narrow()) setNav(false); // mobile: the welcome sits behind the overlay
   }
@@ -2246,6 +2288,7 @@ async function showGroup(node: Node): Promise<void> {
     // last-page restore: reopen the file the last session ended on. A stored
     // folder path or a deleted file falls back to the welcome screen; drafts
     // ride along — openFile restores them when they are newer than the server
+    renderWelcomeIndex(); // the fallback view is the works index, not a blank page
     const last = localStorage.getItem(LAST_KEY);
     if (last) {
       const node = byPath.get(last);
