@@ -41,6 +41,7 @@ import { setNav } from './nav.ts';
 // ---------- context menu on the tree: new / delete ----------
 export const ctxMenu = document.createElement('div');
 ctxMenu.id = 'ctx-menu';
+ctxMenu.className = 'menu';
 ctxMenu.hidden = true;
 const itemNew = document.createElement('button');
 itemNew.type = 'button';

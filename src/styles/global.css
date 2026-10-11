@@ -882,10 +882,13 @@ a.btn-tiny:hover {
   }
 }
 
-/* tree context menu, pdf style menu, counter chip menu (JS-created: global styles) */
-#ctx-menu,
-#pdf-menu,
-#count-menu {
+/* ---------- dropdown menu component (src/lib menus) ----------
+   The one dropdown style, shared by every popup menu: the tree context
+   menu (#ctx-menu), the pdf style menu (#pdf-menu) and the counter chip
+   menu (#count-menu). IDs stay on the elements for the JS hooks; this
+   class carries the look. Menu text is chrome, not copy — selection is
+   off so a drag across a popup never starts a highlight. */
+.menu {
   position: fixed;
   z-index: 60;
   min-width: 6.5rem;
@@ -894,6 +897,8 @@ a.btn-tiny:hover {
   border: 1px solid var(--line);
   border-radius: 2px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .ctx-item {
@@ -907,6 +912,8 @@ a.btn-tiny:hover {
   border: 0;
   color: var(--fg);
   cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .ctx-item:hover {

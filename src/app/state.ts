@@ -155,6 +155,7 @@ let lastChars: number | null = null;
 
 export const countMenu = document.createElement('div');
 countMenu.id = 'count-menu';
+countMenu.className = 'menu';
 countMenu.hidden = true;
 const itemWords = document.createElement('button');
 itemWords.type = 'button';
