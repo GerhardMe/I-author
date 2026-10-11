@@ -37,7 +37,22 @@ const authReady = loadSecrets() !== null;
       </div>
     </aside>
     <main class="main">
-      <div class="empty" id="empty">Select a chapter, or create your first work.</div>
+      <!-- welcome: a read-only pseudo-file — the boot screen, not editable,
+           deliberately NOT a real welcome.md (a top-level file would take a
+           number and pollute the user's works tree) -->
+      <div class="empty" id="empty">
+        <div class="doc-col">
+          <header class="doc-head"><h1>Welcome</h1></header>
+          <div class="md-body">
+            <p>Open a chapter on the left and keep writing — or right-click the tree to start something new. The title in the corner folds the tree away when you want nothing but the page. Click a chapter's title in the header to rename it.</p>
+            <p>Everything here is plain markdown on your own server, and every save is committed to a private git history. Close the tab mid-sentence: the draft will be waiting.</p>
+            <p><strong>Drafts</strong> carry a <code>draft_</code> token in their filename. The <em>drafts</em> toggle in the sidebar (the eye) hides them — together with <em>notes</em> and empty folders — until you are ready to show them.</p>
+            <p><em>notes.md</em> is folder material, never a chapter: it takes no number and shows up under the folder's index. Names like <em>prologue</em>, <em>epilogue</em> or <em>appendix</em> print bare, without a chapter number.</p>
+            <p><strong>Numbers</strong> are earned, not typed: the hidden <code>NN_</code> prefixes order the files behind the scenes and never print. Books and chapters are numbered by position, and the tree renumbers itself on every create, delete and drag.</p>
+            <p>When a text has grown into a book, the <em>pdf</em> button sets it for print.</p>
+          </div>
+        </div>
+      </div>
       <article class="doc" id="doc" hidden>
         <!-- ONE centred column: the topline wraps it, the content rides its
              start — any inset change lands on .doc-col and the line follows -->
@@ -74,7 +89,7 @@ const authReady = loadSecrets() !== null;
   import { NOTES, parseName } from '../lib/naming.ts';
   import { visibleNodes } from '../lib/visibility.ts';
   import { marked } from 'marked';
-  import { EditorState } from '@codemirror/state';
+  import { EditorState, EditorSelection } from '@codemirror/state';
   import { EditorView } from '@codemirror/view';
 
   import { editorExtensions } from '../lib/editor.ts';
@@ -1305,8 +1320,11 @@ newRow.hidden = true;
   }
 
   // ---------- rename via header title click (live-preview style: display <-> raw) ----------
-  // clicking anywhere in the header (except the buttons) opens the raw-name editor
-  const docHead = document.querySelector('.doc-head')!;
+  // clicking anywhere in the header (except the buttons) opens the raw-name editor.
+  // Scoped to #doc: the welcome screen (#empty) has its own .doc-head further up
+  // the markup and must never receive the rename wiring, the ch probe or the
+  // measure handles — document.querySelector would find THAT header first.
+  const docHead = doc.querySelector('.doc-head')!;
   let renaming: Node | null = null;
 
   docHead.addEventListener('click', (e) => {
@@ -1465,6 +1483,25 @@ newRow.hidden = true;
   window.addEventListener('resize', applyMeasure);
   applyMeasure(); // no-op while the welcome screen hides #doc; real application
   // happens at the first openFile/showGroup, when the clamps have real width
+
+  // ---------- tap the page under the text -> caret to the last newline ----------
+  // On a phone the end of a long chapter is unreachable by tap (no pixels of
+  // empty editor to hit), so a tap on the page BELOW the field — the margins,
+  // the padding under the text — drops the caret at the end of the document
+  // and focuses the editor. Beside the text (same vertical band) does nothing;
+  // clicks inside the editor, the header, buttons and menus are not ours.
+  mainEl.addEventListener('click', (e) => {
+    if (!editor || editorHost.hidden) return;
+    const t = e.target as HTMLElement;
+    if (t.closest('#editor-host, .doc-head, button, a, input, #pdf-menu, #ctx-menu')) return;
+    if (e.clientY < editorHost.getBoundingClientRect().bottom) return;
+    e.preventDefault();
+    editor.dispatch({
+      selection: EditorSelection.cursor(editor.state.doc.length),
+      scrollIntoView: true,
+    });
+    editor.focus();
+  });
 
 
   // Renumbering changes MANY paths at once (closing a gap renames every later
@@ -1805,9 +1842,33 @@ newRow.hidden = true;
   const narrow = (): boolean => navMq.matches;
   const navOpen = (): boolean => !appEl.classList.contains('nav-off');
 
+  // ---------- mobile topbar: hides on scroll down, back on scroll up ----------
+  // Only while the tree is closed — the overlay's own title bar must not move
+  // while it is open. The document is the scroller (.main has no height of its
+  // own), so the scroll fires on window; near the top the bar always shows.
+  const BAR_SLACK = 4; // px hysteresis: scroll jitter cannot flip the state
+  let barLastY = window.scrollY;
+
+  window.addEventListener('scroll', () => {
+    const y = window.scrollY;
+    if (!narrow() || navOpen() || y <= 48) {
+      appEl.classList.remove('bar-away');
+      barLastY = y;
+      return;
+    }
+    if (y > barLastY + BAR_SLACK) appEl.classList.add('bar-away');
+    else if (y < barLastY - BAR_SLACK) appEl.classList.remove('bar-away');
+    barLastY = y;
+  }, { passive: true });
+
   function setNav(open: boolean): void {
     if (!open && newOpen) return; // the create dialog lives inside the panel
     appEl.classList.toggle('nav-off', !open);
+    appEl.classList.remove('bar-away'); // a fresh panel shows its title bar
+    barLastY = window.scrollY;
+    // the overlay covers the page: a touch on it must not scroll what is
+    // behind (a hold under the last file row scrolled the document otherwise)
+    if (narrow()) document.body.style.overflow = open ? 'hidden' : '';
     brand.setAttribute('aria-expanded', String(open));
     for (const el of [treeEl, newRow, toolbarEl, sideFootEl]) {
       if (open) el.removeAttribute('inert');
@@ -1826,6 +1887,7 @@ newRow.hidden = true;
 
   navMq.addEventListener('change', (e) => {
     if (e.matches) setNav(false); // shrinking to mobile hides the panel
+    else document.body.style.overflow = ''; // back to desktop: the lock must not stick
   });
 
   async function boot(): Promise<void> {

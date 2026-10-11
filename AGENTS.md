@@ -243,7 +243,11 @@ measure        two handles on .doc-head's underline: A (▶, at the line's START
                keys nudge the focused handle by 1ch; resize re-clamps
 setNav(open)   the ONLY nav mutator (4.7): toggles .app.nav-off, aria-expanded
                on the brand button, inert on tree/new-row/toolbar/side-foot.
-               The brand click toggles; Escape closes (unless the create
+               Also owns two mobile concerns (2026-10-11): the overlay scroll
+               lock (body overflow hidden while open on mobile — a hold under
+               the last file row scrolled the page behind the overlay) and
+               clearing .bar-away (the scroll-away topbar state). The brand
+               click toggles; Escape closes (unless the create
                dialog or a menu is open); a mobile tree-row click closes.
                The sidebar is an overlay; the docked margin is STATIC padding
                on .main, independent of the nav state — nothing moves when
@@ -774,6 +778,38 @@ level (one-time `scripts/migrate-numbering.mjs`, dry-run by default, git-committ
 path map so client state (expanded, selection, sessionStorage drafts) remaps.
 The numbering rework is complete — no further phases.
 
+## Shipped: welcome pseudo-file + mobile pass 1 (2026-10-11)
+
+- **Welcome = read-only pseudo-file**: `#empty` is no longer one line of muted
+  text — it is a `.doc-col` with a `.doc-head` ("Welcome") and a static
+  `.md-body` explaining drafts, notes.md, matter names, positional numbering,
+  header rename and the pdf button. It renders like a chapter, is not editable,
+  and is deliberately NOT a real file (a top-level welcome.md would take a
+  number and pollute the works tree; the disk schema is frozen product data).
+  **Trap**: `#empty` precedes `#doc` in the markup, so every `.doc-head` query
+  must be scoped to `#doc` — `docHead` is `doc.querySelector('.doc-head')`,
+  which keeps the rename wiring, the ch probe and the measure handles off the
+  welcome header (`.empty .doc-head { cursor: default }`).
+- **Tap below the text → caret to the end**: a click on `.main` whose target is
+  below the editor content's bottom (`editorHost.getBoundingClientRect().bottom`)
+  and not inside editor/header/buttons/menus dispatches
+  `EditorSelection.cursor(doc.length)` + scrollIntoView and focuses — the end
+  of a long chapter is unreachable by tap otherwise. Clicks beside the text
+  (same vertical band) do nothing.
+- **Topbar hides on scroll down (mobile)**: with the tree closed, scrolling down
+  past 48px adds `.bar-away` on `.app` (4px hysteresis, `window` scroll — the
+  document is the scroller, `.main` has no height of its own); `.side-head`
+  `translateY(-100%)` slides the title bar away, any scroll up or y ≤ 48 brings
+  it back. Only while nav-off; `setNav(true)` clears the class. The
+  transition rides `body.nav-anim` + `prefers-reduced-motion` like the rest.
+- **Overlay scroll lock (mobile)**: `setNav` sets `body.style.overflow` to
+  hidden while the panel is open on mobile — a hold under the last file row
+  otherwise scrolled the page behind the overlay. Cleared on close AND when the
+  mq flips back to desktop (else the lock sticks and the page can't scroll).
+- **Mobile side margins**: `.main` mobile padding is `3.5rem 1ch 2rem` (was
+  0.5ch); the title-bar underline `::after` insets 1ch to keep aligning with
+  the text edge.
+
 Next: 6) Encrypted GitHub
 backup: tar+gzip whole tree → AES-256-GCM with master key → one ciphertext blob per
 snapshot to a private repo via deploy key; `scripts/restore` to decrypt+untar; prune
@@ -781,3 +817,22 @@ option (keep last N); optional rclone crypt → ProtonDrive timer. 7) Mobile pas
 
 Deferred todo list: project-wide search;
 client-side LLM word-prediction (flag unlikely tokens as possible typos, suggest fixes).
+
+## Planned (owner request 2026-10-11, not yet built): scope prefaces
+
+A preface file that can live on ANY level — a preface to a part, to a book, or
+to a whole work — acting as the preface of whatever folder it sits in. Sketch
+the owner gave: a `00_file.md`-style special name. Open design questions to
+settle BEFORE building (owner decides):
+
+- **Naming/marker**: `00_` cannot be the marker as-is — numeric prefixes are
+  app-managed and renumbered to `01…N` on every mutation, so a `00_` prefix
+  would not survive (`renumberDir` skips reserved bare names only). Either a
+  reserved bare name token (the MATTER way) or an explicit `00_` exception
+  carved out of the renumbering grammar — needs a decision.
+- **Relationship to MATTER**: `preface`/`foreword`/`prologue` already exist as
+  matter names (bare print, no number, compile as front matter). Decide what a
+  scope preface does differently — e.g. always first in its scope's pdf, shown
+  as preamble in the folder index, one per scope vs. many.
+- **Any level**: work, book, part — placement in the pdf contents (`pdf.ts`)
+  and in the folder index view (`showGroup`) must follow the depth.

@@ -867,7 +867,12 @@ a.btn-tiny:hover {
 }
 
 .empty {
-  color: var(--muted);
+  /* the welcome screen: a read-only pseudo-file (title + markdown body);
+     its own .doc-head is not a rename target — there is no file behind it */
+}
+
+.empty .doc-head {
+  cursor: default;
 }
 
 /* the text view (field): rides the column's start BY STRUCTURE (both are
@@ -1358,8 +1363,8 @@ a.btn-tiny:hover {
   .side-head::after {
     content: '';
     position: absolute;
-    left: 0.5ch;
-    right: 0.5ch;
+    left: 1ch;
+    right: 1ch;
     bottom: 0;
     height: 1px;
     background: var(--line);
@@ -1375,13 +1380,23 @@ a.btn-tiny:hover {
   }
 
   @media (prefers-reduced-motion: reduce) {
+    body.nav-anim .side-head,
     body.nav-anim .side-head::after {
       transition: none;
     }
   }
 
+  /* scrolled down: the title bar slides away; any scroll up brings it back */
+  .app.bar-away .side-head {
+    transform: translateY(-100%);
+  }
+
+  body.nav-anim .side-head {
+    transition: border-color var(--nav-dur) ease, transform var(--nav-dur) ease;
+  }
+
   .main {
-    padding: 3.5rem 0.5ch 2rem; /* clears the fixed title bar; half a char to the sides */
+    padding: 3.5rem 1ch 2rem; /* clears the fixed title bar; a char to the sides */
   }
 
   /* mobile measure: the handles have no place on a narrow screen — the
