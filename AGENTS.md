@@ -99,7 +99,11 @@ src/lib/preview.ts   live-preview engine: widgets, buildDeco, focus field, ctrl+
                      cell via a per-cell offset map)
 src/lib/sync.ts      chunked-sync engine: unsynced marks, draft store (sessionStorage),
                      push machine (createSync) — dirty-word accumulator + idle push
-src/lib/git.ts       ensureRepo + commit(msg) in WORKS_DIR (server-local, never pushed)
+src/lib/autosave.ts  commit cadence: markDirty/flushAll coalescer (5s idle / 1000 chars),
+                     INIT/recovered boot commits, SIGTERM flush
+src/lib/git.ts       ensureRepo + commit(msg) in WORKS_DIR (server-local, never pushed);
+                     gitOut, transaction, parseNameStatus, nextUndoBranch, gitShow
+                     (the undo/history plumbing)
 src/lib/pdf.ts       PDF compiler: LuaLaTeX + `markdown` package; ensurePdf(rel, style,
                      force) compiles beside the source in the works dir; pdfPlan(rel,
                      style) is the same cache decision without LaTeX (the loader polls
@@ -108,7 +112,8 @@ src/lib/pdf.ts       PDF compiler: LuaLaTeX + `markdown` package; ensurePdf(rel,
                      never from the disk basename, so prefixes can't leak into print;
                      styles from pdfstyles/ (first line `% label: L — note` = metadata)
 src/pages/api/       setup, login, session, logout, lock, tree, file (GET/PUT), new, delete,
-                     rename, reorder, pdfstyles, pdfstatus
+                     rename, reorder, undo, pdfstyles, pdfstatus, git/ (history, show,
+                     restore-file, make-master)
 src/pages/           index.astro (app shell), login.astro (PIN is a text field masked
                      with ● in JS — mobile keyboards echo the last digit of
                      password fields), setup.astro, pdf.ts (stream)
@@ -907,64 +912,96 @@ settle BEFORE building (owner decides):
 - **Any level**: work, book, part — placement in the pdf contents (`pdf.ts`)
   and in the folder index view (`showGroup`) must follow the depth.
 
-## Planned (owner request 2026-10-11, not yet built): git-backed infinite undo
+## Shipped: autosave coalescer + git-backed undo (2026-10-11)
 
-The works-dir git log becomes the undo history. All decisions below are owner
-decisions (settled 2026-10-11) — do not relitigate.
+The works-dir git log is the undo history. All decisions below are owner
+decisions (settled 2026-10-11) — do not relitigate. Shipped in four commits:
+autosave coalescer → `/api/undo` + ladder + commit boundaries → mobile
+undo/redo buttons → history API. **Remaining: the history view UI** (see the
+last bullet).
 
-**Commit cadence** — saves stop committing every push. New `src/lib/autosave.ts`:
+**Commit cadence** — saves stop committing every push. `src/lib/autosave.ts`:
 `PUT /api/file` writes and calls `markDirty(path, charDelta)`; a single
-coalescer commits when **5s idle** or **≥1000 chars** accumulated, whichever
-first. Message: `path : 2026-10-11 14:03:22` (local server time, exactly this
-format). `flush(path?)`/`flushAll()` force-commit pending bursts before rename/
-delete/reorder (so each mutation stays ONE commit), undo, lock/log-out, pdf
-compile, SIGTERM, and at boot when the worktree is dirty (`recovered : <time>` —
-a crash can only lose the commit, never the text: writes are atomic and already
-on disk). All commits ride the existing serialized queue in `git.ts`.
+coalescer commits when **5s idle** (true debounce) or **≥1000 chars**
+accumulated, whichever first. Message: `path : 2026-10-11 14:03:22` (local
+server time, exactly this format; several pending paths → one line each).
+`flushAll()` force-commits pending bursts before `new`/`rename`/`delete`/
+`reorder` (each mutation stays ONE commit), undo/make-master, lock/log-out,
+pdf compile, and on SIGTERM; at boot a dirty worktree commits as
+`recovered : <time>`, and a fresh repo's first commit is `INIT : <time>`
+(owner request: a special INIT text). Commits ride the serialized queue in
+`git.ts`; `transaction(fn)` runs multi-command sequences (branch+reset) on
+the same queue so a coalescer commit can never interleave. A failed commit
+stays server-log only — the text is on disk, the next commit sweeps it in.
+`PUT /api/file` responds `{ok, committed}` — `committed: true` when that
+write crossed the char trigger (the client's boundary signal).
 
-**Message grammar** (the log must be able to reconstruct everything): save
-`path : <time>` · rename `old -> new` · create `path (new)` · delete
-`path (deleted)` · reorder one `old -> new` line per moved file, single commit.
+**Message grammar**: save `path : <time>` · rename `old -> new` · create
+`path (new)` · delete `path (deleted)` · restore `path (restored <sha7>)` ·
+reorder one `old -> new` line per moved file, single commit.
+
+**The undo ladder (owner refinement 2026-10-11)** — native Ctrl+Z /
+Ctrl+Shift+Z covers ONLY work since the last commit: the client resets the
+CM native stack at every commit boundary by rebuilding the editor (same doc,
+selection, scroll). Two triggers approximate the server coalescer: the PUT
+response's `committed` flag and a 5s idle timer armed after each confirmed
+push (both cancelled/postponed while typing — a reset never kills native
+undo of unsynced text; the `committed` flag waits for the next clean push
+confirm). Exhausted native undo → git undo; exhausted native redo → the git
+history view (forward jumps live there; no /api/redo). No editor open →
+bare Ctrl+Z goes straight to git undo; text fields keep their native undo.
 
 **Undo = branch + master reset** (owner model — nothing is destroyed, master
-moves back, the log branches): `POST /api/undo` flushes the pending burst →
-records the HEAD sha → `git branch undo-<2026-10-11_14-03-22>` at HEAD (keeps
-the abandoned future reachable forever; these refs are the persistence layer of
-the later history tree view; colons are illegal in ref names) →
-`git reset --hard HEAD~1` → `diff --name-status old..new` → responds with the
-open file's new content, changed paths, and an old→new path map (INVERTED from
-the commit's own renames — paths move back). Whole-tree undo (owner decision):
-master moves back one commit, whatever file it touched — per-file master reset
-is incoherent since the log interleaves files. Root commit → "nothing to undo".
-pdf artifacts stay gitignored; `.texbuild` state files ride along as before.
+moves back, the log branches): `POST /api/undo` runs `flushAll()` → records
+HEAD → `git branch undo-<2026-10-11_14-03-22>` (colons illegal in refs;
+same-second collisions get `-2` via `nextUndoBranch`) → `git reset --hard
+HEAD~1` → `diff --name-status old..new`. The flushed burst is therefore the
+LAST commit on the now-stale branch, and master undoes past it — exactly the
+owner's wording. A dirty worktree after flushAll (its commit failed) ABORTS
+the undo — reset --hard must never destroy text on disk. Whole-tree undo:
+master moves back one commit, whatever file it touched. Root commit →
+"nothing to undo". Response: `{changed[], map, content?, head}` — the map
+comes from `parseNameStatus` and maps CURRENT-tree names → target-tree names
+(`map[from] = to`; an earlier inverted version was a latent bug, fixed).
+Client (`gitUndo`/`applyUndo` in index.astro): debounced in flight, roundtrip
+via `setSync('pushing')`; drop drafts of changed paths (else the reverted
+"future" resurrects), `remapPaths` through the map (longest-prefix, same rule
+as renumbering), detach the editor WITHOUT pushing (a push or saved draft
+would resurrect the undone text), `loadTree()`, reopen the file (or welcome +
+clear `iauthor.last` when it was undone out of existence).
 
-**Ctrl+Z policy** (owner decision): CM-native undo FIRST (fine-grained, session
-stack), escalate to git undo when the native command returns false (stack
-exhausted) → infinite across sessions. `editor.ts` keymap intercepts `Mod-z`
-before `historyKeymap`; git undo is debounced while in flight and surfaces its
-roundtrip through the existing sync markers (`setSync`). Undo application on
-the client: remap expanded/selection/drafts through the returned map, DROP
-drafts of changed paths (else the reverted "future" resurrects on next open),
-reload tree, reopen the file with a fresh `setBaseline`; if the open file was
-undone out of existence → welcome screen.
+**Mobile undo/redo buttons** (owner request): `#undo-btn` ↶ and `#redo-btn` ↷
+in `index.astro` markup, SIBLINGS of `.app` so the `~` selectors work;
+top-right left of ◐ (◐ · ↷ · ↶ from the edge), `display:none` default,
+shown only ≤900px; they duplicate the theme toggle's sibling rules
+(`.app.nav-off ~ …` z 30, `.app.bar-away ~ …` rides the scroll-away,
+`body.nav-anim` + reduced-motion gates; z 10 behind the tree overlay like ◐).
+Tap = the same ladder as the keymap (native first, exhaustion escalates);
+`redoExhausted()` is the shared stub both the keymap hook and ↷ call — it
+opens the history view once that exists.
 
-**Mobile undo button** (owner decisions 2026-10-11, not yet built — rides the undo
-milestone): mobile has no Ctrl+Z, so the undo ladder needs a button. NOT in
-`base.astro` next to ◐ (the theme toggle is global, rendered on every page incl.
-login/pdf; undo is app-only) — its own fixed button in `index.astro`'s markup, a
-sibling of `.app` so the `~` selectors keep working: `<button id="undo-btn"
-class="undo-btn" aria-label="Undo" title="undo">↶</button>`, top-right LEFT of
-the theme toggle, same `top: 1rem` rhythm. `display: none` by default, shown
-inside `@media (max-width: 900px)` (mobile only — desktop has Ctrl+Z). Duplicates
-the theme toggle's sibling rules: `.app.nav-off ~ .undo-btn { z-index: 30 }`,
-`.app.bar-away ~ .undo-btn` slides it away with the topbar, same `body.nav-anim`
-transition + reduced-motion gate. With the tree overlay open it sits at z 10 →
-behind the sidebar like ◐ (fine: no editing while the tree is open). A tap runs
-the SAME ladder as Ctrl+Z — the keymap handler is called directly (native CM undo
-first, git undo on exhaustion), no confirmation, debounced in flight, roundtrip
-surfaced via `setSync`. Not placed in the doc-head next to the pdf button
-considered and rejected: the doc-head scrolls away with the text — undo must stay
-reachable on a long chapter scrolled to the bottom.
+**History API (shipped)** — `src/pages/api/git/`: `history` (GET: latest 200
+commits over all refs with parents + changed paths, branch tips, current
+HEAD for "you are here"; flushes first; empty DAG on a fresh repo) · `show`
+(GET: file content at a commit — `isSha`/`isMdPath` guards; git resolves the
+path inside the tree, no `safePath`, which demands on-disk existence) ·
+`restore-file` (POST: one file's content at a commit → `restoreChapter` in
+`works.ts` (writeChapter that creates file + folder) → NEW commit, master
+never moves) · `make-master` (POST: flush → transaction → branch current
+HEAD as `undo-<ts>` ONLY when moving away from it (a jump to a descendant —
+redo — skips the branch, that state is already an ancestor of the target) →
+`reset --hard <sha>` → same response shape as undo).
 
-**Deferred to its own later milestone**: redo and the history tree view
-(jump anywhere in the DAG) — built on the `undo-*` refs.
+**Remaining — the history view UI (milestone 5, planned)**: a `git`
+btn-tiny in the side-foot (bottom right of the file explorer; tree chrome
+inside the authReady block). Clicking it: `leavingFile()` first, then the
+main area swaps to a third view `#history` beside `#empty`/`#doc` — a DAG
+list: main spine at indent 0, `undo-*` branch commits indented one level
+under their fork point, newest first, with a "you are here" marker on the
+commit `head` points at. Click a node → preview panel: message, time,
+changed files; click a changed file → read-only marked preview via
+`/api/git/show`. The panel holds the two owner-requested actions:
+**fetch file** (restore-file, light) and **make master** (whole-tree jump,
+danger, `appConfirm`) — both then remap + reopen like undo does. Exit: the
+git button toggles, `Escape` → welcome, clicking any tree row leaves the
+view.
