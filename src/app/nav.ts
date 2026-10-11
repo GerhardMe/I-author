@@ -4,6 +4,7 @@
 
 import {
   byPath,
+  hideCountMenu,
   hideDrafts,
   LAST_KEY,
   navMq,
@@ -114,6 +115,7 @@ export function setNav(open: boolean): void {
 export async function showWelcome(): Promise<void> {
   closeMenu();
   pdfMenu.hidden = true;
+  hideCountMenu();
   closeNewDialog();
   dismissHistory(); // the history view never survives going home
   await leavingFile();

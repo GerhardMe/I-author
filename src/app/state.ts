@@ -142,12 +142,28 @@ export const parentOf = (path: string): string => {
   return i === -1 ? '' : path.slice(0, i);
 };
 
-// the doc-head counter chip: click toggles words <-> chars (session-only, no
-// persistence). The last figures are remembered so a toggle re-renders in
-// place; a folder index has no char figure, so it only carries words.
+// the doc-head counter chip: the mode (words <-> chars) is chosen through a
+// right-click dropdown (long-press on touch) — a plain click does nothing.
+// Session-only, no persistence. The last figures are remembered so a switch
+// re-renders in place; a folder index has no char figure, so it only carries
+// words and its menu offers no chars item.
 let charMode = false;
 let lastWords: number | null = null;
 let lastChars: number | null = null;
+
+export const countMenu = document.createElement('div');
+countMenu.id = 'count-menu';
+countMenu.hidden = true;
+const itemWords = document.createElement('button');
+itemWords.type = 'button';
+itemWords.className = 'ctx-item';
+itemWords.textContent = 'words';
+const itemChars = document.createElement('button');
+itemChars.type = 'button';
+itemChars.className = 'ctx-item';
+itemChars.textContent = 'chars';
+countMenu.append(itemWords, itemChars);
+document.body.append(countMenu);
 
 export function showCounter(v: { words: number; chars?: number }): void {
   lastWords = v.words;
@@ -161,8 +177,105 @@ function renderCounter(): void {
     charMode && lastChars !== null ? `${lastChars} chars` : `${words} words`;
 }
 
-docWords.addEventListener('click', () => {
+function syncCountMenu(): void {
+  itemWords.classList.toggle('is-on', !charMode);
+  itemChars.classList.toggle('is-on', charMode);
+}
+
+export function openCountMenu(x: number, y: number): void {
   if (docWords.hidden || lastWords === null) return;
-  charMode = !charMode;
+  itemChars.hidden = lastChars === null; // a folder index only carries words
+  syncCountMenu();
+  countMenu.hidden = false;
+  const r = countMenu.getBoundingClientRect();
+  countMenu.style.left = `${Math.min(x, window.innerWidth - r.width - 8)}px`;
+  countMenu.style.top = `${Math.min(y, window.innerHeight - r.height - 8)}px`;
+}
+
+export function hideCountMenu(): void {
+  countMenu.hidden = true;
+}
+
+function setCharMode(v: boolean): void {
+  charMode = v;
+  hideCountMenu();
   renderCounter();
+}
+
+itemWords.addEventListener('click', () => setCharMode(false));
+itemChars.addEventListener('click', () => setCharMode(true));
+
+// ---------- desktop right-click + touch long-press on the counter chip ----------
+// The chip sits in the doc-head, outside the tree's gesture machinery, so it
+// carries its own small touch profile. touchstart stamps the press: Android's
+// native long-press contextmenu stands down under 800ms (our hold owns the
+// gesture); a desktop right-click has no touchstart before it and opens as
+// always. The trailing synthetic tap of a long-press must not close the menu
+// it opened — a fresh stamp guards the click-outside gate (main.ts).
+let touchPressAt = 0; // a touchstart stamp: android's native contextmenu stands down
+let countPressAt = 0; // the menu's own open stamp: suppresses the trailing tap
+const LP_ARM = 500; // hold time before the menu opens
+const LP_SCROLL_SLOP = 10; // px of movement that still reads as a scroll attempt
+
+function lpCancel(): void {
+  if (lpTimer) {
+    clearTimeout(lpTimer);
+    lpTimer = null;
+  }
+}
+
+let lpTimer: ReturnType<typeof setTimeout> | null = null;
+let lpX = 0;
+let lpY = 0;
+
+docWords.addEventListener('contextmenu', (e) => {
+  e.preventDefault();
+  // a native contextmenu straight after a touch (Android long-press) is
+  // the platform's surprise mid-hold: our own hold opens the menu instead
+  if (Date.now() - touchPressAt < 800) return;
+  openCountMenu(e.clientX, e.clientY);
 });
+
+docWords.addEventListener(
+  'touchstart',
+  (e) => {
+    if (e.touches.length !== 1) {
+      // a second finger is a pinch — not a press
+      lpCancel();
+      return;
+    }
+    if (lpTimer) return;
+    const t = e.touches[0]!;
+    touchPressAt = Date.now();
+    lpX = t.clientX;
+    lpY = t.clientY;
+    lpTimer = setTimeout(() => {
+      lpTimer = null;
+      navigator.vibrate?.(10); // a tiny tick where the platform has it
+      countPressAt = Date.now();
+      openCountMenu(lpX, lpY);
+    }, LP_ARM);
+  },
+  { passive: true },
+);
+
+docWords.addEventListener(
+  'touchmove',
+  (e) => {
+    if (!lpTimer) return;
+    const t = e.touches[0]!;
+    if (
+      Math.abs(t.clientX - lpX) > LP_SCROLL_SLOP ||
+      Math.abs(t.clientY - lpY) > LP_SCROLL_SLOP
+    )
+      lpCancel(); // a scroll attempt — hand the gesture back to the scroller
+  },
+  { passive: true },
+);
+
+docWords.addEventListener('touchend', () => lpCancel());
+docWords.addEventListener('touchcancel', () => lpCancel());
+
+export function recentCountPress(): boolean {
+  return Date.now() - countPressAt < 700;
+}

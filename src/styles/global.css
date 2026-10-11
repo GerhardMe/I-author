@@ -879,9 +879,10 @@ a.btn-tiny:hover {
   }
 }
 
-/* tree context menu (JS-created: global styles) */
+/* tree context menu, pdf style menu, counter chip menu (JS-created: global styles) */
 #ctx-menu,
-#pdf-menu {
+#pdf-menu,
+#count-menu {
   position: fixed;
   z-index: 60;
   min-width: 6.5rem;
@@ -1122,8 +1123,13 @@ a.btn-tiny:hover {
   white-space: nowrap;
 }
 
+/* the counter chip: mode (words/chars) is picked by right-click or touch
+   long-press — no pointer cursor, nothing on a plain click */
 #doc-words {
-  cursor: pointer;
+  cursor: context-menu;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none; /* iOS: no selection callout on long-press */
 }
 
 .empty {

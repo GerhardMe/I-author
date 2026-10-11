@@ -4,7 +4,7 @@
 // click-to-dismiss menus must keep their order too). Everything else
 // lives in its feature module.
 
-import { EXP_KEY, api, byPath, expanded, LAST_KEY, narrow, navOpen, saveExpanded, tree } from './state.ts';
+import { EXP_KEY, api, byPath, countMenu, expanded, hideCountMenu, LAST_KEY, narrow, navOpen, recentCountPress, saveExpanded, tree } from './state.ts';
 import { dropDraft } from '../lib/sync.ts';
 import { loadTree, renderTree } from './tree.ts';
 import { pdfMenu } from './dom.ts';
@@ -33,13 +33,30 @@ document.addEventListener(
   true,
 );
 
+// the counter chip's menu: same capture gate — while it is open, a click
+// elsewhere ONLY closes it (a header click must not rename behind it);
+// the menu's own items pass through. The synthetic tap a long-press lift
+// leaves behind must not close the menu it opened.
+document.addEventListener(
+  'click',
+  (e) => {
+    if (countMenu.hidden || countMenu.contains(e.target as Node)) return;
+    if (recentCountPress()) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    hideCountMenu();
+  },
+  true,
+);
+
 document.addEventListener('click', (e) => {
   if (!pdfMenu.hidden && !pdfMenu.contains(e.target as Node)) hidePdfMenu();
 });
 
-// Escape order: the create dialog, then the context menu, then the pdf
-// menu, then the nav toggle, then the history view — each layer checks
-// that the layers before it are closed and gets first refusal
+// Escape order: the create dialog, then the context menu, then the counter
+// chip's menu, then the pdf menu, then the nav toggle, then the history
+// view — each layer checks that the layers before it are closed and gets
+// first refusal
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
   if (newOpen) {
@@ -47,6 +64,7 @@ document.addEventListener('keydown', (e) => {
     return;
   }
   if (!ctxMenu.hidden) closeMenu();
+  else if (!countMenu.hidden) hideCountMenu();
 });
 
 document.addEventListener('keydown', (e) => {
@@ -56,7 +74,7 @@ document.addEventListener('keydown', (e) => {
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape' || !navOpen()) return;
   // menus and the create dialog get Escape first
-  if (newOpen || !ctxMenu.hidden || !pdfMenu.hidden) return;
+  if (newOpen || !ctxMenu.hidden || !countMenu.hidden || !pdfMenu.hidden) return;
   if (historyOpen) return; // the history view's own Escape path owns it
   setNav(false);
 });
@@ -66,7 +84,7 @@ document.addEventListener('keydown', (e) => {
 // held off — closing the graph must not also fold the tree panel.
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape' || !historyOpen) return;
-  if (newOpen || !ctxMenu.hidden || !pdfMenu.hidden) return; // they get Escape first
+  if (newOpen || !ctxMenu.hidden || !countMenu.hidden || !pdfMenu.hidden) return; // they get Escape first
   dismissHistory();
   e.stopImmediatePropagation();
 });
