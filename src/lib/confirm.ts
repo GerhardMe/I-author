@@ -3,9 +3,11 @@
 // (the deletion preview's pulse) keep running while it asks, and the answer
 // arrives as a promise. The backdrop does not swallow touches (pointer-events
 // none), so the tree stays scrollable behind it — the author double-checks
-// which file blinks red before answering; the card is the only touch target.
-// The markup is created on demand; the styles live in global.css — Astro
-// scoping would never match JS-created DOM.
+// which file blinks red before answering. A CLICK outside the card is
+// captured and answers cancel without acting on whatever it landed on (a
+// tree row must not open behind the dialog). The markup is created on
+// demand; the styles live in global.css — Astro scoping would never match
+// JS-created DOM.
 let open = false;
 
 export function appConfirm(
@@ -41,6 +43,7 @@ export function appConfirm(
     function done(v: boolean): void {
       backdrop.remove();
       document.removeEventListener('keydown', onKey, true);
+      document.removeEventListener('click', onDocClick, true);
       document.body.style.overflow = prevOverflow;
       open = false;
       resolve(v);
@@ -54,9 +57,19 @@ export function appConfirm(
         done(false);
       }
     }
+    function onDocClick(e: MouseEvent): void {
+      // scrolling reaches the page through the transparent backdrop, but a
+      // click outside the card is a cancel — captured here so nothing behind
+      // the dialog acts on it (a tree row must not open, a menu must not open)
+      if (card.contains(e.target as Node)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      done(false);
+    }
     okBtn.addEventListener('click', () => done(true));
     cancelBtn.addEventListener('click', () => done(false));
     document.addEventListener('keydown', onKey, true);
+    document.addEventListener('click', onDocClick, true);
     cancelBtn.focus(); // the safe default owns Enter
   });
 }

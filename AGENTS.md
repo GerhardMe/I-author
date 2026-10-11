@@ -117,8 +117,9 @@ src/lib/confirm.ts   in-app confirm dialog (appConfirm) — promise-based,
                      non-blocking replacement for window.confirm; general
                      (ok/cancel labels, danger styling), styles in global.css;
                      touch-transparent backdrop — the tree stays scrollable
-                     behind it, the card is the only target (no tap-outside
-                     cancel; Escape/cancel button do that)
+                     behind it, while a click outside the card is captured
+                     and answers cancel without acting behind the dialog
+                     (nothing under the tap opens)
 src/lib/*.test.ts    node:test suites (test-auth runs the src/lib/*.test.ts glob)
 ```
 

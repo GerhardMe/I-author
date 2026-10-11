@@ -774,10 +774,11 @@ a.btn-tiny:hover {
    styles. It does not block the event loop: page animations keep running
    while it asks. The backdrop is touch-transparent (pointer-events none) —
    the tree stays scrollable behind it, so the author can double-check which
-   file blinks red before answering; the card is the only target. There is
-   deliberately NO tap-outside-to-cancel: a tap outside interacts with the
-   app. Escape = cancel (capture handler, so the app's own Escape paths stand
-   down); Enter = the focused button (cancel owns focus — the safe default). */
+   file blinks red before answering. A CLICK outside the card answers cancel
+   without acting behind the dialog (capture-intercepted in confirm.ts);
+   scrolling touches pass through untouched. Escape = cancel (capture
+   handler, so the app's own Escape paths stand down); Enter = the focused
+   button (cancel owns focus — the safe default). */
 .confirm-backdrop {
   position: fixed;
   inset: 0;
