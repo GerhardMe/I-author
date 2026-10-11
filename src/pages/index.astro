@@ -188,11 +188,19 @@ const authReady = loadSecrets() !== null;
 
   function flushDraft(): void {
     if (!currentFile || !editor) return;
-    saveDraft(currentFile, {
-      content: editor.state.doc.toString(),
-      synced: sync.baselineLen(),
-      at: Date.now(),
-    });
+    const content = editor.state.doc.toString();
+    // save only unsynced text; a clean doc's draft is redundant and would
+    // linger forever (nothing drops it — leavingFile skips a clean push),
+    // so drop it instead: the dot logic reads the draft store
+    if (sync.ahead(content)) {
+      saveDraft(currentFile, {
+        content,
+        synced: sync.baselineLen(),
+        at: Date.now(),
+      });
+    } else {
+      dropDraft(currentFile);
+    }
   }
 
   // ---------- sync status markers (tree rows) ----------
@@ -219,7 +227,9 @@ const authReady = loadSecrets() !== null;
   }
 
   // targeted row update — never a full renderTree(): a push timer can fire
-  // mid-drag, and a tree rebuild would detach the dragged source row
+  // mid-drag, and a tree rebuild would detach the dragged source row.
+  // The marker span always exists (buildList appends it to file rows), so
+  // a state change is a dataset flip and the CSS opacity transition fades it
   function refreshRowStatus(path: string | null): void {
     if (!path) return;
     const row = treeEl.querySelector(
@@ -228,18 +238,9 @@ const authReady = loadSecrets() !== null;
     if (!row || row.dataset.folder) return;
     const st = rowStatus(path);
     const ts = row.querySelector<HTMLElement>('.ts');
-    if (!st) {
-      ts?.remove();
-    } else if (ts) {
-      ts.dataset.state = st;
-      ts.textContent = st === 'error' ? '!' : '';
-    } else {
-      const el = document.createElement('span');
-      el.className = 'ts';
-      el.dataset.state = st;
-      el.textContent = st === 'error' ? '!' : '';
-      row.append(el);
-    }
+    if (!ts) return;
+    ts.dataset.state = st ?? 'idle';
+    ts.textContent = st === 'error' ? '!' : '';
   }
 
   function setSync(state: 'idle' | 'dirty' | 'pushing' | 'error'): void {
@@ -457,13 +458,11 @@ const authReady = loadSecrets() !== null;
       )}</span>`;
       if (!isFolder) {
         const st = rowStatus(n.path);
-        if (st) {
-          const ts = document.createElement('span');
-          ts.className = 'ts';
-          ts.dataset.state = st;
-          ts.textContent = st === 'error' ? '!' : '';
-          row.append(ts);
-        }
+        const ts = document.createElement('span');
+        ts.className = 'ts';
+        ts.dataset.state = st ?? 'idle';
+        ts.textContent = st === 'error' ? '!' : '';
+        row.append(ts); // always present: opacity fades the state changes
       }
       li.append(row);
       if (isFolder && expanded.has(n.path) && n.children!.length) li.append(buildList(n.children!));
