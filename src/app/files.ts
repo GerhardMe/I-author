@@ -39,7 +39,7 @@ import { lineEl, placeLine, placeLineInFolder } from './gestures.ts';
 import { setNav } from './nav.ts';
 
 // ---------- context menu on the tree: new / delete ----------
-const ctxMenu = document.createElement('div');
+export const ctxMenu = document.createElement('div');
 ctxMenu.id = 'ctx-menu';
 ctxMenu.hidden = true;
 const itemNew = document.createElement('button');
