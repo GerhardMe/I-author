@@ -120,6 +120,7 @@ const authReady = loadSecrets() !== null;
   const byPath = new Map<string, Node>();
   const expanded = new Set<string>();
   const EXP_KEY = 'iauthor.expanded';
+  const LAST_KEY = 'iauthor.last'; // the last opened file, restored at boot
   let selected: string | null = null;
   let pendingKind: 'folder' | 'file' = 'file';
   let currentGroup: string | null = null; // folder index currently shown, if any
@@ -976,6 +977,7 @@ async function showGroup(node: Node): Promise<void> {
       docWords.textContent = `${countWords(content)} words`;
       pdfBtn.hidden = false;
       currentFile = p;
+      try { localStorage.setItem(LAST_KEY, p); } catch {}
       sync.setBaseline(content, content.length);
       destroyEditor();
 
@@ -1503,6 +1505,12 @@ newRow.hidden = true;
     // store is walked with the same remapper (a missed draft would recreate
     // its file at the old path on the next sync)
     remapDrafts(hit);
+    // the last-opened pointer follows renames/reorders the same way, so boot
+    // restores the file under its new path instead of falling back to welcome
+    const last = localStorage.getItem(LAST_KEY);
+    if (last && hit(last) !== last) {
+      try { localStorage.setItem(LAST_KEY, hit(last)); } catch {}
+    }
     if (touched) saveExpanded();
   }
 
@@ -1845,8 +1853,14 @@ newRow.hidden = true;
       saveExpanded();
       renderTree();
     }
-    // no last-page restore: the welcome message is the boot screen; drafts
-    // still come back when the user opens the file they belong to
+    // last-page restore: reopen the file the last session ended on. A stored
+    // folder path or a deleted file falls back to the welcome screen; drafts
+    // ride along — openFile restores them when they are newer than the server
+    const last = localStorage.getItem(LAST_KEY);
+    if (last) {
+      const node = byPath.get(last);
+      if (node && node.children === undefined) void openFile(last);
+    }
   }
 
   boot();

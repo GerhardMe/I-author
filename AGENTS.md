@@ -119,9 +119,12 @@ src/lib/*.test.ts    node:test suites (test-auth runs the src/lib/*.test.ts glob
 ### index.astro flow map (~1400 lines, the entire UI; all JS in one `<script>`)
 
 ```
-boot()         restore expanded state (localStorage) → loadTree(); NO last-page
-               restore — the welcome message is the boot screen (drafts still
-               come back when the user opens the file they belong to); nav:
+boot()         restore expanded state (localStorage) → loadTree() → reopen the
+               last opened file (localStorage `iauthor.last`, remapped through
+               renames/reorders in remapPaths; owner decision 2026-10-11,
+               supersedes the earlier no-restore rule) — a stored folder path
+               or a deleted file falls back to the welcome screen; drafts ride
+               along (openFile restores them when newer); nav:
                desktop boots with the tree open, always
 loadTree()     GET /api/tree → `tree` + `byPath` Map (path → Node) → renderTree()
 renderTree()   rebuilds <nav id=tree>; rows show Node.raw (no prefix) and are
