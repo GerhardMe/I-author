@@ -27,9 +27,13 @@ the roadmap below. If a change adds complexity, it needs a good reason.
   (`title` on tree nodes; top-level entries shown bare) — the disk schema stays raw.
 - **Local git in the works dir**: auto-commits on every save/create/delete. Server-only
   history, never pushed. The user never manages git.
-- **Encrypted backups** (planned, milestone 6): gzip + AES-256-GCM snapshot of the whole
-  works tree pushed one-way to a private GitHub repo; master key lives in the user's
-  password manager. Nothing unencrypted leaves the server.
+- **Backup = the owner's external microservice** (owner decision 2026-10-11,
+  revises the old encrypted-GitHub plan): the works-dir git repo IS the backup
+  artifact. A separate tiny app (its own repo) reads it read-only on a timer
+  and pushes to ProtonDrive — plaintext, trusting Proton's E2EE instead of
+  self-managed keys; this supersedes "nothing unencrypted leaves the server".
+  Iauthor implements nothing: no endpoints, no token, no ping (see milestone 6
+  in the Roadmap).
 - **Editor sync** (milestone 3): writes go to a local draft, pushed to the server in
   chunks — never char-by-char. Unsynced text renders lighter and darkens once the
   server confirms. Single user → no merge logic; last-write-wins + local git history
@@ -55,7 +59,7 @@ the roadmap below. If a change adds complexity, it needs a good reason.
   (`@codemirror/state`/`view`/`commands`/`language` + `@lezer/highlight`) for the editor,
   `@codemirror/lang-markdown` + `language-data` for markdown parsing and fenced-code
   grammars (grammars load lazily as separate chunks per language).
-- Auth crypto: node built-ins only (scrypt, HMAC, timingSafeEqual, AES-GCM later).
+- Auth crypto: node built-ins only (scrypt, HMAC, timingSafeEqual).
   TOTP is hand-rolled RFC 6238 in `src/lib/totp.ts` (verified against the official vectors).
 
 ## Repository layout
@@ -836,10 +840,20 @@ The numbering rework is complete — no further phases.
   slide on mobile and fades with the tree chrome on desktop; login/setup keep
   the floating top-right button (base.astro binds every `.theme-toggle`).
 
-Next: 6) Encrypted GitHub
-backup: tar+gzip whole tree → AES-256-GCM with master key → one ciphertext blob per
-snapshot to a private repo via deploy key; `scripts/restore` to decrypt+untar; prune
-option (keep last N); optional rclone crypt → ProtonDrive timer. 7) Mobile pass.
+Next: 6) Backup via the owner's external microservice (separate repo, NOT this
+codebase — iauthor implements nothing): the contract is implicit — the works
+dir is a git repo, everything textual is committed (the autosave coalescer
+closes bursts within ~5s), pdfs are gitignored and recompilable. The
+microservice (systemd timer, user `server`; READ-ONLY rule: never
+commit/add/reset inside the works repo, that would pollute the undo history):
+`git clone --mirror` once, `git fetch --prune` each tick, push a timestamped
+`git bundle --all` (full DAG incl. `undo-*` refs) to ProtonDrive via rclone,
+keep last N; restore = clone the bundle → point `IAUTHOR_WORKS_DIR` at it.
+Concurrent reads are safe (git ref updates are atomic); a burst caught
+uncommitted rides the next snapshot. A remote (off-server) consumer would
+need an API — YAGNI today. The setup page's masterKey field ("Encrypts
+backups" note) is obsolete under this decision — remove or repurpose when
+that page is next touched. 7) Mobile pass.
 
 Deferred todo list: project-wide search;
 client-side LLM word-prediction (flag unlikely tokens as possible typos, suggest fixes).
