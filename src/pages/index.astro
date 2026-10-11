@@ -512,7 +512,7 @@ const authReady = loadSecrets() !== null;
   function renderTree() {
     treeEl.replaceChildren(buildList(visible(tree)));
     treeEl.append(lineEl); // the insertion line lives here; re-append after rebuild
-    if (!lineEl.hidden) showInsertLine();
+    if (!lineEl.hidden && !dragCard) showInsertLine(); // a mid-drag rebuild must not steal the drop line
   }
 
   // ---------- drag & drop ----------
@@ -522,6 +522,7 @@ const authReady = loadSecrets() !== null;
   // remapPaths applies before the tree is re-read.
   let dragPath: string | null = null;
   let dragCard: HTMLElement | null = null; // the floating clone that follows the cursor
+  let dragRow: HTMLElement | null = null; // the source row: carries the touch drag listeners
   let grabX = 0; // where the hand grabbed the row, so the card stays under it
   let grabY = 0;
   let dragOpened: string[] = []; // folders a hover opened — temporary, closed on hover-away
@@ -646,6 +647,15 @@ const authReady = loadSecrets() !== null;
     // mid-drag (a hover opening a folder rebuilds the tree), and drag events on
     // a detached source no longer bubble to treeEl — but they still fire on it.
     row.addEventListener('dragend', endDrag, { once: true });
+    // touch: the drag-phase listeners ride the row itself — a hover-open
+    // renderTree() can detach it mid-drag, and touch events keep firing on
+    // the touch-start element even detached, but then no longer bubble to
+    // treeEl (the same detached-source reason the desktop dragend rides here;
+    // unlike desktop dragover they do not retarget and never reach document).
+    row.addEventListener('touchmove', touchDragMove, { passive: false });
+    row.addEventListener('touchend', touchDragEnd);
+    row.addEventListener('touchcancel', touchDragCancel);
+    dragRow = row;
     const card = row.cloneNode(true) as HTMLElement;
     card.classList.remove('dragging');
     card.classList.add('drag-card');
@@ -871,6 +881,12 @@ const authReady = loadSecrets() !== null;
     clearDropMarks();
     dragCard?.remove();
     dragCard = null;
+    if (dragRow) {
+      dragRow.removeEventListener('touchmove', touchDragMove);
+      dragRow.removeEventListener('touchend', touchDragEnd);
+      dragRow.removeEventListener('touchcancel', touchDragCancel);
+      dragRow = null;
+    }
     for (const el of treeEl.querySelectorAll('.dragging')) el.classList.remove('dragging');
     // a drop already handed over to reorderTo, which reloads and re-renders the
     // tree; an endDrag here would only build it a second time
@@ -1281,16 +1297,10 @@ async function showGroup(node: Node): Promise<void> {
   treeEl.addEventListener(
     'touchmove',
     (e) => {
+      if (dragCard) return; // the source row's own listeners own the drag
       const t = e.touches[0]!;
       const dx = t.clientX - lpX;
       const dy = t.clientY - lpY;
-      if (dragCard) {
-        // dragging: the gesture is ours — never a scroll
-        e.preventDefault();
-        moveCard(t.clientX, t.clientY);
-        touchAim(t.clientX, t.clientY);
-        return;
-      }
       if (!armed) {
         // pressing: past the slop it is a scroll — give the timer up. No
         // preventDefault before arming: native scrolling must stay live.
@@ -1313,29 +1323,7 @@ async function showGroup(node: Node): Promise<void> {
   );
 
   treeEl.addEventListener('touchend', (e) => {
-    if (dragCard) {
-      // the drag ends where the finger is: a row under it reorders (the
-      // drop handlers' exact sequence — intent first, dragPath is still
-      // needed for the band logic), anything else cancels plainly
-      const t = e.changedTouches[0]!;
-      const path = dragPath;
-      const el = document.elementFromPoint(t.clientX, t.clientY);
-      const row = (el?.closest('.tree-row') as HTMLElement | null) ?? null;
-      const intent = row ? intentForRow(row, t.clientY) : null;
-      clearDropMarks();
-      closeDragOpened(false);
-      dragPath = null;
-      dragPreview = false;
-      if (intent) {
-        dropHandled = true; // endDrag must not re-render under reorderTo
-        void reorderTo(path, intent);
-        endDrag();
-      } else {
-        endDrag(); // no target: a plain cancel, like dropping outside the panel
-      }
-      lastLongPressAt = Date.now();
-      return;
-    }
+    if (dragCard) return; // the source row's own listeners own the drop
     if (armed) {
       armed = false;
       // an unmoved lift IS the menu: the fresh stamp keeps the synthetic tap
@@ -1347,10 +1335,55 @@ async function showGroup(node: Node): Promise<void> {
     lpCancel(); // a plain tap or scroll — the native click does the opening
   });
   treeEl.addEventListener('touchcancel', () => {
+    if (dragCard) return; // the source row's own listeners own the cleanup
     lpCancel();
     armed = false;
-    if (dragCard) endDrag();
   });
+
+  // The touch drag's own listeners — attached to the SOURCE row in beginDrag,
+  // removed in endDrag. They must live there, not on treeEl: a hover-opened
+  // folder rebuilds the tree mid-drag and detaches the row the touch started
+  // on, and touch events (unlike desktop dragover, which retargets to the
+  // element under the pointer) keep firing on that detached node without ever
+  // bubbling to treeEl or document again — the drag froze mid-air and the
+  // stale dragCard made the whole tree unresponsive until reload.
+  function touchDragMove(e: TouchEvent): void {
+    if (!dragCard) return;
+    // dragging: the gesture is ours — never a scroll
+    e.preventDefault();
+    const t = e.touches[0]!;
+    moveCard(t.clientX, t.clientY);
+    touchAim(t.clientX, t.clientY);
+  }
+
+  function touchDragEnd(e: TouchEvent): void {
+    if (!dragCard) return;
+    // the drag ends where the finger is: a row under it reorders (the
+    // drop handlers' exact sequence — intent first, dragPath is still
+    // needed for the band logic), anything else cancels plainly
+    const t = e.changedTouches[0]!;
+    const path = dragPath;
+    const el = document.elementFromPoint(t.clientX, t.clientY);
+    const row = (el?.closest('.tree-row') as HTMLElement | null) ?? null;
+    const intent = row ? intentForRow(row, t.clientY) : null;
+    clearDropMarks();
+    closeDragOpened(false);
+    dragPath = null;
+    dragPreview = false;
+    if (intent) {
+      dropHandled = true; // endDrag must not re-render under reorderTo
+      void reorderTo(path, intent);
+      endDrag();
+    } else {
+      endDrag(); // no target: a plain cancel, like dropping outside the panel
+    }
+    lastLongPressAt = Date.now();
+  }
+
+  function touchDragCancel(): void {
+    if (!dragCard) return;
+    endDrag();
+  }
 
   // the touch drag aims by hit-test: the card is pointer-events: none, so
   // elementFromPoint sees the row (or the bare panel) under the fingertip —
