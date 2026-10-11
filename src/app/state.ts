@@ -132,9 +132,9 @@ export async function api<T = any>(url: string, opts?: RequestInit): Promise<T> 
   return data;
 }
 
-// the mobile breakpoint (1100px) is kept in sync BY HAND: index.astro's
+// the mobile breakpoint (700px) is kept in sync BY HAND: index.astro's
 // pre-paint script and the @media blocks in global.css carry the same literal
-export const navMq = window.matchMedia('(max-width: 1100px)');
+export const navMq = window.matchMedia('(max-width: 700px)');
 export const narrow = (): boolean => navMq.matches;
 export const navOpen = (): boolean => !appEl.classList.contains('nav-off');
 
