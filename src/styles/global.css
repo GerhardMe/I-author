@@ -350,7 +350,8 @@ body.nav-anim .theme-toggle {
    they sit at z 10 behind the sidebar like ◐ (fine: no editing while the
    tree is open), nav-off raises them above the title-bar strip, and
    bar-away slides them away with the topbar. They sit LEFT of the theme
-   toggle, same top rhythm: ◐ · redo · undo from the right edge — undo left,
+   toggle, same top rhythm: ◐ · redo · undo from the right edge — undo left
+   (until redo appears: then it yields the slot next to ◐),
    redo right (next to ◐). */
 .undo-btn,
 .redo-btn {
@@ -368,7 +369,13 @@ body.nav-anim .theme-toggle {
   -webkit-user-select: none;
 }
 
+/* alone, undo sits in redo's slot next to ◐; once redo is unhidden
+   (first undo click, history.ts) undo slides left to make room */
 .undo-btn {
+  right: 3.5rem;
+}
+
+.undo-btn:has(+ .redo-btn:not([hidden])) {
   right: 6rem;
 }
 
@@ -408,7 +415,8 @@ body.nav-anim .theme-toggle {
 
 body.nav-anim .undo-btn,
 body.nav-anim .redo-btn {
-  transition: transform var(--nav-dur) ease, opacity var(--nav-dur) ease;
+  transition: transform var(--nav-dur) ease, opacity var(--nav-dur) ease,
+    right var(--nav-dur) ease;
 }
 
 @media (prefers-reduced-motion: reduce) {
