@@ -40,12 +40,14 @@ const authReady = loadSecrets() !== null;
       </div>
       <template id="welcome-notes">
         <div class="md-body toc-notes">
-          <p>Open a chapter on the left and keep writing — or right-click the tree to start something new. The title in the corner folds the tree away when you want nothing but the page. Click a chapter's title in the header to rename it.</p>
-          <p>Everything here is plain markdown on your own server, and every save is committed to a private git history. Close the tab mid-sentence: the draft will be waiting.</p>
-          <p><strong>Drafts</strong> carry a <code>draft_</code> token in their filename. The <em>drafts</em> toggle in the sidebar (the eye) hides them — together with <em>notes</em> and empty folders — until you are ready to show them.</p>
-          <p><em>notes.md</em> is folder material, never a chapter: it takes no number and shows up under the folder's index. Names like <em>prologue</em>, <em>epilogue</em> or <em>appendix</em> print bare, without a chapter number.</p>
-          <p><strong>Numbers</strong> are earned, not typed: the hidden <code>NN_</code> prefixes order the files behind the scenes and never print. Books and chapters are numbered by position, and the tree renumbers itself on every create, delete and drag.</p>
-          <p>When a text has grown into a book, the <em>pdf</em> button sets it for print.</p>
+          <ul>
+            <li><code>draft_</code> in a name = draft; the drafts toggle (the eye) hides drafts, notes, empty folders</li>
+            <li><code>notes.md</code> = folder notes, takes no number; <code>prologue</code>, <code>epilogue</code>, <code>appendix</code> … print bare</li>
+            <li>the hidden <code>NN_</code> prefixes only order — everything is numbered by position</li>
+            <li>saves commit themselves; <code>ctrl/cmd+S</code> pushes now; unsynced text renders lighter until confirmed</li>
+            <li>right-click the tree: new / delete · click a header title: rename · the corner title folds the tree, double-click goes home</li>
+            <li><code>ctrl/cmd+click</code> opens links in the preview; the <em>pdf</em> button sets a text for print</li>
+          </ul>
         </div>
       </template>
       <article class="doc" id="doc" hidden>
