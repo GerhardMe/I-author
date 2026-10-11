@@ -1670,7 +1670,7 @@ newRow.hidden = true;
       // blob would strip the app's stylesheets and leave a bare form on an
       // orphaned blob: url.
       if (!(res.headers.get('content-type') || '').includes('application/pdf')) {
-        if (tab) tab.location.replace('/login');
+        if (tab && !tab.closed) tab.location.replace('/login');
         else location.assign('/login');
         return;
       }
@@ -1679,8 +1679,10 @@ newRow.hidden = true;
       // fetch above just refreshed the fragment cache, so it streams at
       // once — no recompile flag here, that would rebuild everything twice.
       const target = `/pdf?${base}`;
-      if (tab) tab.location.replace(target);
-      else location.assign(target); // popups blocked entirely: same tab
+      // a tab the user closed mid-compile stays closed — the pdf is on disk
+      // either way; the next pdf click streams it without recompiling
+      if (tab && !tab.closed) tab.location.replace(target);
+      else if (!tab) location.assign(target); // popups blocked: same tab
     } catch (err) {
       tab?.close();
       alert(`pdf: ${(err as Error).message}`);
@@ -1689,16 +1691,6 @@ newRow.hidden = true;
       syncPdfBtnTitle();
     }
   }
-
-  // the compiler page's back arrow asks the app (its opener) to take the
-  // focus back — a plain window.opener.focus() is ignored by some browsers,
-  // so the message handler also focuses a real element here
-  window.addEventListener('message', (e) => {
-    if (e.data === 'iauthor:focus') {
-      window.focus();
-      pdfBtn.focus({ preventScroll: true });
-    }
-  });
 
   function syncPdfMenu(): void {
     for (const b of pdfMenu.querySelectorAll<HTMLButtonElement>('.ctx-item'))
