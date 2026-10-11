@@ -394,10 +394,10 @@ body.nav-anim .theme-toggle {
   display: block;
 }
 
-/* the mobile breakpoint is 700px — kept in sync BY HAND in four places:
+/* the mobile breakpoint is 850px — kept in sync BY HAND in four places:
    state.ts navMq, index.astro's pre-paint script, and the two @media blocks
    here (this one and the sidebar block further down) */
-@media (max-width: 700px) {
+@media (max-width: 850px) {
   .undo-btn,
   .redo-btn {
     display: block;
@@ -1032,7 +1032,7 @@ a.btn-tiny:hover {
   min-width: 0;
 }
 
-@media (min-width: 701px) {
+@media (min-width: 851px) {
   /* static docked margin: ALWAYS present on desktop, independent of the tree
      (owner decision 2026-10-09). Lives after the base rule so its padding-left
      wins the cascade — a media query earlier in the file was overridden by the
@@ -1682,7 +1682,7 @@ a.btn-tiny:hover {
   }
 }
 
-@media (max-width: 700px) {
+@media (max-width: 850px) {
   /* the panel expands over the whole page; the title bar is always visible.
      Both use the page background — no separate top-bar card, open or closed */
   .sidebar {
