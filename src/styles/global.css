@@ -1051,7 +1051,10 @@ a.btn-tiny:hover {
    ▶ at the line's start) changes only the column's width, both margins move
    equally, so the line never leaves the centre. The text view (.md-body /
    #editor-host / .toc) rides the column's start BY STRUCTURE (no inset
-   formula); its width is owned by the right handle alone. */
+   formula); its width is owned by the right handle alone.
+   The saved --line-w/--field-w live on #doc (doc-scoped measure): the
+   welcome screen (#empty) is always at DEFAULT width — its .doc-col
+   inherits no overrides and falls back to min(100%, 100%) + 72ch. */
 .doc-col {
   width: var(--measure); /* the line — centred by the auto margins */
   margin-inline: auto;
@@ -1125,7 +1128,9 @@ a.btn-tiny:hover {
 
 .empty {
   /* the welcome screen: a read-only pseudo-file (title + markdown body);
-     its own .doc-head is not a rename target — there is no file behind it */
+     its own .doc-head is not a rename target — there is no file behind it,
+     and the doc-scoped measure never reaches it: always DEFAULT width
+     (full-width line, 72ch field) */
 }
 
 .empty .doc-head {

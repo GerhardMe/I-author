@@ -2,7 +2,7 @@
 // line width (A, centred) and the field width (B), stored in localStorage.
 
 import { EditorSelection } from '@codemirror/state';
-import { doc, editorHost, empty as emptyEl, mainEl, measureA, measureB } from './dom.ts';
+import { doc, editorHost, mainEl, measureA, measureB } from './dom.ts';
 import { getEditor } from './editor.ts';
 
 // The LINE (.doc-head's border) is always centred: the left handle (A, ▶ at
@@ -33,9 +33,8 @@ try {
 
 // the handles are static markup in DocView.astro (wired here); the ch probe
 // is invisible, so it is still created in JS — its styles are global CSS.
-// It lives on body, NOT inside #doc: applyMeasure also measures while the
-// welcome screen hides #doc, and a probe inside a hidden element reports
-// zero-width offsets.
+// It lives on body, NOT inside #doc, so no call can ever measure against a
+// hidden element (a probe inside a hidden one reports zero-width offsets).
 const chProbe = document.createElement('span');
 chProbe.style.cssText = 'position:absolute;visibility:hidden;white-space:pre';
 document.body.append(chProbe);
@@ -45,13 +44,14 @@ const ch = (n: number): number => {
 };
 
 export function applyMeasure(): void {
-  // #doc is the measuring reference, but the welcome screen (#empty) shows
-  // the same .doc-col geometry — the saved measure governs it too (the
-  // welcome topline is no longer the full-width odd one out). Both views
-  // share the same padded width, so the clamps need no per-view branch.
-  const host = doc.hidden ? emptyEl : doc;
-  if (host.hidden) return; // zero-width layout: nothing to clamp against
-  const C = host.clientWidth;
+  // #doc is the measuring reference AND the only styled view: the saved
+  // measure is doc-scoped (the welcome screen stays at DEFAULT width — its
+  // .doc-col inherits no --line-w/--field-w from #doc and falls back to
+  // full width + 72ch). While #doc is hidden (boot, welcome view) there is
+  // nothing to clamp against — lineEff/fieldEff stay 0 until the first
+  // openFile/showGroup, which call applyMeasure as the doc becomes visible.
+  if (doc.hidden) return; // zero-width layout: nothing to clamp against
+  const C = doc.clientWidth;
   const minFw = ch(MIN_FIELD);
   // the effective line: the user's drag, or the default FULL WIDTH. B is
   // jailed within it — the topline's width is A's alone, so B can never
@@ -73,10 +73,10 @@ export function applyMeasure(): void {
   // back re-clamps from the intact intent and the geometry reappears
   lineEff = lw;
   fieldEff = fw;
-  if (lw) mainEl.style.setProperty('--line-w', lw + 'px');
-  else mainEl.style.removeProperty('--line-w');
-  if (fw) mainEl.style.setProperty('--field-w', fw + 'px');
-  else mainEl.style.removeProperty('--field-w');
+  if (lw) doc.style.setProperty('--line-w', lw + 'px');
+  else doc.style.removeProperty('--line-w');
+  if (fw) doc.style.setProperty('--field-w', fw + 'px');
+  else doc.style.removeProperty('--field-w');
   try {
     localStorage.setItem(MEASURE_KEY, JSON.stringify({ linePx, fieldPx }));
   } catch {
@@ -111,8 +111,8 @@ function dragWidth(
   });
 }
 
-// the drag/nudge default is the content width of whichever view is visible
-const contentWidth = (): number => (doc.hidden ? emptyEl : doc).clientWidth;
+// the drag/nudge default is the content width of the doc view
+const contentWidth = (): number => doc.clientWidth;
 
 dragWidth(measureA, () => lineEff || contentWidth(), (from, dx) => {
   // the handle rides the line's end 1:1 while the line grows 2:1 (centred);
@@ -143,8 +143,9 @@ nudge(measureB, (sign) => {
 });
 
 window.addEventListener('resize', applyMeasure);
-applyMeasure(); // applies on the welcome screen too — it has the same
-// .doc-col/.doc-head geometry, so the saved measure governs it as well
+applyMeasure(); // no-op at boot (the welcome screen is up) — the saved
+// widths land on #doc via the pre-paint script and applyMeasure re-clamps
+// as soon as a doc opens
 
 // ---------- tap the page under the text -> caret to the last newline ----------
 // On a phone the end of a long chapter is unreachable by tap (no pixels of
