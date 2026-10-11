@@ -244,6 +244,25 @@ export function writeChapter(rel: string, content: string): void {
   fs.renameSync(tmp, abs);
 }
 
+// like writeChapter, but creates the file (and its folder) when missing —
+// the git history's "fetch file" restores content that may have been deleted
+// since the commit it comes from. safePath cannot be used here (it realpaths
+// and so demands existence); the same segment rule keeps the path inside
+// WORKS_DIR by construction.
+export function restoreChapter(rel: string, content: string): void {
+  if (!MD.test(rel)) throw new Error('invalid path');
+  const parts = rel.split('/');
+  if (parts.some((p) => !p || p === '.' || p === '..' || p.startsWith('.'))) {
+    throw new Error('invalid path');
+  }
+  if (Buffer.byteLength(content, 'utf8') > MAX_FILE) throw new Error('too large');
+  const abs = path.join(WORKS_DIR, ...parts);
+  fs.mkdirSync(path.dirname(abs), { recursive: true });
+  const tmp = `${abs}.tmp-${process.pid}`;
+  fs.writeFileSync(tmp, content, 'utf8');
+  fs.renameSync(tmp, abs);
+}
+
 export function deleteEntry(rel: string): Record<string, string> {
   const abs = safePath(rel);
   if (!abs || abs === fs.realpathSync(WORKS_DIR)) throw new Error('invalid path');

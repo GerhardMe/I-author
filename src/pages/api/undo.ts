@@ -6,7 +6,13 @@
 // incoherent since the log interleaves files.
 import type { APIRoute } from 'astro';
 import { flushAll, stamp } from '../../lib/autosave.ts';
-import { gitOut, transaction } from '../../lib/git.ts';
+import {
+  gitOut,
+  nextUndoBranch,
+  parseNameStatus,
+  transaction,
+  type GitChange,
+} from '../../lib/git.ts';
 import { readChapter } from '../../lib/works.ts';
 import { json } from '../../lib/http.ts';
 
@@ -49,39 +55,16 @@ export const POST: APIRoute = async (ctx) => {
       // next commit sweeps the burst in and undo works then.
       const status = (await gitOut(['status', '--porcelain'])).trim();
       if (status) throw new Error('worktree not clean — undo aborted');
-      // colons are illegal in ref names; a second undo in the same second
-      // gets a -2 suffix
-      const base = `undo-${stamp().replace(' ', '_').replaceAll(':', '-')}`;
-      let branch = base;
-      for (let i = 2; ; i++) {
-        try {
-          await gitOut(['rev-parse', '--verify', `refs/heads/${branch}`]);
-          branch = `${base}-${i}`;
-        } catch {
-          break;
-        }
-      }
-      await gitOut(['branch', branch, old]); // the future stays reachable
+      await gitOut(['branch', await nextUndoBranch(stamp()), old]); // the future stays reachable
       await gitOut(['reset', '--hard', 'HEAD~1']); // master moves back
       const head = (await gitOut(['rev-parse', 'HEAD'])).trim();
-      const diff = await gitOut(['diff', '--name-status', `${old}..${head}`]);
-      const changed: string[] = [];
-      const map: Record<string, string> = {};
-      for (const line of diff.split('\n')) {
-        if (!line.trim()) continue;
-        const [status, ...rest] = line.split('\t');
-        if (status![0] === 'R') {
-          const [from, to] = rest as [string, string];
-          changed.push(from, to);
-          // paths move BACK: the client's state is keyed at the post-commit
-          // names the undo just renamed away, so the map inverts the diff
-          map[to] = from;
-        } else {
-          changed.push(rest[0]!); // M / A / D — one path
-        }
-      }
-      // the open file's content after the undo, resolved back through the
-      // map; null when the undo deleted it (the client goes home)
+      // the diff runs from the CURRENT tree (old) to the TARGET tree (head),
+      // so its rename map already points the way the client's state moves
+      const { changed, map }: GitChange = parseNameStatus(
+        await gitOut(['diff', '--name-status', `${old}..${head}`]),
+      );
+      // the open file's content after the undo, resolved through the map;
+      // null when the undo deleted it (the client goes home)
       let content: string | null = null;
       const asked = typeof body?.path === 'string' ? body.path : '';
       if (asked) {

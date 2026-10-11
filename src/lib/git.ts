@@ -62,6 +62,66 @@ export function transaction<T>(fn: () => Promise<T>): Promise<T> {
   return next;
 }
 
+// ---------- history-view plumbing ----------
+
+// route-input guards shared by the git history endpoints: full or short hex
+// shas, and repo-relative md paths (git resolves the path inside the tree,
+// so no traversal is possible; the segment check keeps odd names out)
+export function isSha(s: unknown): s is string {
+  return typeof s === 'string' && /^[0-9a-f]{7,40}$/.test(s);
+}
+
+export function isMdPath(p: unknown): p is string {
+  if (typeof p !== 'string' || !/\.(md|markdown)$/i.test(p)) return false;
+  const parts = p.split('/');
+  return parts.every((x) => x && x !== '.' && x !== '..' && !x.startsWith('.'));
+}
+
+// a file's content at a commit; the path resolves inside the git tree
+export async function gitShow(sha: string, rel: string): Promise<string> {
+  return gitOut(['show', `${sha}:${rel}`]);
+}
+
+export type GitChange = { changed: string[]; map: Record<string, string> };
+
+// parse `git diff --name-status A..B`: the changed paths between two trees,
+// and the rename map FROM A's names TO B's names — the client's state is
+// keyed at the A tree and must follow the files into the B tree (undo and
+// make-master both diff from the current tree to the target tree, so the
+// direction is the same for both)
+export function parseNameStatus(diff: string): GitChange {
+  const changed: string[] = [];
+  const map: Record<string, string> = {};
+  for (const line of diff.split('\n')) {
+    if (!line.trim()) continue;
+    const [status, ...rest] = line.split('\t');
+    if (status![0] === 'R') {
+      const [from, to] = rest as [string, string];
+      changed.push(from, to);
+      map[from] = to;
+    } else {
+      changed.push(rest[0]!); // M / A / D — one path
+    }
+  }
+  return { changed, map };
+}
+
+// a free undo-<timestamp> branch name (colons are illegal in refs; a second
+// undo in the same second gets a -2 suffix). The stamp arrives preformatted
+// from the caller — git.ts cannot import autosave.ts (it would be circular).
+export async function nextUndoBranch(stamp: string): Promise<string> {
+  const base = `undo-${stamp.replace(' ', '_').replaceAll(':', '-')}`;
+  let branch = base;
+  for (let i = 2; ; i++) {
+    try {
+      await gitOut(['rev-parse', '--verify', `refs/heads/${branch}`]);
+      branch = `${base}-${i}`;
+    } catch {
+      return branch;
+    }
+  }
+}
+
 async function attempt(msg: string): Promise<boolean> {
   try {
     return await runCommit(msg);
