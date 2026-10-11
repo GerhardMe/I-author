@@ -2,6 +2,8 @@
 
 Read this fully before making changes. It contains the product vision, the user's
 explicit preferences, architecture, deployment, and the hard-won gotchas.
+What shipped, when, lives in git history — this file carries only decisions and
+invariants that are still in force.
 
 ## What this is
 
@@ -11,7 +13,7 @@ holiday trips from laptop (or phone, bare minimum). Markdown files live in a pla
 directory on their VPS; the webapp is the only interface.
 
 Non-goals: multi-user, collaboration, databases, heavy frameworks, features beyond
-the roadmap below. If a change adds complexity, it needs a good reason.
+the plan. If a change adds complexity, it needs a good reason.
 
 ## Product decisions made by the user (do not relitigate)
 
@@ -30,24 +32,21 @@ the roadmap below. If a change adds complexity, it needs a good reason.
   first; create/delete/rename/reorder flush the burst first so each mutation stays ONE
   commit (`path : 2026-10-11 14:03:22` message grammar). Server-only history, never
   pushed. The user never manages git.
-- **Backup = the owner's external microservice** (owner decision 2026-10-11,
-  revises the old encrypted-GitHub plan): the works-dir git repo IS the backup
-  artifact. A separate tiny app (its own repo) reads it read-only on a timer
-  and pushes to ProtonDrive — plaintext, trusting Proton's E2EE instead of
-  self-managed keys; this supersedes "nothing unencrypted leaves the server".
-  Iauthor implements nothing: no endpoints, no token, no ping (see milestone 6
-  in the Roadmap).
-- **Editor sync** (milestone 3): writes go to a local draft, pushed to the server in
-  chunks — never char-by-char. Unsynced text renders lighter and darkens once the
-  server confirms. Single user → no merge logic; last-write-wins + local git history
+- **Backup = the owner's external microservice** (owner decision 2026-10-11):
+  the works-dir git repo IS the backup artifact. A separate tiny app (its own repo)
+  reads it read-only on a timer and pushes to ProtonDrive — plaintext, trusting
+  Proton's E2EE instead of self-managed keys. Iauthor implements nothing: no
+  endpoints, no token, no ping. (Contract details: §Backup contract.)
+- **Editor sync**: writes go to a local draft, pushed to the server in chunks —
+  never char-by-char. Unsynced text renders lighter and darkens once the server
+  confirms. Single user → no merge logic; last-write-wins + local git history
   is the safety net. Trigger: cumulative dirty words ≥10, or 5s idle.
 - **UI aesthetic**: minimal, angular (border-radius ≤ 2px), cool neutral palette with a
   strong blue accent, self-hosted Literata serif, dark mode, no UI framework, no Tailwind.
   Do not mention the user's password manager or setup in UI text.
-- **Nav**: the `I author` title is the *only* tree toggle — desktop slides between
-  docked/focus, mobile expands over the page. No hamburger button; don't reintroduce one.
-- **Laptop-first.** Mobile = bare minimum (the sidebar toggle still exists until 4.7
-  replaces it with the title-as-toggle overlay; forms must work).
+- **Nav**: the `I author` title is the *only* tree toggle — desktop hides the panel,
+  mobile expands it over the page. No hamburger button; don't reintroduce one.
+- **Laptop-first.** Mobile = bare minimum (forms must work).
 
 ## Stack
 
@@ -91,12 +90,8 @@ src/lib/preview.ts   live-preview engine: widgets, buildDeco, focus field, ctrl+
                      KaTeX math ($…$ inline, $$…$$ display) via MathWidget; hidden
                      ranges are non-atomic (only the checkbox is atomic) so arrows
                      traverse raw offsets; ↑/↓ are a plain source-line cursor
-                     (arrowStep, Prec.highest): one file line per keystroke, char
-                     indent in a WeakMap cleared by any non-arrow selection
-                     change; no pixel/measure machinery — the reveal on entry
-                     just shifts layout around a scrollIntoView'd caret; widget
-                     clicks map back to source (table clicks land in the clicked
-                     cell via a per-cell offset map)
+                     (arrowStep, Prec.highest); widget clicks map back to source
+                     (table clicks land in the clicked cell via a per-cell offset map)
 src/lib/sync.ts      chunked-sync engine: unsynced marks, draft store (sessionStorage),
                      push machine (createSync) — dirty-word accumulator + idle push
 src/lib/autosave.ts  commit cadence: markDirty/flushAll coalescer (5s idle / 1000 chars),
@@ -121,190 +116,36 @@ pdfstyles/           LaTeX preamble "stylesheets" (a4, a5, academic) — single 
                      of truth for the pdf style menu. a4.tex and a5.tex share 51 of
                      54 lines (differences: label, documentclass pt, geometry) and
                      are kept in sync BY HAND — duplication accepted by design
+                     (owner decision; an \input-shared base was rejected — it would
+                     complicate the pdf cache's style-hash freshness)
 src/layouts/         base.astro (theme pre-paint script, Literata import)
 src/styles/global.css  design tokens + shared components + app shell + markdown styles
 src/lib/editor.ts    CodeMirror extension set (editor_extensions assembled once)
 src/lib/pdf-wait.ts  client-side loader polling /api/pdfstatus
-src/lib/confirm.ts   in-app confirm dialog (appConfirm) — promise-based,
-                     non-blocking replacement for window.confirm; general
-                     (ok/cancel labels, danger styling), styles in global.css;
-                     touch-transparent backdrop — the tree stays scrollable
-                     behind it, while a click outside the card is captured
-                     and answers cancel without acting behind the dialog
-                     (nothing under the tap opens)
+src/lib/confirm.ts   in-app confirm dialog (appConfirm) — promise-based, non-blocking
+                     replacement for window.confirm; the touch-transparent backdrop
+                     keeps the tree scrollable behind it; a click outside the card
+                     answers cancel without acting behind the dialog
 src/lib/*.test.ts    node:test suites (test-auth runs the src/lib/*.test.ts glob)
-```
-
-### index.astro flow map (~1400 lines, the entire UI; all JS in one `<script>`)
-
-```
-boot()         restore expanded state (localStorage) → loadTree() → reopen the
-               last opened file (localStorage `iauthor.last`, remapped through
-               renames/reorders in remapPaths; owner decision 2026-10-11,
-               supersedes the earlier no-restore rule) — a stored folder path
-               or a deleted file falls back to the welcome screen; drafts ride
-               along (openFile restores them when newer); nav:
-               desktop boots with the tree open, always
-loadTree()     GET /api/tree → `tree` + `byPath` Map (path → Node) → renderTree()
-renderTree()   rebuilds <nav id=tree>; rows show Node.raw (no prefix) and are
-               draggable; `selected` + `expanded` Sets drive the view
-tree click     the caret ([data-caret]) toggles expand/collapse without
-               selecting; a folder ROW click never collapses — it opens the
-               folder's index and unfolds the row if folded; only a repeat
-               click on a folder already being viewed (`currentGroup ===
-               node.path`) toggles it. File rows open. Chrome (brand, all
-               .btn-tiny buttons, tree rows) is user-select: none
-drag & drop     the whole `.tree-row` is the drag handle (draggable=true; native
-               drag's own movement threshold keeps a plain click a click). The
-               dragged copy is a custom `.drag-card` — a solid clone of the row
-               that follows the cursor (`transform` on a document-level
-               `dragover`); the browser's own drag image is suppressed with a
-               1x1 transparent gif. No `setDragImage` snapshot games: engines
-               rasterize it differently (Chrome lazily, at the next paint) and
-               two timing attempts shipped translucent on the author's machine.
-               The row left behind IS the ghost (opacity .45). Cleanup rides on
-               a `dragend` listener attached to the source row itself —
-               `renderTree()` can detach that row mid-drag, and drag events on
-               a detached source no longer bubble to `treeEl`;
-               drop posts intent {path,parent,before} to /api/reorder, then
-               remapPaths(renumbered) + loadTree, expand the destination and
-               select what landed there (desktop only — HTML5 DnD does not fire
-               on touch; keyboard reordering does not exist yet)
-drop preview    ONE `#insert-line` element for both create and move; only the
-               colour differs (`--ok` green = creating, `.moving` `--accent`
-               blue = moving, red row pulse = deleting). Geometry is shared
-               too: `placeLineInFolder` draws a slot at child indent for
-               "inside this folder", `placeLine` a flush sibling slot. Every row
-               has TWO bands: the TOP half is a slot at the row's OWN level,
-               directly above it — for a plain entry its own folder, for a folder
-               a slot in its parent (so an entry becomes a folder's sibling), and
-               because a child sits one `CHILD_INDENT` in, that is exactly where
-               `placeLineInFolder` draws on the parent row: aiming above the
-               first child and aiming below the parent are one and the same line.
-               The BOTTOM half means "below it" for a plain entry and "inside it"
-               for a folder. Two bands on facing rows are
-               one zone between them — same result, no ambiguity. `DropIntent.kind`
-               ('above' | 'inside' | 'below') names the band, and a `below` slot
-               draws UNDER its row (the last entry of a folder appends, so the
-               line belongs below it, not above).
-               Hovering a CLOSED folder expands it (like the
-               `new` preview does on mouseenter) — but only temporarily: the
-               chain of hover-opened folders lives or dies with its outermost
-               member (`dragOpened` list + `pruneDragOpened`: while the aim
-               roams anywhere inside the outermost opened folder the whole
-               chain stays open; leaving it closes everything at once — a
-               subfolder is dismissed only with its owner). A drop landing
-               elsewhere closes all via `closeDragOpened`; only the drop
-               destination stays open, because `reorderTo` expands it.
-               `visible()` keeps such an empty folder on screen via `dragPreview`
-               (the `keepEmpty` callback in `visibility.ts`), and `isVisibleNode`
-               walks the same rule instead of reimplementing it.
-               The rest of the sidebar viewport is also a drop zone (sidebar-level
-               dragover/drop/dragleave, guarded against row targets): aiming off
-               the rows lands the drag at TOP level, appended under everything —
-               the quick way out of a folder; the line draws under the LAST
-               visible row at top-level indent.
-openFile(p)    revealPath(p) first — expand ancestors + select the row (the opened md
-               is always visible/highlighted in the tree) — then GET /api/file →
-               makeEditor(content); restores sessionStorage draft if newer
-showGroup(n)   folder index TOC (never an editor); awaits leavingFile() + loadTree()
-               first so word totals (Node.words) reflect saves since the last load
-leavingFile()  flushDraft + sync.pushNow if dirty — ALWAYS before switching files
-sync hooks     onSaved/onDirtyChange update the doc-words chip (header); the sync
-               status markers (dot/spinner/red !) render on the file's own tree
-               row, right edge after the filename — the open file shows the live
-               state (setSync → refreshRowStatus, targeted DOM update, never a
-               renderTree mid-drag), unopened files show a dot when a
-               sessionStorage draft exists (rowStatus at buildList time)
-context menu   right-click (desktop) or the touch profile (owner spec
-               2026-10-11): tap = open (native click), swipe = native scroll
-               (the arm timer cancels on >10px), hold 500ms = ARMED with
-               nothing visible (only a 10ms vibration tick); from armed,
-               moving >8px preventDefaults the scroll away and starts a real
-               drag (beginDrag + touchAim reuse the desktop machinery:
-               drag-card, insert line, dragOpened hover-open, drop =
-               reorderTo), an unmoved lift opens the menu at the finger.
-               lastLongPressAt (700ms window) suppresses the trailing
-               synthetic tap after a lift or drop; touchPressAt (800ms) makes
-               Android's own long-press contextmenu stand down. Hover
-               previews are desktop-only (row :hover is gated behind
-               `@media (hover: hover)` — touch scroll must not tint rows);
-               on touch the previews ride the popups instead — the insert
-               line shows while the create
-               dialog is open (itemNew click calls showInsertLine), the delete
-               flash expands + flashes the subtree during the confirm window
-               (deleteNode re-applies the preview before appConfirm, reverts
-               after — the in-app dialog does not block, so the pulse animates); pendingParent/pendingAnchorPath feed the create
-               popup (confirm-style card, see §State, a11y, files).
-               Mobile tree extras (same owner spec): `.tree > ul` gets
-               `min-height: 100%; padding-bottom: 8rem` so the list is always
-               scrollable (a row behind the fixed menu can be dragged clear),
-               and the folder caret's hit target is a ::before box around the
-               1em glyph (row band + margin, mobile only) — hit area, not
-               glyph size
-rename         header click (except buttons) → raw-name editor → commitRename()
-               (+ moveDraft, remapExpanded so subtree stays open)
-measure        two handles on .doc-head's underline: A (▶, at the line's START)
-               changes only the LINE's width — the line is always centred, both
-               margins move equally (lineW = from − 2·dx, handle rides 1:1);
-               the LINE WRAPS the content: one centred `.doc-col` column, the
-               topline spans it and the field (.doc-col > .md-body /
-               #editor-host) rides the column's start BY STRUCTURE — no inset
-               formula exists (a content-side inset once desynced the topline,
-               shipped and reverted 2026-10-09); B (◀, positioned
-               at left: min(var(--field-w), 100%)) is the ONLY width
-               control. Both triangles are the buttons themselves (clip-path,
-               so the hover/click area is the triangular shape and the apex
-               sits exactly on its anchor — offset 0.1ch inward so the apex
-               stays on the line at max width); `font: inherit` on the handle
-               is load-
-               bearing — without it B's 72ch fallback resolves against the
-               button's UA font and the handle teleports on first grab. Hover
-               brightens the triangle only, no tint box.
-               Defaults: the resting geometry is ONE centred column —
-               --measure = min(var(--line-w, 100%), 100%), so the LINE spans
-               the whole markdown area and the field rests at 72ch on the
-               line's start, B at 72ch (not far right); dragging A widens the
-               line and the field rides its start — the sketch's longer line.
-               `--measure` must NOT be named `--line`: that shadows the --line
-               colour token and strips every border inside .main (shipped that
-               way once — the topline vanished).                falls out of applyMeasure's clamps, FLOOR FIRST: the field
-               clamps to the 36ch floor (absolute — no drag and no narrow line
-               may squash the text; the ceiling is max(effLine, minFw), which
-               keeps B jailed within the line above the floor), then the line
-               clamps to [field, content width] — A always stops where the
-               text stops. B can never widen the topline — the topline's
-               width is A's alone, and B only has room once A has made it.
-               `.measure-b`'s left is also CSS-capped at
-               min(--field-w, 100%) as a belt-and-braces guarantee. field ≥
-               36ch, line ≥ field, both ≤ content width; B can therefore
-               never leave the line. State ({linePx, fieldPx}, 0 = default) is
-               memorized per browser in localStorage (`iauthor.measure`) — the
-               same measure in every md file, across reloads;
-               CSS vars --line-w/--field-w on .main; Pointer
-               Events + setPointerCapture (HTML5 DnD is dead on touch); arrow
-               keys nudge the focused handle by 1ch; resize re-clamps
-setNav(open)   the ONLY nav mutator (4.7): toggles .app.nav-off, aria-expanded
-               on the brand button, inert on tree/toolbar/side-foot.
-               Also owns two mobile concerns (2026-10-11): the overlay scroll
-               lock (body overflow hidden while open on mobile — a hold under
-               the last file row scrolled the page behind the overlay) and
-clearing .bar-away (the scroll-away topbar state). The brand
-               click toggles; double-click or long-press on it goes home
-               (showWelcome: all menus close first, then flush+push,
-               welcome screen, `iauthor.last`
-               cleared so boot does not drag the old file back; on touch a
-               700ms window suppresses the trailing tap's toggle, like the
-               tree's long-press); Escape closes (unless the create dialog or a
-               menu is open); a mobile tree-row click closes.
-               The sidebar is an overlay; the docked margin is STATIC padding
-               on .main, independent of the nav state — nothing moves when
-               the tree hides or shows (no slide, applyMeasure not called —
-               a grid track misplaced the view, see §Shipped above)
 ```
 
 Where a change goes: data/files → `works.ts`, UI shell → `index.astro`,
 editor features → `preview.ts`/`sync.ts`, naming → `naming.ts` (pure, both sides).
+
+### index.astro orientation (~1400 lines, the entire UI; all JS in one `<script>`)
+
+Key functions: `boot()` (restore expanded state → loadTree() → reopen
+`iauthor.last`, remapped through renames; deleted file → welcome screen; desktop
+boots with the tree open), `loadTree()` (GET /api/tree → `tree` + `byPath` Map →
+renderTree()), `openFile(p)` (revealPath first, then GET /api/file → makeEditor;
+restores a newer sessionStorage draft), `showGroup(n)` (folder index TOC, never an
+editor), `leavingFile()` (flushDraft + sync.pushNow if dirty — ALWAYS before
+switching files or entering the history view), `setNav(open)` (the ONLY nav
+mutator — see §Nav invariants), `remapPaths` (see §Path maps below),
+`gitUndo`/`applyUndo`, `applyRestore` (undo/history share it), sync hooks
+(`setSync` → `refreshRowStatus`, a targeted DOM update — never a renderTree
+mid-drag). Orientation map: **read the source for the rest** — this file does not
+duplicate it.
 
 ## Dev workflow
 
@@ -334,7 +175,6 @@ deploy               # push main to GitHub; the server pulls, installs, builds,
 - The dev server binds all interfaces; `scripts/dev` sets `IAUTHOR_DOMAINS` to
   `localhost,[::1],<lan-ip>` at startup — a missing IP there means CSRF 403s on POSTs
   from the LAN URL.
-
 - Tests exist (`node --experimental-strip-types`, no TS features that need
   transformation — no enums) but running them is the deploy script's and the owner's
   business, never the agent's.
@@ -351,14 +191,15 @@ deploy               # push main to GitHub; the server pulls, installs, builds,
 
 - Secrets live in `secrets/secrets.json` (gitignored, mode 0600): pin hash, totpSecret,
   sessionSecret, recovery codes (`{id, salt, hash, used}`). Written once by
-  `/setup`; there is no UI to rotate — deleting the file re-runs setup.
+  `/setup`; there is no UI to rotate — deleting the file re-runs setup (after a
+  restart — `auth/secrets.ts` caches at module load).
 - `POST /api/login` logic: rate limit per IP (fails <5 → free; 5th fail → 30s lock,
   doubling to 15 min). `trusted` = valid device cookie. Trusted + correct PIN → login
   (no TOTP). Untrusted → PIN + (TOTP ±1 window or unused recovery code).
 - Idle lock is **in-memory** (`src/lib/auth/idle.ts`): a token with no entry counts as
   locked — so server restarts lock sessions (PIN re-entry, not full login). `POST /api/lock`
   forces this.
-- **Pre-setup the app is OPEN** (owner decision 2026-10-09, identical local/prod):
+- **Pre-setup the app is OPEN** (owner decision, identical local/prod):
   with no secrets file the middleware passes everything — pages, APIs, and `/setup`
   itself — instead of bouncing to `/setup`; there is nothing to log into yet. The app
   shell renders a `set up 2FA` link (`/setup`) in the side-foot instead of
@@ -440,23 +281,22 @@ WORKS_DIR (server: /home/server/writing/works)
   editor prefills the **full disk name**, so prefix and `draft_` are visible while
   editing. `POST /api/rename` edits the **title**, not the whole disk name: the
   numeric prefix is preserved unless the typed name carries one explicitly
-  (`composeName` in `works.ts`) — un-numbering is impossible by design, and without
-  preservation editing a title would silently drop the prefix and send the file to
-  the end of its folder. The `draft_` token follows the typed name instead: keep it
-  in the prefilled name to stay a draft, delete it to un-draft. Duplicates are
-  rejected, and git-commits;
-  sessionStorage drafts move to the
-  new path (`moveDraft`) and the sidebar's expanded state is remapped to the new
-  prefix (`remapExpanded`) so the subtree stays open. Renaming a folder rewrites all
-  descendant paths.
+  (`composeName` in `works.ts`) — un-numbering is impossible by design. The `draft_`
+  token FOLLOWS the typed name: keep it in the prefilled name to stay a draft, delete
+  it to un-draft (a deliberate act, since the prefill shows it). Duplicates are
+  rejected (case-insensitive, prefix-stripped — `findExisting`), and git-commits;
+  sessionStorage drafts move to the new path (`moveDraft`) and the sidebar's expanded
+  state is remapped (`remapExpanded`) so the subtree stays open. Renaming a folder
+  rewrites all descendant paths.
 - `createEntry` slugifies names (spaces → `_`, case preserved, a typed
   `.md`/`.markdown` extension stripped — typing "notes.md" yields `01_notes.md`),
   rejects duplicate slugs (case-insensitive, prefix-stripped), and auto-prefixes
   `NN_` (next number; a user-typed leading `NN-`/`NN_` is kept). Parsers accept
-  both `-` and `_` prefixes
-  forever; `scripts/migrate-names.mjs` renamed pre-existing hyphenated entries.
+  both `-` and `_` prefixes forever.
 - `safePath` rejects `..`, empty/hidden segments, and anything whose realpath escapes
-  `WORKS_DIR`. Only `.md`/`.markdown` files are readable/writable; 512 KB cap; atomic writes.
+  `WORKS_DIR`. Only `.md`/`.markdown` files are readable/writable; 512 KB cap; atomic
+  writes; the word counter has its own higher cap (`MAX_COUNT = 4 × MAX_FILE`) so
+  oversized files don't report 0 words.
 - Every mutation (`new`, `file PUT`, `delete`, `rename`, `reorder`) ends with a commit
   in the works dir — saves through the autosave coalescer (`flushAll()` before the
   mutation), the mutation itself as one commit after. Empty folder creations produce no
@@ -524,376 +364,159 @@ migrations won't be undone by deploys.
 - CodeMirror vertical motion cannot be patched around block widgets: `moveVertically`
   pixel-scans via `posAtCoords`, which **skips `block: true` replace widgets entirely**
   (they're not lines) and maps a widget to its nearest boundary — so ↑/↓ leap over
-  rendered tables/`$$` blocks no matter what atomic ranges say. This cost five commits
-  of hybrids/pins before the fix was to replace vertical motion with a plain
-  source-line cursor (preview.ts `arrowStep`) and delete the machinery. Don't
-  reintroduce pixel-based correction around reveals.
-- `pnpm test` globs `src/lib/*.test.ts` on purpose. It used to list the three test
-  files explicitly, and `pdf.test.ts` was therefore never executed — a whole file of
-  passing-looking assertions that no run ever touched. When adding a test file, check
-  the count in the summary actually went up. (The agent never runs tests at all —
-  see §Dev workflow: NO TESTING. NEVER.)
-- A bare `run` (astro dev without `--host`) binds `::1` only — test with
-  `http://[::1]:4321`. `scripts/dev` passes `--host`, so localhost and the LAN IP
-  both work there.
-- When verifying UI changes, make sure you're serving the **fresh** dist (stale servers
-  from earlier test runs have caused false results). Kill old processes first
-  (`pkill -f 'dist/server/entr[y]'` — bracket trick avoids killing your own shell).
+  rendered tables/`$$` blocks no matter what atomic ranges say. The fix was to replace
+  vertical motion with a plain source-line cursor (preview.ts `arrowStep`) and delete
+  the machinery. Don't reintroduce pixel-based correction around reveals.
+- Every CodeMirror `WidgetType` subclass must implement `toDOM` — one without it
+  (`e.toDOM is not a function`) crashed the whole decoration pipeline, silently killing
+  tables/fences too. Unit tests (node:test) can't catch DOM-render bugs.
 - Login page ships all fields visible in HTML; the locked path hides the 2FA group via
   JS. Do not "unhide later" — there is no unhide step, only hide paths. (This exact bug
   shipped twice.)
-- Every CodeMirror `WidgetType` subclass must implement `toDOM` — one without it
-  (`e.toDOM is not a function`) crashed the whole decoration pipeline, silently killing
-  tables/fences too. Diagnosed only via a headless-DOM dump; unit tests (node:test) can't
-  catch DOM-render bugs. Test on the server, per the workflow rules.
-- Never commit secrets or the `.env`. The project repo itself has almost nothing
-  committed yet; only commit when explicitly asked.
+- Never commit secrets or the `.env`.
 
-## Known issues (audit 2026-10-04) — all tiers fixed, decisions recorded
+## Invariants from shipped work (owner decisions — do not relitigate)
 
-A full read-only audit of the project against this file. Everything below was verified in
-the source. Tier 1 was fixed on 2026-10-04 (same day); Tiers 2–4 (the cheap ones) followed
-the same day, and the last Tier 4 items were verified against the source and fixed the
-same day after owner review. Treat the audit as a work list,
-not as spec — where the two disagree, the code is current and the prose above is stale.
+What follows distills the rules that shipped features established. The narrative
+history is in git; only the rules are kept here.
 
-**Tier 1 — real bugs, small fixes, no API change — FIXED 2026-10-04:**
+**Undo = branch + master reset.** The works-dir git log is the undo history;
+nothing is ever destroyed — master moves back, the log branches.
+`POST /api/undo`: `flushAll()` → record HEAD → `git branch undo-<ts>` (colons
+illegal in refs; same-second collisions get `-2` via `nextUndoBranch`) →
+`git reset --hard HEAD~1` → `diff --name-status old..new`. A dirty worktree after
+flushAll ABORTS the undo — `reset --hard` must never destroy text on disk.
+Root commit → "nothing to undo". The undo map maps CURRENT-tree names → target-tree
+names (`map[from] = to`). Commit failures stay server-log only (no UI signal) —
+the localStorage draft protects the text.
 
-- the idle lock fired itself: the middleware `touch`ed the *old* token, then minted a
-  *fresh* cookie with no `seen` entry ("no entry" = locked) → ~15 days after each login the
-  next request bounced to `/login?locked=1`. Fixed with `touch(fresh)` after minting
-  (`middleware.ts`), plus a sweeper in `auth/idle.ts` that drops entries older than the
-  idle lock (they are meaningless — the session is locked by then anyway).
-- one unreadable folder killed the whole tree: `scan()` now try/catches `readdirSync` and
-  renders the folder empty, matching `countFile`'s swallow-an-error behaviour.
-- the rate limiter trusted the client's IP: `clientIp` now uses the **socket address
-  only** and ignores `x-forwarded-for` entirely — XFF is client-supplied and forgeable,
-  and behind Caddy every socket address is the proxy anyway, so the login rate limit is
-  one global bucket. Product decision by the owner: a global lockout is fine and even
-  desired (a break-in attempt locks everything and is visible).
-- `pdf.ts` `chapterTitle`'s fallback spoke the old disk-prefix numbering grammar; it now
-  prints the raw title unnumbered (a number there could only contradict the sidebar), and
-  the "UNCLENED" typo is gone.
+**Undo ladder (client).** Native Ctrl+Z / Ctrl+Shift+Z covers only work since the
+last commit: the client resets the CM native stack at every commit boundary by
+rebuilding the editor (same doc, selection, scroll) — triggered by the PUT
+response's `committed` flag and a 5s idle timer after a confirmed push (both
+postponed while typing; a reset never kills native undo of unsynced text).
+Exhausted native undo → git undo; exhausted native redo (`redoExhausted()`) →
+the history view (forward jumps live there; no /api/redo). No editor open → bare
+Ctrl+Z goes straight to git undo; text fields keep their native undo.
 
-**Tier 2 — consistency / dead code — FIXED 2026-10-04:**
+**Commit cadence & message grammar.** `PUT /api/file` writes and calls
+`markDirty(path, charDelta)`; the coalescer commits at **5s idle** or **≥1000
+chars**, whichever first. Messages: save `path : <YYYY-MM-DD HH:MM:SS>` (local
+server time, several pending paths → one line each) · rename `old -> new` ·
+create `path (new)` · delete `path (deleted)` · restore `path (restored <sha7>)` ·
+reorder one `old -> new` line per moved file, single commit. `flushAll()` runs
+before `new`/`rename`/`delete`/`reorder`/undo/make-master/lock/log-out/pdf
+compile and on SIGTERM; at boot a dirty worktree commits as `recovered : <time>`,
+a fresh repo's first commit is `INIT : <time>`. Commits ride the serialized
+promise queue in `git.ts` (`transaction(fn)` for multi-command sequences — a
+coalescer commit can never interleave).
 
-- The "what's visible" rule (drafts + notes + empty folders) lived in **two** copies
-  (`index.astro`'s `visible` and `pdf.ts`'s `clean`). It is now `src/lib/visibility.ts`
-  (`visibleNodes(nodes, opts)`), shared by both; the sidebar's drag-preview escape hatch
-  is an optional `keepEmpty` callback the pdf path omits.
-- `renameEntry`'s duplicate check used `fs.existsSync`; it now goes through
-  `findExisting`, the same case-insensitive, prefix-stripped rule `createEntry` uses —
-  a case-variant collision is rejected on rename too.
-- `dropDraft` cleared the global `iauthor.draft` pointer unconditionally; it now clears
-  it only when it names the draft being dropped, so a second file's draft stays
-  restorable at boot.
-- The unsynced chip could stick: `pushNow`'s equal-content early return left the dirty
-  counter set. `clearIfClean` now resets it (and fires `onDirtyChange`), and `pushNow`
-  calls it on that path.
-- Dead code removed: `rawTitle()` (identity wrapper), `scan`'s never-read `depth`
-  parameter, `buildDeco`'s unused `onOpenLink`, the `placeholder` re-export.
+**Path maps & longest-prefix remap.** Undo, restore, reorder and rename all return
+`{old: new}` path maps; the client remaps expanded folders, selection, drafts and
+`iauthor.last` through them — always by **longest prefix** (a moved folder changes
+the path of everything inside it while the map carries only the folder). Undo and
+restore additionally DROP drafts of changed paths (else the reverted "future"
+resurrects) and detach the editor WITHOUT pushing (a push would resurrect undone
+text).
 
-**Tier 3 — this file is behind the code (fix the prose, not the code) — FIXED 2026-10-04:**
+**History view.** A third main view `#history` beside `#empty`/`#doc`, entered via
+the `git` btn-tiny in the side-foot (rendered pre-setup too). `leavingFile()` first.
+DAG list: main spine (reachable from HEAD) at indent 0, `undo-*` branches indented
+under a guide line, newest first, "you are here" dot on HEAD's commit. Click a node
+→ preview panel (message, time, sha7, changed files); click a file → read-only
+preview via `/api/git/show`. Actions: **fetch file** (restore-file — one file's
+content at a commit as a NEW commit, master never moves) and **make master**
+(whole-tree jump, danger, appConfirm; branches the current HEAD away ONLY when
+moving to an ancestor — a jump to a descendant skips the branch). Both share
+`applyRestore`. Escape → welcome (`stopImmediatePropagation`, menus first); any
+tree-row click leaves the view. On mobile, entering closes the overlay.
 
-- Self-contradiction resolved: the ☰ line under "Laptop-first" now defers to the Nav
-  bullet (the toggle exists today; 4.7 replaces it with the title-as-toggle overlay).
-- §Repository layout now lists `editor.ts`, `pdf-wait.ts`, `pdfstatus.ts`, `visibility.ts`
-  and the `*.test.ts` suites.
-- The `IAUTHOR_LUALATEX` table row now says `pdf.ts` reads it directly (config.ts owns the
-  rest).
-- §Dev workflow's `deploy` line describes the real push-and-server-builds behaviour.
-- The `[::1]` doc trap is fixed in code: `IAUTHOR_DOMAINS` now defaults to
-  `localhost,[::1]`, so `http://[::1]:4321` no longer 403s non-GET requests.
-- `.gitignore` covers `dist.old/`.
+**APIs for undo/history** (`src/pages/api/git/`): `history` (latest 200 commits
+over all refs, flushed first), `show` (file content at a commit — `isSha`/
+`isMdPath` guards; git resolves the path inside the tree, no `safePath`), 
+`restore-file`, `make-master`. `PUT /api/file` responds `{ok, committed}` —
+`committed: true` when that write crossed the char trigger.
 
-Still stale prose (left open deliberately): the secrets-cache claim ("deleting the
-secrets file re-runs setup" is false until the process restarts — `auth/secrets.ts` caches
-at module load), the login-page gotcha shape (`login.astro:6` ships `<main hidden>` and
-reveals after the `/api/session` probe; the "no unhide later" rule guards a different
-element), and the Roadmap 4.5 "prefix-derived numbers" wording (historical, superseded by
-the numbering rework below it — needs a footnote, not a rewrite).
+**Nav invariants.** `.app.nav-off` is the only state, `setNav(open)` the only
+mutator; it toggles `aria-expanded` + `inert` on tree/toolbar/side-foot, owns the
+mobile overlay scroll lock (body overflow hidden while open — cleared on close
+AND when the mq flips to desktop) and clears `.bar-away`. **No nav persistence**:
+desktop always boots with the tree open; mobile always boots hidden (pre-paint
+inline script applies `nav-off` so it never flashes). The markdown view keeps ONE
+static left margin regardless of the tree (unconditional padding on `.main`) —
+nothing moves when the tree hides or shows; the measure re-clamps on window resize
+only. Collapsed sidebar is pointer-transparent except `.brand` (no dead zone).
+Fade transitions gated behind `body.nav-anim` + `prefers-reduced-motion` (boot adds
+nav-anim in the same task as the initial setNav — the first paint never slides).
+Mobile: scrolling down past 48px with the tree closed adds `.bar-away` (title bar
+slides away, ◐ and undo/redo buttons ride it; any scroll up brings them back).
+Escape closes the nav only when the create popup and menus are closed (they get
+Escape first); the create popup and the context menu force `setNav(true)` first.
 
-**Tier 4 — needs an explicit product decision, not just an edit:**
+**Tree UX contracts.** The caret toggles without selecting; a folder ROW click never
+collapses — it opens the folder's index and unfolds; only a repeat click on the
+viewed folder (`currentGroup === node.path`) toggles. Chrome (brand, .btn-tiny,
+tree rows) is user-select: none; row `:hover` is gated behind `@media (hover: hover)`.
+Drag & drop: the whole row is the handle; the dragged copy is a custom `.drag-card`
+(no `setDragImage` games — engines rasterize differently); cleanup rides a `dragend`
+listener on the source row itself (renderTree can detach it mid-drag). Drop bands:
+each row's TOP half = a slot at its OWN level above it (above the first child ==
+below its parent — one line), BOTTOM half = below (entry) or inside (folder);
+ONE `#insert-line` element serves create (green) and move (blue), red pulse =
+delete. Hovering a closed folder expands it, but the chain of hover-opened folders
+lives or dies with its outermost member (`dragOpened` + `pruneDragOpened`); the
+whole sidebar viewport is a drop zone — aiming off the rows lands TOP level,
+appended last. HTML5 DnD does not fire on touch.
 
-Fixed the same day (cheap, no product question involved): `--shell-escape` dropped from
-the LuaLaTeX invocation (`pdf.ts`); setup response sends `Cache-Control: no-store`;
-`parseDuration` accepts `1d`-style durations; `IAUTHOR_SECURE` accepts `true`/`yes`/`on`;
-`git.ts` checks for a trailing newline before appending `*.pdf` (fixed during Tier 1);
-`.gitignore` covers `dist.old/`. The `seen`-map leak was fixed with the idle sweeper.
+**Touch profile.** tap = open (native click), swipe = native scroll (arm timer
+cancels on >10px), hold 500ms = ARMED with nothing visible (10ms vibration); from
+armed, moving >8px starts a real drag (reusing the desktop machinery), an unmoved
+lift opens the context menu at the finger. `lastLongPressAt` (700ms) suppresses the
+trailing synthetic tap; `touchPressAt` (800ms) stands down Android's own long-press
+contextmenu. On touch, drag/create previews ride the popups instead of hover (the
+insert line shows while the create dialog is open; the delete flash pulses during
+the confirm window — appConfirm does not block). The create popup `#new-dialog` is
+a confirm-style card at body level: outside click capture-cancels (nothing behind
+it acts), Escape cancels first, Enter adds, errors stay inside the dialog.
 
-Verified against the source (2026-10-04) and **all resolved** — each with a decision:
+**Measure (adjustable line/field width).** Two handles on `.doc-head`'s underline:
+A (▶, at the line's START) changes only the always-centred LINE's width (both
+margins equally); B (◀) is the ONLY field-width control. The LINE WRAPS the
+content: one centred `.doc-col` column, the field rides its start BY STRUCTURE —
+no inset formula (a content-side inset once desynced the topline; shipped and
+reverted). Clamps, floor first: field ≥ 36ch (absolute), line ≥ field, both ≤
+content width; B can never widen the topline. `--measure` must NOT be named
+`--line` (shadows the --line colour token — strips every border inside .main).
+`font: inherit` on the handles is load-bearing (else B's 72ch fallback resolves
+against the button's UA font and the handle teleports). State in localStorage
+(`iauthor.measure`), same in every file; Pointer Events + setPointerCapture;
+arrow keys nudge by 1ch; resize re-clamps. No handles on mobile (full width).
 
-- `.md.md`: confirmed real — `slugify` kept dots and `createEntry` appended `.md`
-  unconditionally, so typing "notes.md" yielded `01_notes.md.md`, while `renameEntry`
-  stripped the extension first. Fixed in the grammar once: `slugify` strips a trailing
-  `.md`/`.markdown` (typing "notes.md" now yields `01_notes.md`); `renameEntry`'s own
-  strip became redundant and was removed.
-- **Un-drafting vs un-numbering** (owner decisions): un-numbering stays impossible by
-  design — the prefix is preserved unless the typed name carries one explicitly
-  (`composeName`). Un-drafting was added: the `draft_` token now FOLLOWS the typed
-  name (`draft = t.draft`, not `t.draft || old.draft`) — the rename editor prefills
-  the full disk name, so deleting the token is a deliberate act.
-- `git.commit()` swallowed every failure and the five mutation routes ignored the
-  return value. Fixed by serializing commits through a module-level promise queue in
-  `git.ts` (two rapid saves can no longer race on `.git/index.lock`) plus one retry
-  after 250 ms before the `console.warn` + `return false`. Owner decision: failures
-  stay **server-log only** (no UI signal) — the localStorage draft already protects
-  the text itself.
-- Oversized files reported **0 words** while unreadable. Fixed by giving the word
-  counter its own cap (`MAX_COUNT = 4 × MAX_FILE` in `works.ts`) — the app can't
-  create such files anyway (`writeChapter` enforces 512 KB). Also `listWorks`
-  `mkdirSync`ed the works dir on every `GET /api/tree` — removed; `scan()` returns
-  `[]` on ENOENT and `ensureRepo` owns dir creation.
-- `pdfstyles/a4.tex` vs `a5.tex` share 51 of 54 lines. Owner decision: **duplication
-  accepted**, kept in sync by hand (noted in §Repository layout; an `\input`-shared
-  base was rejected because it would complicate the pdf cache's style-hash freshness
-  for 3 lines of divergence).
+**Welcome pseudo-file & misc UI.** `#empty` is a read-only `.doc-col` with a
+`.doc-head` — deliberately NOT a real file (a top-level welcome.md would take a
+number and pollute the frozen disk schema). **Trap**: `#empty` precedes `#doc` in
+the markup, so every `.doc-head` query must be scoped to `#doc` (`docHead = 
+doc.querySelector('.doc-head')`) — keeps rename wiring, the ch probe and the
+measure handles off the welcome header. Tap below the text → caret to the end
+(the end of a long chapter is unreachable by tap otherwise). Mobile undo/redo
+buttons (`#undo-btn`/`#redo-btn`) are SIBLINGS of `.app` so the `~` selectors work
+(same rules as the theme toggle ◐: nav-off z-index, bar-away scroll-away, nav-anim
+gates).
 
-**Claims that look like drift but are NOT — don't "fix" these:**
+## Backup contract (milestone 6, implemented elsewhere)
 
-- `pnpm test` really does glob (`package.json:9`: `node --experimental-strip-types --test
-  src/lib/*.test.ts`), so `pdf.test.ts` runs. The §Gotchas warning is satisfied.
-- Printed numbers are positional in **both** the code (`works.ts:162-193`) and §Data &
-  naming. Only the historical Roadmap entry lags.
-- `renameEntry` preserving the prefix + `draft_` token is documented correctly
-  (`composeName`).
-- There is no `?` placeholder for unprefixed entries any more; `kindNumber`'s `num === '?'`
-  branch (`works.ts:152`) is the only leftover, and it is unreachable.
-
-## Shipped: collapsible tree view (milestone 4.7, 2026-10-06)
-
-The `I author` brand is a `<button>` and the only way to show/hide the tree; the ☰
-hamburger (`#menu-btn`) is deleted outright. **Owner decision (2026-10-09, simplifying
-the 2026-10-06 docked jump): the sidebar is a fixed overlay, and the markdown view keeps
-ONE static left margin regardless of the tree — `@media (min-width: 901px)
-.main { padding-left: calc(var(--tree-w) + clamp(1rem, 8vw, 10rem)) }` is unconditional,
-so nothing moves when the tree hides or shows (no slide, no `.measure-slide`, no
-`applyMeasure()` in `setNav` — the content width no longer changes with the nav; the
-measure re-clamps on window resize only). (A grid track was tried first on 2026-10-06:
-the fixed sidebar is out of flow, so `.main` auto-placed into the tree's own 18rem track —
-the view got squashed into it. Padding can't misplace.)**
-
-- **desktop** — click the title → tree, drafts toggle and the lock/log-out row
-  fade out (`opacity` + a 0.5rem slide), the sidebar's background and right border fade
-  to transparent, and only the title stays live at the top-left. The theme toggle stays
-  floating at the viewport's top-right.
-- **mobile (≤900px)** — the title bar (`.side-head`, page-coloured like everything on
-  mobile — no card bar) is always
-  visible at the top of the fixed overlay; the tree expands **over the whole page**
-  (`position: fixed; inset: 0`). **Starts hidden on every load** — a pre-paint inline
-  script in the markup applies `nav-off` on mobile so the overlay never flashes before
-  the app script runs. Close via the title, `Escape`, or picking a chapter.
-
-### Layout: overlay sidebar
-
-```css
-.app { display: grid; grid-template-columns: 1fr; min-height: 100svh; }
-@media (min-width: 901px) {
-  .main { padding-left: calc(var(--tree-w) + clamp(1rem, 8vw, 10rem)); }
-}
-.sidebar { position: fixed; top: 0; bottom: 0; left: 0; width: var(--tree-w); z-index: 20; }
-@media (max-width: 900px) {
-  .sidebar { inset: 0; width: auto; border-right: 0; background: var(--bg); }  /* full-page overlay, page-coloured */
-  .side-head { background: var(--bg); }               /* fixed title bar, page-coloured — no separate bar */
-  /* title bar stays full-bleed; its underline is a .side-head::after drawn
-     line inset 0.5ch both ends (a border can't be shorter than its element);
-     nav-off hides it via background: transparent (the fade transition too) */
-  .main { padding: 3.5rem 0.5ch 2rem; }                 /* half a char to the sides */
-  .measure-h { display: none; }                         /* no handles on mobile */
-  .doc-col { width: 100%; }                             /* measure never applies */
-  .doc-col > .md-body, .doc-col > #editor-host { width: 100%; }
-}
-```
-
-`.main` keeps its fluid width and the `clamp` padding. The measure (4.65) lives inside it
-and is **independent of the nav state**: the resting geometry is a FULL-width line —
-`--measure = min(var(--line-w, 100%), 100%)` sizes ONE centred `.doc-col` column; the
-topline (`.doc-head`) spans it and the field rests at 72ch on the
-column's start, B at 72ch (not far right). Dragging A widens or narrows the line
-symmetrically (the field rides the column's start, B moves with it), B sizes the field
-within the line. The measure re-clamps on window resize only (the nav state no longer
-changes the container width).
-
-### Collapsed = pointer-transparent
-
-Collapsed `.sidebar`: `background: transparent; border-right-color: transparent;
-pointer-events: none`, with only `.brand { pointer-events: auto }`. The invisible panel
-then swallows no clicks, text selections or scroll gestures and leaves no dead zone — only
-the title is live. `--nav-dur: 0.2s`; fade transitions gated behind `body.nav-anim`
-(boot adds it in the same task as the initial `setNav` so the first paint never slides),
-dropped under `prefers-reduced-motion`.
-
-### State, a11y, files
-
-- `.app.nav-off` is the only state, `setNav(open)` the only mutator; it also
-  toggles `inert` on tree/toolbar/side-foot so Tab skips the hidden parts, and
-  refuses to close while the create popup is open.
-- **No nav persistence** (owner decision): desktop always boots with the tree open — a
-  reload undoes a close; mobile always boots hidden (the pre-paint inline script applies
-  `nav-off`). Shrinking to mobile (mq change) hides the panel the same way.
-- `brand` is `<button aria-expanded aria-controls="tree">`, styled to look like the old
-  span (`font: inherit` is load-bearing for buttons).
-- `Escape` closes — but only when the create popup and both menus are closed; they get
-  Escape first. The create popup and the tree context menu force `setNav(true)` first,
-  so no control can ever sit behind a closed panel.
-- **The create popup** (owner request 2026-10-11; the in-panel `.new-row` strip is
-  deleted): `#new-dialog` is a confirm-style card at body level (shares
-  `.confirm-backdrop`/`.confirm-card`/`.confirm-row` styles; `.new-card` adds the
-  md/dir toggle, the `in <title>` context, the input and an inline error line).
-  Outside click is capture-intercepted to cancel (nothing behind it acts), Escape
-  cancels (it gets Escape before nav), Enter adds. The insert line + anchored folder
-  preview stay up while it is open (touch has no hover); on ok they close and the
-  result opens as before. On error the dialog stays up with the message inside.
-- Tree row click: `if (narrow()) setNav(false)` — on desktop the tree stays open
-  while switching chapters.
-- Touches `index.astro` (markup: brand button, menu-btn deleted, pre-paint inline
-  script; ~50 lines of script — `setNav` joins the flow map above) and `global.css`
-  (`.app`, `.sidebar`, the `.nav-off` rules, the media-query rewrite, `.menu-btn`
-  deletion, `--nav-dur`).
-
-Defaults baked in: desktop boots with the tree **open, always** (no memory), and
-`lock` / `log out` / `drafts` stay inside the panel, reachable only with the tree open (they
-are tree chrome, not reader chrome).
-
-## Roadmap
-
-Done: 1) scaffold + auth (PIN/TOTP/recovery/device cookie/idle lock) · 2) works tree,
-file APIs, sidebar, local git auto-commit · deploy routine · login/setup polish ·
-3) editor — CodeMirror 6, chunked sync (push at ≥10 words changed or 5s idle), unsynced
-words lighter → fade on confirm, sessionStorage draft survives reload/PIN lock ·
-4) live preview (Obsidian-style) — single CodeMirror source of truth; decorations hide
-syntax and render compiled output everywhere except the cursor's line while focused;
-tables/checkbox widgets/inline styles; fenced code highlighted via language-data;
-ctrl/cmd+click opens links (external → new tab, relative .md → in-app) ·
-4.5) naming/filesystem refactor — `01_name` disk schema (migration ran on the server),
-display titles (Work/Book/Part/Chapter, bare top level, prefix-derived numbers),
-drafts + hide toggle, folder index view, notes/title special files, header rename,
-`src/lib/naming.ts` grammar module · 4.6) tree context menu — right-click a row or
-empty space for `new`/`delete` (hover previews: green blinking insertion line, red
-pulsing subtree); create dialog with md/dir toggle + auto `NN_` prefix prefill;
-sidebar toolbar reduced to the drafts toggle (eye glyph); expand/collapse state
-persisted in localStorage (`iauthor.expanded`), caret clicks toggle without
-selecting · 5) PDF compiler via LaTeX (replaced an in-editor paged view that
-fought screen text sizes — deleted) — the `pdf` dock button opens
-`/pdf?path=&preset=` which compiles (or just streams, if fresh) a real PDF
-beside its source in the works dir (`01_flight.md` → `01_flight.pdf`,
-folder `01_work/` → `01_work.pdf`); LuaLaTeX + the `markdown` package,
-preamble "stylesheets" live in `pdfstyles/` (first line `% label: ...`,
-menu from `GET /api/pdfstyles`, default `academic` = 6.1″×9″; Book/Part folders get a division page of their own (always after a page break) stacking the printed convention — the more senior the division, the smaller its type: enclosing division in small caps, own label below, title large via `\part*` (so the style's titlesec block still owns it); each page names its
-  **immediate** container — a book's parts print the book, a work's books print the
-  work — and the fragment key covers those lines, so renaming a book rebuilds its
-  parts' pages; only books take Roman numerals — parts and chapters are Arabic;
-recompile item + stale-mtime auto-recompile; preset in
-`iauthor.pdf-preset`); folder scopes get title page + `\tableofcontents`
-(real page numbers, two-pass compile), chapters get ruled unnumbered section
-headings, markdown content headings shift down one level; folder aggregates
-follow the sidebar's drafts toggle (`drafts=1` includes them — a `.texbuild`
-state file keys artifact freshness by style + toggle + mtimes), while a
-directly requested draft chapter always compiles; works dir `.gitignore` gets
-`*.pdf` seeded by `ensureRepo`;
-KaTeX renders `$…$`/`$$…$$` math in the editor preview (`preview.ts`).
-4.65) adjustable measure — two handles on the header underline: the left one (▶, at the
-line's start) changes only the always-centred line's width (both margins equally), the
-text view rides the line's start, the right one (◀, at the field's right edge) alone
-sets the field's width (36ch floor, line-bound, line ≥ field); state persisted
-in localStorage (`iauthor.measure`),
-arrow-key nudge on both handles, touch via Pointer Events + capture ·
-4.7) collapsible tree view — the `I author` title is the only tree toggle (☰ deleted);
-the sidebar is an overlay over the page, and the markdown view keeps ONE static left
-margin regardless of the tree (see §Shipped: collapsible tree view above);
-mobile expands the tree over the page and starts hidden.
-
-Polish (2026-10-09, shipped): folder row clicks never toggle the tree — they open the
-index and only unfold; a repeat click on the viewed folder (or the caret) flips it ·
-the whole sidebar viewport is a drop zone (rows keep their bands; anywhere else lands
-TOP level, appended last) · hover-opened folders live or die with the chain's outermost
-member (`dragOpened` + `pruneDragOpened`) · the measure is ONE centred `.doc-col`
-column the topline wraps (the field's derived inset formula is gone — a content-side
-inset once desynced the topline, shipped and reverted the same day) · measure line +
-handles share `--line-strong` (halfway between the old line tone and the text colour),
-apexes offset 0.1ch inward · mobile pass begun: no measure handles, markdown always
-full width, half-char side margins, page-coloured title bar + overlay (no card bar),
-title-bar underline a drawn `::after` line inset half a char, chrome (brand, buttons,
-tree rows) user-select: none.
-
-Editor navigation rework (2026-10-10, shipped): hidden syntax ranges are non-atomic
-(only the checkbox is atomic) so ←/→ traverse raw offsets; ↑/↓ are a plain source-line
-cursor over the markdown file (one file line per keystroke, char indent carried across
-blobs, ←/→ adopt the new column while line-crossing ←/→ preserve the indent — short
-blob lines would otherwise reset it to 0); widget clicks map to source (a table click
-lands in the clicked cell via a per-cell offset map, math/img/hr reveal raw at their
-start). Deleted en route: a hybrid native/intercept vertical motion and a
-`pinScreenY` scroll-compensation — the reveal on entry just shifts layout around a
-scrollIntoView'd caret, like Obsidian.
-
-Numbering rework, phase 1 (shipped): printed numbers are positional among same-kind
-siblings instead of the disk prefix; `renameEntry` edits the title and preserves the
-prefix + draft token (`composeName`); matter accepts a prefix; print/artifact names
-come from `Node.raw` (`scopeTitle`); `pnpm test` globs so new test files actually run.
-Phase 2 (shipped): prefixes hidden in the tree, contiguous per directory incl. top
-level (one-time `scripts/migrate-numbering.mjs`, dry-run by default, git-committed),
-`POST /api/reorder` + drag & drop within and across folders, both returning an old→new
-path map so client state (expanded, selection, sessionStorage drafts) remaps.
-The numbering rework is complete — no further phases.
-
-## Shipped: welcome pseudo-file + mobile pass 1 (2026-10-11)
-
-- **Welcome = read-only pseudo-file**: `#empty` is no longer one line of muted
-  text — it is a `.doc-col` with a `.doc-head` ("Welcome") and a static
-  `.md-body` explaining drafts, notes.md, matter names, positional numbering,
-  header rename and the pdf button. It renders like a chapter, is not editable,
-  and is deliberately NOT a real file (a top-level welcome.md would take a
-  number and pollute the works tree; the disk schema is frozen product data).
-  **Trap**: `#empty` precedes `#doc` in the markup, so every `.doc-head` query
-  must be scoped to `#doc` — `docHead` is `doc.querySelector('.doc-head')`,
-  which keeps the rename wiring, the ch probe and the measure handles off the
-  welcome header (`.empty .doc-head { cursor: default }`).
-- **Tap below the text → caret to the end**: a click on `.main` whose target is
-  below the editor content's bottom (`editorHost.getBoundingClientRect().bottom`)
-  and not inside editor/header/buttons/menus dispatches
-  `EditorSelection.cursor(doc.length)` + scrollIntoView and focuses — the end
-  of a long chapter is unreachable by tap otherwise. Clicks beside the text
-  (same vertical band) do nothing.
-- **Topbar hides on scroll down (mobile)**: with the tree closed, scrolling down
-  past 48px adds `.bar-away` on `.app` (4px hysteresis, `window` scroll — the
-  document is the scroller, `.main` has no height of its own); `.side-head`
-  `translateY(-100%)` slides the title bar away, any scroll up or y ≤ 48 brings
-  it back. Only while nav-off; `setNav(true)` clears the class. The
-  transition rides `body.nav-anim` + `prefers-reduced-motion` like the rest.
-- **Overlay scroll lock (mobile)**: `setNav` sets `body.style.overflow` to
-  hidden while the panel is open on mobile — a hold under the last file row
-  otherwise scrolled the page behind the overlay. Cleared on close AND when the
-  mq flips back to desktop (else the lock sticks and the page can't scroll).
-- **Mobile side margins**: `.main` mobile padding is `3.5rem 1ch 2rem` (was
-  0.5ch); the title-bar underline `::after` insets 1ch to keep aligning with
-  the text edge.
-
-- **Theme toggle rides the mobile scroll-away** (2026-10-11, revised same day —
-  an earlier attempt moved it into the sidebar's title bar and was backed out):
-  the ◐ button stays floating at the viewport's top-right on every page, but on
-  mobile it hides with the topbar — `.app.bar-away ~ .theme-toggle` slides it
-  above the viewport (transform + fade, `--nav-dur`, gated behind
-  `body.nav-anim` + reduced-motion) and any scroll up brings both back;
-  desktop is unaffected (bar-away only exists while narrow + nav-off).
-
-Next: 6) Backup via the owner's external microservice (separate repo, NOT this
-codebase — iauthor implements nothing): the contract is implicit — the works
-dir is a git repo, everything textual is committed (the autosave coalescer
-closes bursts within ~5s), pdfs are gitignored and recompilable. The
-microservice (systemd timer, user `server`; READ-ONLY rule: never
-commit/add/reset inside the works repo, that would pollute the undo history):
+The owner's external microservice (separate repo, NOT this codebase — iauthor
+implements nothing): the works dir is a git repo, everything textual is committed
+(the autosave coalescer closes bursts within ~5s), pdfs are gitignored and
+recompilable. The microservice (systemd timer, user `server`; **READ-ONLY rule**:
+never commit/add/reset inside the works repo, that would pollute the undo history):
 `git clone --mirror` once, `git fetch --prune` each tick, push a timestamped
 `git bundle --all` (full DAG incl. `undo-*` refs) to ProtonDrive via rclone,
 keep last N; restore = clone the bundle → point `IAUTHOR_WORKS_DIR` at it.
-Concurrent reads are safe (git ref updates are atomic); a burst caught
-uncommitted rides the next snapshot. A remote (off-server) consumer would
-need an API — YAGNI today. (The setup page's masterKey field was removed
-2026-10-11 — backups are plaintext under this decision.)
+Concurrent reads are safe (git ref updates are atomic); a burst caught uncommitted
+rides the next snapshot.
 
-Deferred todo list: client-side LLM word-prediction
-(flag unlikely tokens as possible typos, suggest fixes).
-
-## Planned (owner request 2026-10-11, not yet built): scope prefaces
+## Planned (owner request, not yet built): scope prefaces
 
 A preface file that can live on ANY level — a preface to a part, to a book, or
 to a whole work — acting as the preface of whatever folder it sits in. Sketch
@@ -912,109 +535,6 @@ settle BEFORE building (owner decides):
 - **Any level**: work, book, part — placement in the pdf contents (`pdf.ts`)
   and in the folder index view (`showGroup`) must follow the depth.
 
-## Shipped: autosave coalescer + git-backed undo (2026-10-11)
+## Deferred todo list
 
-The works-dir git log is the undo history. All decisions below are owner
-decisions (settled 2026-10-11) — do not relitigate. Shipped in four commits:
-autosave coalescer → `/api/undo` + ladder + commit boundaries → mobile
-undo/redo buttons → history API. **The history view UI is shipped** (see
-the last bullet).
-
-**Commit cadence** — saves stop committing every push. `src/lib/autosave.ts`:
-`PUT /api/file` writes and calls `markDirty(path, charDelta)`; a single
-coalescer commits when **5s idle** (true debounce) or **≥1000 chars**
-accumulated, whichever first. Message: `path : 2026-10-11 14:03:22` (local
-server time, exactly this format; several pending paths → one line each).
-`flushAll()` force-commits pending bursts before `new`/`rename`/`delete`/
-`reorder` (each mutation stays ONE commit), undo/make-master, lock/log-out,
-pdf compile, and on SIGTERM; at boot a dirty worktree commits as
-`recovered : <time>`, and a fresh repo's first commit is `INIT : <time>`
-(owner request: a special INIT text). Commits ride the serialized queue in
-`git.ts`; `transaction(fn)` runs multi-command sequences (branch+reset) on
-the same queue so a coalescer commit can never interleave. A failed commit
-stays server-log only — the text is on disk, the next commit sweeps it in.
-`PUT /api/file` responds `{ok, committed}` — `committed: true` when that
-write crossed the char trigger (the client's boundary signal).
-
-**Message grammar**: save `path : <time>` · rename `old -> new` · create
-`path (new)` · delete `path (deleted)` · restore `path (restored <sha7>)` ·
-reorder one `old -> new` line per moved file, single commit.
-
-**The undo ladder (owner refinement 2026-10-11)** — native Ctrl+Z /
-Ctrl+Shift+Z covers ONLY work since the last commit: the client resets the
-CM native stack at every commit boundary by rebuilding the editor (same doc,
-selection, scroll). Two triggers approximate the server coalescer: the PUT
-response's `committed` flag and a 5s idle timer armed after each confirmed
-push (both cancelled/postponed while typing — a reset never kills native
-undo of unsynced text; the `committed` flag waits for the next clean push
-confirm). Exhausted native undo → git undo; exhausted native redo → the git
-history view (forward jumps live there; no /api/redo). No editor open →
-bare Ctrl+Z goes straight to git undo; text fields keep their native undo.
-
-**Undo = branch + master reset** (owner model — nothing is destroyed, master
-moves back, the log branches): `POST /api/undo` runs `flushAll()` → records
-HEAD → `git branch undo-<2026-10-11_14-03-22>` (colons illegal in refs;
-same-second collisions get `-2` via `nextUndoBranch`) → `git reset --hard
-HEAD~1` → `diff --name-status old..new`. The flushed burst is therefore the
-LAST commit on the now-stale branch, and master undoes past it — exactly the
-owner's wording. A dirty worktree after flushAll (its commit failed) ABORTS
-the undo — reset --hard must never destroy text on disk. Whole-tree undo:
-master moves back one commit, whatever file it touched. Root commit →
-"nothing to undo". Response: `{changed[], map, content?, head}` — the map
-comes from `parseNameStatus` and maps CURRENT-tree names → target-tree names
-(`map[from] = to`; an earlier inverted version was a latent bug, fixed).
-Client (`gitUndo`/`applyUndo` in index.astro): debounced in flight, roundtrip
-via `setSync('pushing')`; drop drafts of changed paths (else the reverted
-"future" resurrects), `remapPaths` through the map (longest-prefix, same rule
-as renumbering), detach the editor WITHOUT pushing (a push or saved draft
-would resurrect the undone text), `loadTree()`, reopen the file (or welcome +
-clear `iauthor.last` when it was undone out of existence).
-
-**Mobile undo/redo buttons** (owner request): `#undo-btn` ↶ and `#redo-btn` ↷
-in `index.astro` markup, SIBLINGS of `.app` so the `~` selectors work;
-top-right left of ◐ (◐ · ↷ · ↶ from the edge), `display:none` default,
-shown only ≤900px; they duplicate the theme toggle's sibling rules
-(`.app.nav-off ~ …` z 30, `.app.bar-away ~ …` rides the scroll-away,
-`body.nav-anim` + reduced-motion gates; z 10 behind the tree overlay like ◐).
-Tap = the same ladder as the keymap (native first, exhaustion escalates);
-`redoExhausted()` is the shared stub both the keymap hook and ↷ call — it
-opens the history view once that exists.
-
-**History API (shipped)** — `src/pages/api/git/`: `history` (GET: latest 200
-commits over all refs with parents + changed paths, branch tips, current
-HEAD for "you are here"; flushes first; empty DAG on a fresh repo) · `show`
-(GET: file content at a commit — `isSha`/`isMdPath` guards; git resolves the
-path inside the tree, no `safePath`, which demands on-disk existence) ·
-`restore-file` (POST: one file's content at a commit → `restoreChapter` in
-`works.ts` (writeChapter that creates file + folder) → NEW commit, master
-never moves) · `make-master` (POST: flush → transaction → branch current
-HEAD as `undo-<ts>` ONLY when moving away from it (a jump to a descendant —
-redo — skips the branch, that state is already an ancestor of the target) →
-`reset --hard <sha>` → same response shape as undo).
-
-**Shipped: the history view UI (milestone 5, 2026-10-11)** — a `git`
-btn-tiny in the side-foot (after lock/log out — and rendered PRE-SETUP too,
-owner fix 2026-10-11: the app is open pre-setup, so the history view works
-there; it sits outside the authReady conditional). Clicking it: `leavingFile()`
-first (the pending burst is in the DAG), then the main area swaps to a
-third view `#history` beside `#empty`/`#doc` — a DAG list: main spine at
-indent 0 (everything reachable from HEAD), `undo-*` branch commits indented
-one level under a left guide line, newest first, with an accent "you are
-here" dot on the commit `head` points at and the branch name on its tip.
-Click a node → preview panel below the list: message, time, sha7, changed
-files; click a changed file → read-only marked preview via
-`/api/git/show` (stale-response guarded by the selection). The panel holds
-the two owner-requested actions: **fetch file** (restore-file, light,
-enabled only once a file is picked) and **make master** (whole-tree jump,
-danger, `appConfirm`). Both share `applyRestore`: drop drafts of changed
-paths, `remapPaths` through the map, `loadTree()`, then land on the
-restored file (fetch) or the remapped selection (make master) — or the
-welcome screen when it is gone. Exit: the git button toggles back to where
-the view was entered from (`selected` survives `leavingFile` as the exit
-pointer), `Escape` → welcome (`stopImmediatePropagation` so the nav toggle
-does not also fold the tree on the same keypress; menus get Escape first),
-any tree-row click leaves the view. `redoExhausted()` (native redo gone)
-now opens the view — the forward jumps live there. Mobile: entering the
-view closes the overlay (`setNav(false)`) so it is visible. Styles:
-`.hist-*` in global.css (JS-created DOM); `#history` reuses
-`.empty`/`.doc-col`/`.doc-head`/`.confirm-row`.
+- Client-side LLM word-prediction (flag unlikely tokens as possible typos, suggest fixes).
