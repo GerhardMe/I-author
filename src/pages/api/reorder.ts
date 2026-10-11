@@ -22,7 +22,7 @@ export const POST: APIRoute = async (ctx) => {
     await flushAll();
     const { moved, renumbered } = moveEntry(body.path, body.parent, before);
     const n = Object.keys(renumbered).length;
-    await commit(`reorder ${moved.from} -> ${moved.to}${n ? ` (+${n} renumbered)` : ''}`);
+    await commit(`${moved.from} -> ${moved.to}${n ? ` (+${n} renumbered)` : ''}`);
     return json(ctx, { moved, renumbered });
   } catch (e) {
     return json(ctx, { error: (e as Error).message }, 400);
