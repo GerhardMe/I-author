@@ -337,7 +337,8 @@ body.nav-anim .theme-toggle {
    they sit at z 10 behind the sidebar like ◐ (fine: no editing while the
    tree is open), nav-off raises them above the title-bar strip, and
    bar-away slides them away with the topbar. They sit LEFT of the theme
-   toggle, same top rhythm: ◐ · ↷ · ↶ from the right edge. */
+   toggle, same top rhythm: ◐ · ↷ · ↶ from the right edge — undo left,
+   redo right (next to ◐). */
 .undo-btn,
 .redo-btn {
   display: none;
@@ -355,11 +356,11 @@ body.nav-anim .theme-toggle {
 }
 
 .undo-btn {
-  right: 3.5rem;
+  right: 6rem;
 }
 
 .redo-btn {
-  right: 6rem;
+  right: 3.5rem;
 }
 
 @media (max-width: 900px) {
@@ -1156,6 +1157,145 @@ a.btn-tiny:hover {
   margin-top: 2rem;
   border-top: 1px solid var(--line);
   padding-top: 1.5rem;
+}
+
+/* ---------- history view (milestone 5; JS-created DOM) ----------
+   The DAG list: main spine at indent 0, undo-* branch commits one level in
+   under their fork point (a left guide line), "you are here" on HEAD. The
+   preview panel below the list reuses .confirm-row for its action buttons. */
+.hist-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.hist-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  width: 100%;
+  font: inherit;
+  text-align: left;
+  background: transparent;
+  border: none;
+  border-radius: 2px;
+  color: var(--fg);
+  padding: 0.3rem 0.25rem;
+  cursor: pointer;
+}
+
+.hist-row.branch {
+  margin-left: 1.1rem;
+  padding-left: 0.9rem;
+  border-left: 2px solid var(--line);
+}
+
+.hist-row:hover,
+.hist-row.sel {
+  background: var(--tint);
+}
+
+.hist-row.here .hist-subj {
+  font-weight: 600;
+}
+
+.hist-dot {
+  flex: none;
+  width: 0.55em;
+  height: 0.55em;
+  border: 1px solid var(--muted);
+  border-radius: 50%;
+  align-self: center;
+}
+
+.hist-dot.here {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.hist-subj {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hist-when {
+  flex: none;
+  color: var(--muted);
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+.hist-tip {
+  flex: none;
+  color: var(--accent);
+  font-size: 0.72rem;
+  letter-spacing: 0.02em;
+}
+
+.hist-msg {
+  font-weight: 600;
+  margin: 1.5rem 0 0.2rem;
+  overflow-wrap: anywhere;
+}
+
+.hist-time {
+  color: var(--muted);
+  font-size: 0.8rem;
+  margin-bottom: 0.6rem;
+}
+
+.hist-files {
+  list-style: none;
+  margin: 0 0 0.8rem;
+  padding: 0;
+}
+
+.hist-file {
+  font: inherit;
+  font-size: 0.82rem;
+  background: transparent;
+  border: none;
+  border-radius: 2px;
+  color: var(--accent);
+  padding: 0.2rem 0.4rem;
+  cursor: pointer;
+  display: block;
+  width: 100%;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.hist-file:hover,
+.hist-file.sel {
+  background: var(--tint);
+  text-decoration: none;
+}
+
+.hist-body {
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  padding: 1rem 1.2rem;
+  margin-bottom: 1rem;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+
+.hist-actions {
+  margin-top: 0.4rem;
+}
+
+.hist-actions button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.hist-actions #hist-master,
+.hist-actions #hist-master:hover {
+  color: var(--danger);
+  border-color: var(--danger);
 }
 
 /* ---------- markdown body ---------- */

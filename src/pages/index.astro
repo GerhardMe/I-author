@@ -20,6 +20,7 @@ const authReady = loadSecrets() !== null;
           <>
             <button class="btn-tiny" id="lock">lock</button>
             <button class="btn-tiny" id="logout">log out</button>
+            <button class="btn-tiny" id="git-history" title="git history">git</button>
           </>
         ) : (
           <a class="btn-tiny" href="/setup">set up 2FA</a>
@@ -68,14 +69,39 @@ const authReady = loadSecrets() !== null;
           <div id="editor-host" hidden></div>
         </div>
       </article>
+      <!-- history view (milestone 5): the DAG list beside #empty/#doc — main
+           spine at indent 0, undo-* branch commits one level in, "you are
+           here" on HEAD. A node click opens the preview panel below the
+           list (message, time, changed files); a file click previews the
+           content read-only via /api/git/show. The panel holds the two
+           restores: fetch file (one file, light) and make master (whole
+           tree, dangerous, confirmed). -->
+      <div class="empty" id="history" hidden>
+        <div class="doc-col">
+          <header class="doc-head"><h1>History</h1></header>
+          <div class="md-body">
+            <ul class="hist-list" id="hist-list"></ul>
+            <div id="hist-preview" hidden>
+              <p class="hist-msg" id="hist-msg"></p>
+              <p class="hist-time" id="hist-time"></p>
+              <ul class="hist-files" id="hist-files"></ul>
+              <div class="md-body hist-body" id="hist-body" hidden></div>
+              <div class="confirm-row hist-actions">
+                <button type="button" id="hist-restore" disabled>fetch file</button>
+                <button type="button" class="confirm-ok" id="hist-master">make master</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </main>
   </div>
   <!-- the mobile undo button (no Ctrl+Z on touch): a sibling of .app so the
        nav-off / bar-away sibling selectors keep working; it runs the same
        ladder as the desktop keymap — native CM undo first, git undo on
        exhaustion -->
-  <button id="redo-btn" class="redo-btn" aria-label="Redo" title="redo">↷</button>
   <button id="undo-btn" class="undo-btn" aria-label="Undo" title="undo">↶</button>
+  <button id="redo-btn" class="redo-btn" aria-label="Redo" title="redo">↷</button>
   <script is:inline>
     // pre-paint nav state: on mobile the overlay starts closed so the page is
     // never covered by a flash before the app script runs; desktop starts
@@ -977,6 +1003,14 @@ const authReady = loadSecrets() !== null;
   treeEl.addEventListener('click', async (e) => {
     // the synthetic tap a long-press leaves behind must not open the row
     if (Date.now() - lastLongPressAt < 700) return;
+    // any tree click leaves the history view — the row's own handling takes over
+    if (historyOpen) {
+      historyOpen = false;
+      histEl.hidden = true;
+      histData = null;
+      histSha = null;
+      histFile = null;
+    }
     const caret = (e.target as HTMLElement).closest('[data-caret]');
     if (caret) {
       const crow = caret.closest('.tree-row') as HTMLElement;
@@ -1276,7 +1310,9 @@ async function showGroup(node: Node): Promise<void> {
   // in-flight guard debounces); no confirmation, the roundtrip surfaces
   // through the sync markers
   function redoExhausted(): void {
-    // the git history view (the forward jump) arrives with its own milestone
+    // native redo gone = the commit boundary crossed forward: the history
+    // view owns the forward jumps (no /api/redo)
+    if (!historyOpen) void openHistory();
   }
 
   const undoBtn = document.getElementById('undo-btn') as HTMLButtonElement;
@@ -1289,6 +1325,300 @@ async function showGroup(node: Node): Promise<void> {
   redoBtn.addEventListener('click', () => {
     if (editor && redo(editor)) return;
     redoExhausted();
+  });
+
+  // ---------- history view (milestone 5) ----------
+  // The third view beside #empty/#doc: a DAG list — main spine at indent 0,
+  // undo-* branch commits one level in, "you are here" on HEAD — and a
+  // preview panel (message, time, changed files, read-only content via
+  // /api/git/show) holding the two restores: fetch file (one file, light)
+  // and make master (whole tree, dangerous, appConfirm'd). Entering leaves
+  // the file first (flush + push, so the pending burst is in the DAG);
+  // `selected` survives as the exit pointer — the git button toggles back
+  // to it, Escape goes home, a tree row click just takes over the view.
+  const histEl = document.getElementById('history')!;
+  const histList = document.getElementById('hist-list')!;
+  const histPreview = document.getElementById('hist-preview')!;
+  const histMsg = document.getElementById('hist-msg')!;
+  const histTime = document.getElementById('hist-time')!;
+  const histFiles = document.getElementById('hist-files')!;
+  const histBody = document.getElementById('hist-body')!;
+  const histRestoreBtn = document.getElementById('hist-restore') as HTMLButtonElement;
+  const histMasterBtn = document.getElementById('hist-master') as HTMLButtonElement;
+  // pre-setup the side-foot offers the setup link instead of the session
+  // buttons — the git toggle does not exist there (tree chrome, authReady block)
+  const gitBtn = document.getElementById('git-history') as HTMLButtonElement | null;
+
+  type HistCommit = {
+    sha: string;
+    parents: string[];
+    at: number;
+    subject: string;
+    changed: string[];
+  };
+  type HistData = {
+    head: string | null;
+    branches: { name: string; sha: string }[];
+    commits: HistCommit[];
+  };
+  let historyOpen = false;
+  let histData: HistData | null = null;
+  let histBySha = new Map<string, HistCommit>();
+  let histSha: string | null = null; // the selected commit
+  let histFile: string | null = null; // the selected changed file
+  let histWorking = false; // one restore at a time
+
+  const histWhen = (at: number): string =>
+    new Date(at * 1000).toLocaleString(undefined, {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+
+  function histBusy(b: boolean): void {
+    histWorking = b;
+    histRestoreBtn.disabled = b || !histFile;
+    histMasterBtn.disabled = b;
+  }
+
+  async function openHistory(): Promise<void> {
+    if (historyOpen) return;
+    await leavingFile();
+    historyOpen = true;
+    histSha = null;
+    histFile = null;
+    histPreview.hidden = true;
+    empty.hidden = true;
+    doc.hidden = true;
+    histEl.hidden = false;
+    try {
+      histData = await api<HistData>('/api/git/history');
+      renderHistory();
+    } catch (err) {
+      histData = null;
+      histList.innerHTML = `<li><p class="error">${esc((err as Error).message)}</p></li>`;
+    }
+    if (narrow()) setNav(false); // the view sits behind the overlay on mobile
+  }
+
+  // leaving the view via the git button: back to where it was entered from
+  // (selected survived leavingFile), or the welcome screen
+  async function closeHistory(): Promise<void> {
+    historyOpen = false;
+    histEl.hidden = true;
+    histData = null;
+    histSha = null;
+    histFile = null;
+    const back = selected ? byPath.get(selected) : null;
+    if (back && back.children === undefined) await openFile(back.path);
+    else if (back) await showGroup(back);
+    else {
+      empty.hidden = false;
+      renderWelcomeIndex();
+      renderTree();
+    }
+  }
+
+  function renderHistory(): void {
+    const data = histData;
+    if (!data) return;
+    histBySha = new Map(data.commits.map((c) => [c.sha, c]));
+    // the spine: everything reachable from HEAD; the rest sits on undo
+    // branches, one indent level in
+    const spine = new Set<string>();
+    const walk = (sha: string | null): void => {
+      if (!sha || spine.has(sha)) return;
+      const c = histBySha.get(sha);
+      if (!c) return; // older than the 200-commit cap
+      spine.add(sha);
+      for (const p of c.parents) walk(p);
+    };
+    if (data.head) walk(data.head);
+    const tips = new Map(data.branches.map((b) => [b.sha, b.name]));
+    const frag = document.createDocumentFragment();
+    if (!data.commits.length) {
+      const li = document.createElement('li');
+      const p = document.createElement('p');
+      p.className = 'note';
+      p.textContent = 'No commits yet.';
+      li.append(p);
+      frag.append(li);
+    }
+    for (const c of data.commits) {
+      const li = document.createElement('li');
+      const row = document.createElement('button');
+      row.type = 'button';
+      const here = c.sha === data.head;
+      row.className =
+        'hist-row' +
+        (spine.has(c.sha) ? '' : ' branch') +
+        (here ? ' here' : '') +
+        (c.sha === histSha ? ' sel' : '');
+      row.title = here ? 'you are here' : c.subject;
+      row.dataset.sha = c.sha;
+      row.innerHTML =
+        `<span class="hist-dot${here ? ' here' : ''}"></span>` +
+        `<span class="hist-subj">${esc(c.subject)}</span>` +
+        `<span class="hist-when">${esc(histWhen(c.at))}</span>` +
+        (tips.get(c.sha) ? `<span class="hist-tip">${esc(tips.get(c.sha)!)}</span>` : '');
+      li.append(row);
+      frag.append(li);
+    }
+    histList.replaceChildren(frag);
+  }
+
+  histList.addEventListener('click', (e) => {
+    const row = (e.target as HTMLElement).closest('.hist-row') as HTMLElement | null;
+    if (!row || !row.dataset.sha) return;
+    selectCommit(row.dataset.sha);
+  });
+
+  function selectCommit(sha: string): void {
+    const c = histBySha.get(sha);
+    if (!c) return;
+    histSha = sha;
+    histFile = null;
+    renderHistory(); // the sel class moves
+    histMsg.textContent = c.subject;
+    histTime.textContent = `${histWhen(c.at)} · ${c.sha.slice(0, 7)}`;
+    const frag = document.createDocumentFragment();
+    if (!c.changed.length) {
+      const li = document.createElement('li');
+      li.className = 'note';
+      li.textContent = 'no files changed';
+      frag.append(li);
+    }
+    for (const p of c.changed) {
+      const li = document.createElement('li');
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'hist-file';
+      b.dataset.path = p;
+      b.textContent = p;
+      li.append(b);
+      frag.append(li);
+    }
+    histFiles.replaceChildren(frag);
+    histBody.hidden = true;
+    histBody.replaceChildren();
+    histPreview.hidden = false;
+    histBusy(false); // restore stays disabled until a file is picked
+  }
+
+  histFiles.addEventListener('click', async (e) => {
+    const b = (e.target as HTMLElement).closest('.hist-file') as HTMLElement | null;
+    if (!b || !histSha) return;
+    const path = b.dataset.path!;
+    histFile = path;
+    for (const el of histFiles.querySelectorAll('.hist-file'))
+      el.classList.toggle('sel', (el as HTMLElement).dataset.path === path);
+    histBusy(false);
+    histBody.hidden = false;
+    histBody.textContent = '…';
+    try {
+      const { content } = await api<{ content: string }>(
+        `/api/git/show?sha=${encodeURIComponent(histSha)}&path=${encodeURIComponent(path)}`,
+      );
+      if (histFile !== path) return; // the selection moved on while loading
+      histBody.innerHTML = marked.parse(content) as string;
+    } catch (err) {
+      if (histFile !== path) return;
+      histBody.innerHTML = `<p class="error">${esc((err as Error).message)}</p>`;
+    }
+  });
+
+  // the shared "like undo" epilogue: drop drafts of changed paths (the
+  // restored "past" must not resurrect from sessionStorage), remap all
+  // path-keyed state through the map, reload the tree, then land on the
+  // restored file (fetch file) or the remapped selection (make master) —
+  // or the welcome screen when it is gone.
+  async function applyRestore(
+    res: { changed: string[]; map: Record<string, string> },
+    restored: string | null,
+  ): Promise<void> {
+    historyOpen = false;
+    histEl.hidden = true;
+    histData = null;
+    histSha = null;
+    histFile = null;
+    for (const p of res.changed) dropDraft(p); // by current (pre-jump) paths
+    remapPaths(res.map);
+    await loadTree();
+    const map = pathMapper(res.map);
+    const target = restored ?? (selected ? map(selected) : null);
+    const node = target ? byPath.get(target) : null;
+    if (node && node.children === undefined) {
+      selected = target!;
+      renderTree();
+      await openFile(target!);
+    } else if (node) {
+      selected = target!;
+      renderTree();
+      await showGroup(node);
+    } else {
+      selected = null;
+      doc.hidden = true;
+      editorHost.hidden = true;
+      docBody.hidden = true;
+      docTitle.hidden = true;
+      docWords.hidden = true;
+      docDraft.hidden = true;
+      docTitle.classList.remove('draft');
+      pdfBtn.hidden = true;
+      empty.hidden = false;
+      renderWelcomeIndex();
+      renderTree();
+    }
+  }
+
+  histRestoreBtn.addEventListener('click', async () => {
+    if (!histSha || !histFile || histWorking) return;
+    histBusy(true);
+    try {
+      const res = await api<{ changed: string[]; map: Record<string, string> }>(
+        '/api/git/restore-file',
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ sha: histSha, path: histFile }),
+        },
+      );
+      await applyRestore(res, histFile);
+    } catch (err) {
+      histBusy(false);
+      alert((err as Error).message);
+    }
+  });
+
+  histMasterBtn.addEventListener('click', async () => {
+    if (!histSha || histWorking) return;
+    const ok = await appConfirm(
+      'Make this commit the working state? The current state is branched first — nothing is destroyed.',
+      { ok: 'make master', danger: true },
+    );
+    if (!ok) return;
+    histBusy(true);
+    try {
+      const res = await api<{ changed: string[]; map: Record<string, string> }>(
+        '/api/git/make-master',
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ sha: histSha }),
+        },
+      );
+      await applyRestore(res, null);
+    } catch (err) {
+      histBusy(false);
+      alert((err as Error).message);
+    }
+  });
+
+  gitBtn?.addEventListener('click', () => {
+    if (historyOpen) void closeHistory();
+    else void openHistory();
   });
 
   // ---------- context menu on the tree: new / delete ----------
@@ -2392,6 +2722,8 @@ async function showGroup(node: Node): Promise<void> {
     closeMenu();
     pdfMenu.hidden = true;
     closeNewDialog();
+    historyOpen = false; // the history view never survives going home
+    histEl.hidden = true;
     await leavingFile();
     selected = null;
     currentGroup = null;
@@ -2467,7 +2799,18 @@ async function showGroup(node: Node): Promise<void> {
     if (e.key !== 'Escape' || !navOpen()) return;
     // menus and the create dialog get Escape first
     if (newOpen || !ctxMenu.hidden || !pdfMenu.hidden) return;
+    if (historyOpen) return; // the history view's own Escape path owns it
     setNav(false);
+  });
+
+  // the history view's Escape: home (the plan's exit rule). Registered after
+  // the pdf menu's listener so the menus get Escape first; the nav toggle is
+  // held off — going home must not also fold the tree on desktop.
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape' || !historyOpen) return;
+    if (newOpen || !ctxMenu.hidden || !pdfMenu.hidden) return; // they get Escape first
+    void showWelcome();
+    e.stopImmediatePropagation();
   });
 
   navMq.addEventListener('change', (e) => {

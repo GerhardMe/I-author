@@ -917,8 +917,8 @@ settle BEFORE building (owner decides):
 The works-dir git log is the undo history. All decisions below are owner
 decisions (settled 2026-10-11) — do not relitigate. Shipped in four commits:
 autosave coalescer → `/api/undo` + ladder + commit boundaries → mobile
-undo/redo buttons → history API. **Remaining: the history view UI** (see the
-last bullet).
+undo/redo buttons → history API. **The history view UI is shipped** (see
+the last bullet).
 
 **Commit cadence** — saves stop committing every push. `src/lib/autosave.ts`:
 `PUT /api/file` writes and calls `markDirty(path, charDelta)`; a single
@@ -992,16 +992,28 @@ HEAD as `undo-<ts>` ONLY when moving away from it (a jump to a descendant —
 redo — skips the branch, that state is already an ancestor of the target) →
 `reset --hard <sha>` → same response shape as undo).
 
-**Remaining — the history view UI (milestone 5, planned)**: a `git`
-btn-tiny in the side-foot (bottom right of the file explorer; tree chrome
-inside the authReady block). Clicking it: `leavingFile()` first, then the
-main area swaps to a third view `#history` beside `#empty`/`#doc` — a DAG
-list: main spine at indent 0, `undo-*` branch commits indented one level
-under their fork point, newest first, with a "you are here" marker on the
-commit `head` points at. Click a node → preview panel: message, time,
-changed files; click a changed file → read-only marked preview via
-`/api/git/show`. The panel holds the two owner-requested actions:
-**fetch file** (restore-file, light) and **make master** (whole-tree jump,
-danger, `appConfirm`) — both then remap + reopen like undo does. Exit: the
-git button toggles, `Escape` → welcome, clicking any tree row leaves the
-view.
+**Shipped: the history view UI (milestone 5, 2026-10-11)** — a `git`
+btn-tiny in the side-foot (after lock/log out; tree chrome inside the
+authReady block, null-guarded pre-setup). Clicking it: `leavingFile()`
+first (the pending burst is in the DAG), then the main area swaps to a
+third view `#history` beside `#empty`/`#doc` — a DAG list: main spine at
+indent 0 (everything reachable from HEAD), `undo-*` branch commits indented
+one level under a left guide line, newest first, with an accent "you are
+here" dot on the commit `head` points at and the branch name on its tip.
+Click a node → preview panel below the list: message, time, sha7, changed
+files; click a changed file → read-only marked preview via
+`/api/git/show` (stale-response guarded by the selection). The panel holds
+the two owner-requested actions: **fetch file** (restore-file, light,
+enabled only once a file is picked) and **make master** (whole-tree jump,
+danger, `appConfirm`). Both share `applyRestore`: drop drafts of changed
+paths, `remapPaths` through the map, `loadTree()`, then land on the
+restored file (fetch) or the remapped selection (make master) — or the
+welcome screen when it is gone. Exit: the git button toggles back to where
+the view was entered from (`selected` survives `leavingFile` as the exit
+pointer), `Escape` → welcome (`stopImmediatePropagation` so the nav toggle
+does not also fold the tree on the same keypress; menus get Escape first),
+any tree-row click leaves the view. `redoExhausted()` (native redo gone)
+now opens the view — the forward jumps live there. Mobile: entering the
+view closes the overlay (`setNav(false)`) so it is visible. Styles:
+`.hist-*` in global.css (JS-created DOM); `#history` reuses
+`.empty`/`.doc-col`/`.doc-head`/`.confirm-row`.
