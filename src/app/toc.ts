@@ -18,6 +18,7 @@ import {
   setCurrentFile,
   setCurrentGroup,
   setSelected,
+  showCounter,
   toggleExpanded,
   tree,
   type Node,
@@ -87,7 +88,7 @@ export async function showGroup(node: Node): Promise<void> {
   docDraft.hidden = !cur.draft;
   docTitle.textContent = cur.title;
   docWords.hidden = false;
-  docWords.textContent = `${cur.words ?? 0} words`;
+  showCounter({ words: cur.words ?? 0 });
   editorHost.hidden = true;
   docBody.hidden = false;
   setCurrentGroup(node.path);
@@ -180,7 +181,7 @@ export async function openFile(p: string) {
     docDraft.hidden = !node.draft;
     docTitle.textContent = node.title;
     docWords.hidden = false;
-    docWords.textContent = `${countWords(content)} words`;
+    showCounter({ words: countWords(content), chars: content.length });
     pdfBtn.hidden = false;
     setCurrentFile(p);
     try { localStorage.setItem(LAST_KEY, p); } catch {}

@@ -94,11 +94,12 @@ src/lib/preview.ts   live-preview engine: widgets, buildDeco, focus field, ctrl+
                      (table clicks land in the clicked cell via a per-cell offset map)
 src/lib/sync.ts      chunked-sync engine: unsynced marks, draft store (sessionStorage),
                      push machine (createSync) — dirty-word accumulator + idle push
-src/lib/autosave.ts  commit cadence: markDirty/flushAll coalescer (5s idle / 1000 chars),
-                     INIT/recovered boot commits, SIGTERM flush
+src/lib/autosave.ts  commit cadence: markDirty/flushAll coalescer (30s tick,
+                     ≥200 chars), INIT/recovered boot commits, SIGTERM flush
 src/lib/git.ts       ensureRepo + commit(msg) in WORKS_DIR (server-local, never pushed);
-                     gitOut, transaction, parseNameStatus, nextUndoBranch, gitShow
-                     (the undo/history plumbing)
+                     gitOut, transaction, parseNameStatus, nextUndoBranch,
+                     gitShow (the undo/history plumbing), commit events (the
+                     seq counter + subscriber list the SSE route streams)
 src/lib/pdf.ts       PDF compiler: LuaLaTeX + `markdown` package; ensurePdf(rel, style,
                      force) compiles beside the source in the works dir; pdfPlan(rel,
                      style) is the same cache decision without LaTeX (the loader polls
@@ -107,8 +108,8 @@ src/lib/pdf.ts       PDF compiler: LuaLaTeX + `markdown` package; ensurePdf(rel,
                      never from the disk basename, so prefixes can't leak into print;
                      styles from pdfstyles/ (first line `% label: L — note` = metadata)
 src/pages/api/       setup, login, session, logout, lock, tree, file (GET/PUT), new, delete,
-                     rename, reorder, undo, pdfstyles, pdfstatus, git/ (history, show,
-                     restore-file, make-master)
+                     rename, reorder, events (SSE commit stream), pdfstyles, pdfstatus,
+                     git/ (history, show, restore-file, make-master)
 src/pages/           index.astro (thin shell: components + the boot script import),
                      login.astro (PIN is a text field masked
                      with ● in JS — mobile keyboards echo the last digit of
@@ -125,15 +126,17 @@ src/app/             the app shell's client modules (imported by ONE script in
                      pathMapper/remapPaths/remapExpanded, api, esc, narrow/
                      navOpen), dom.ts (every static element ref), tree.ts
                      (renderTree/buildList, visibility, row sync markers,
-                     loadTree, revealPath), editor.ts (CM lifecycle,
-                     flushDraft/leavingFile, the commit boundary, openLink),
-                     sync.ts (the createSync instance + offline/online),
+                      loadTree, revealPath), editor.ts (CM lifecycle,
+                      flushDraft/leavingFile, openLink),
+                      sync.ts (the createSync instance + offline/online),
+                      commits.ts (the SSE commit stream: the live history
+                      view),
                      toc.ts (buildToc/showGroup/renderWelcomeIndex/openFile +
                      the tree click), gestures.ts (desktop DnD + the touch
                      arm/drag/menu machine + the insert line),
                      files.ts (context menu, create dialog, delete, rename),
-                     history.ts (gitUndo ladder + the history view + mobile
-                     undo/redo buttons), measure.ts (the two handles),
+                      history.ts (the history view: the jump machine +
+                      mobile undo/redo buttons), measure.ts (the two handles),
                      pdf.ts (style menu + fetchPdf), nav.ts (setNav, topbar
                      scroll-away, drafts toggle, brand home, lock/logout)
 pdfstyles/           LaTeX preamble "stylesheets" (a4, a5, academic) — single source
@@ -170,8 +173,7 @@ first, then GET /api/file → makeEditor; restores a newer sessionStorage draft)
 editor.ts (flushDraft + sync.pushNow if dirty — ALWAYS before switching files or
 entering the history view), `setNav(open)` in nav.ts (the ONLY nav mutator — see
 §Nav invariants), `remapPaths` in state.ts (see §Path maps below),
-`gitUndo`/`applyUndo`/`applyRestore` in history.ts (undo/history share it), sync
-hooks (`setSync` → `refreshRowStatus`, a targeted DOM update — never a
+sync hooks (`setSync` → `refreshRowStatus`, a targeted DOM update — never a
 renderTree mid-drag; the spinner bookkeeping is `pushStart`/`pushEnd` in
 tree.ts). Cross-module writes to shared `let` state go through state.ts setters
 (`setSelected`/`setCurrentFile`/… — an imported binding can only be assigned by
@@ -412,62 +414,72 @@ migrations won't be undone by deploys.
 What follows distills the rules that shipped features established. The narrative
 history is in git; only the rules are kept here.
 
-**Undo = branch + master reset.** The works-dir git log is the undo history;
-nothing is ever destroyed — master moves back, the log branches.
-`POST /api/undo`: `flushAll()` → record HEAD → `git branch undo-<ts>` (colons
-illegal in refs; same-second collisions get `-2` via `nextUndoBranch`) →
-`git reset --hard HEAD~1` → `diff --name-status old..new`. A dirty worktree after
-flushAll ABORTS the undo — `reset --hard` must never destroy text on disk.
-Root commit → "nothing to undo". The undo map maps CURRENT-tree names → target-tree
-names (`map[from] = to`). Commit failures stay server-log only (no UI signal) —
-the localStorage draft protects the text.
+**Git history is append-only** (owner decision 2026-10-11, replacing the
+branch+master-reset undo). Commits are checkpoints, never undo rungs: no
+amount of Ctrl+Z or undo-button pressing ever moves a commit back — an undo
+is an ordinary edit and commits like one (push → coalescer → new commit).
+Going back in time is the history view's job alone (branch hopping via
+make-master — server routes exist, client wiring does not). No /api/undo.
 
-**Undo ladder (client).** Native Ctrl+Z / Ctrl+Shift+Z covers only work since the
-last commit: the client resets the CM native stack at every commit boundary by
-rebuilding the editor (same doc, selection, scroll) — triggered by the PUT
-response's `committed` flag and a 5s idle timer after a confirmed push (both
-postponed while typing; a reset never kills native undo of unsynced text).
-Exhausted native undo → git undo; exhausted native redo (`redoExhausted()`) →
-the history view (forward jumps live there; no /api/redo). No editor open → bare
-Ctrl+Z goes straight to git undo; text fields keep their native undo.
+**Undo/redo (client).** Pure native CodeMirror: the stack is never reset, at
+commits or otherwise; an exhausted Ctrl+Z / Ctrl+Shift+Z / mobile-button
+press does NOTHING (no escalation, no history-view jump). The stack dies
+with the editor session (reload, lock, file switch) — older text is
+reachable only through the history view. Text fields keep the browser's own
+native undo; the guards around that are gone with the ladder.
 
 **Commit cadence & message grammar.** `PUT /api/file` writes and calls
-`markDirty(path, charDelta)`; the coalescer commits at **5s idle** or **≥1000
-chars**, whichever first. Messages: save `path : <YYYY-MM-DD HH:MM:SS>` (local
-server time, several pending paths → one line each) · rename `old -> new` ·
-create `path (new)` · delete `path (deleted)` · restore `path (restored <sha7>)` ·
-reorder one `old -> new` line per moved file, single commit. `flushAll()` runs
-before `new`/`rename`/`delete`/`reorder`/undo/make-master/lock/log-out/pdf
-compile and on SIGTERM; at boot a dirty worktree commits as `recovered : <time>`,
-a fresh repo's first commit is `INIT : <time>`. Commits ride the serialized
+`markDirty(path, charDelta)`; the coalescer commits on a 30s wall-clock tick
+when **≥200 chars** are pending (under the minimum the tick is a no-op — no
+idle trigger, no mid-burst char trigger). Messages carry NO timestamps (owner
+decision 2026-10-11 — git stores them) and only three shapes: content update `path`
+(several pending paths → one line each) · rename/move `old -> new` ·
+create `+ path` / delete `- path`. Restore-file is a content update (`path`);
+`flushAll()` runs
+before `new`/`rename`/`delete`/`reorder`/make-master/lock/log-out/pdf
+compile and on SIGTERM; at boot a dirty worktree commits as `recovered`,
+a fresh repo's first commit is `INIT`. Commits ride the serialized
 promise queue in `git.ts` (`transaction(fn)` for multi-command sequences — a
-coalescer commit can never interleave).
+coalescer commit can never interleave) and are announced over the SSE stream
+(`commitSeq()` counter + subscribers in `git.ts`).
 
-**Path maps & longest-prefix remap.** Undo, restore, reorder and rename all return
-`{old: new}` path maps; the client remaps expanded folders, selection, drafts and
-`iauthor.last` through them — always by **longest prefix** (a moved folder changes
-the path of everything inside it while the map carries only the folder). Undo and
-restore additionally DROP drafts of changed paths (else the reverted "future"
-resurrects) and detach the editor WITHOUT pushing (a push would resurrect undone
-text).
+**Path maps & longest-prefix remap.** Reorder, rename and checkout return
+`{old: new}` path maps (make master/restore will, once wired); the client
+remaps expanded folders, selection, drafts and `iauthor.last` through them —
+always by **longest prefix** (a moved folder changes the path of everything
+inside it while the map carries only the folder).
 
 **History view.** A third main view `#history` beside `#empty`/`#doc`, entered via
-the `git` btn-tiny in the side-foot (rendered pre-setup too). `leavingFile()` first.
-DAG list: main spine (reachable from HEAD) at indent 0, `undo-*` branches indented
-under a guide line, newest first, "you are here" dot on HEAD's commit. Click a node
-→ preview panel (message, time, sha7, changed files); click a file → read-only
-preview via `/api/git/show`. Actions: **fetch file** (restore-file — one file's
-content at a commit as a NEW commit, master never moves) and **make master**
-(whole-tree jump, danger, appConfirm; branches the current HEAD away ONLY when
-moving to an ancestor — a jump to a descendant skips the branch). Both share
-`applyRestore`. Escape → welcome (`stopImmediatePropagation`, menus first); any
-tree-row click leaves the view. On mobile, entering closes the overlay.
+the fork btn-tiny in the side-foot (rendered pre-setup too). `leavingFile()` first.
+SVG DAG: main spine (reachable from HEAD) in the leftmost lane, branch lanes to the
+right in fork order, newest first, "you are here" dot on HEAD's commit. Hover a
+node → tooltip (commit message, timestamp underneath — branch names are never
+shown; owner decision 2026-10-11). The view is LIVE: SSE commit events
+debounce-refetch the DAG while it is open (`refreshHistory`), so new commits
+slide in without reopening. **Nodes are clickable (the jump machine, owner
+decision 2026-10-11)**: a click checks the WHOLE works tree out at that
+commit — temporarily. main NEVER moves: the checkout lands on a fresh branch
+named for the moment (`nextUndoBranch`), edits made there commit onto that
+branch, and a page reload (boot calls `/api/git/main` before loadTree) or
+the "back to head" button (`#hist-main`, shown only when `!onMain` from the
+history API) returns to main proper. The DAG stays open across jumps
+(`jumpSwitch` in history.ts: flush+push unsynced text FIRST — it commits
+onto the branch we leave — drop drafts of changed paths, detach without
+pushing, loadTree, reopen the file or home). The server aborts any switch
+on a dirty worktree (a failed commit must surface, never be reset away).
+Still not wired: the preview panel (message, time, sha7, changed files),
+per-file read-only preview (`/api/git/show`), **fetch file** (restore-file)
+and **make master** — server routes exist for all of them. Escape → welcome
+(`stopImmediatePropagation`, menus first); any tree-row click leaves the
+view. On mobile, entering closes the overlay.
 
-**APIs for undo/history** (`src/pages/api/git/`): `history` (latest 200 commits
-over all refs, flushed first), `show` (file content at a commit — `isSha`/
+**APIs for history** (`src/pages/api/git/`): `history` (latest 200 commits
+over all refs, flushed first, answers `onMain`), `checkout` (the jump: branch
+at the target commit + checkout it, main never moves), `main` (back to head,
+also the boot's reload-return), `show` (file content at a commit — `isSha`/
 `isMdPath` guards; git resolves the path inside the tree, no `safePath`), 
-`restore-file`, `make-master`. `PUT /api/file` responds `{ok, committed}` —
-`committed: true` when that write crossed the char trigger.
+`restore-file`, `make-master`. `PUT /api/file` responds `{ok}` — commits are
+none of its business (the SSE stream announces them).
 
 **Nav invariants.** `.app.nav-off` is the only state, `setNav(open)` the only
 mutator; it toggles `aria-expanded` + `inert` on tree/toolbar/side-foot, owns the
@@ -551,7 +563,7 @@ implements nothing): the works dir is a git repo, everything textual is committe
 recompilable. The microservice (systemd timer, user `server`; **READ-ONLY rule**:
 never commit/add/reset inside the works repo, that would pollute the undo history):
 `git clone --mirror` once, `git fetch --prune` each tick, push a timestamped
-`git bundle --all` (full DAG incl. `undo-*` refs) to ProtonDrive via rclone,
+`git bundle --all` (full DAG incl. all undo branches) to ProtonDrive via rclone,
 keep last N; restore = clone the bundle → point `IAUTHOR_WORKS_DIR` at it.
 Concurrent reads are safe (git ref updates are atomic); a burst caught uncommitted
 rides the next snapshot.

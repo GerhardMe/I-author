@@ -16,6 +16,9 @@ const { authReady } = Astro.props;
   </div>
   <nav class="tree" id="tree"></nav>
   <nav class="hist" id="history" hidden>
+    <div class="hist-head">
+      <button class="btn-tiny" id="hist-main" title="back to head" hidden>back to head</button>
+    </div>
     <div class="hist-scroll" id="hist-scroll"></div>
   </nav>
   <div class="side-foot">
@@ -27,6 +30,6 @@ const { authReady } = Astro.props;
     ) : (
       <a class="btn-tiny" href="/setup">set up 2FA</a>
     )}
-    <button class="btn-tiny" id="git-history" title="git history" aria-pressed="false">git</button>
+    <button class="btn-tiny" id="git-history" title="git history" aria-pressed="false"><span class="icon">&#xf126;</span></button>
   </div>
 </aside>

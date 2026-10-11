@@ -84,6 +84,32 @@ export async function gitShow(sha: string, rel: string): Promise<string> {
 
 export type GitChange = { changed: string[]; map: Record<string, string> };
 
+// longest-prefix lookup — the same rule the client's remapPaths applies: a
+// moved folder changes the path of everything inside it while the map only
+// carries the folder itself. Shared by every route that answers with a
+// diff-based map (checkout, make-master).
+export function remapPath(map: Record<string, string>, p: string): string {
+  let best = '';
+  let to = '';
+  for (const [from, dest] of Object.entries(map)) {
+    if ((p === from || p.startsWith(from + '/')) && from.length > best.length) {
+      best = from;
+      to = dest;
+    }
+  }
+  return to ? to + p.slice(best.length) : p;
+}
+
+// is HEAD parked on main proper? A temporary checkout lives on a branch —
+// the history view shows its "back to head" door only then
+export async function onMain(): Promise<boolean> {
+  try {
+    return (await gitOut(['symbolic-ref', '--short', 'HEAD'])).trim() === 'main';
+  } catch {
+    return false; // detached HEAD — a checkout in progress
+  }
+}
+
 // parse `git diff --name-status A..B`: the changed paths between two trees,
 // and the rename map FROM A's names TO B's names — the client's state is
 // keyed at the A tree and must follow the files into the B tree (undo and
@@ -106,11 +132,13 @@ export function parseNameStatus(diff: string): GitChange {
   return { changed, map };
 }
 
-// a free undo-<timestamp> branch name (colons are illegal in refs; a second
-// undo in the same second gets a -2 suffix). The stamp arrives preformatted
-// from the caller — git.ts cannot import autosave.ts (it would be circular).
+// a free branch named for the moment it was created (owner decision
+// 2026-10-11): `2026-10-11_19-42-30` — colons and spaces are illegal or
+// awkward in refs, so the stamp folds them; a second branch in the same
+// second gets a -2 suffix. The stamp arrives preformatted from the caller —
+// git.ts cannot import autosave.ts (it would be circular).
 export async function nextUndoBranch(stamp: string): Promise<string> {
-  const base = `undo-${stamp.replace(' ', '_').replaceAll(':', '-')}`;
+  const base = stamp.replace(' ', '_').replaceAll(':', '-');
   let branch = base;
   for (let i = 2; ; i++) {
     try {
@@ -122,15 +150,60 @@ export async function nextUndoBranch(stamp: string): Promise<string> {
   }
 }
 
+// ---------- commit events ----------
+// Every successful commit announces itself: a monotonic seq plus the
+// commit's own coordinates (both feed the live history view). The SSE
+// route (/api/events) subscribes; commit() is the only emitter —
+// make-master branches and resets without committing.
+
+export type CommitEvent = { seq: number; sha: string; at: number; subject: string };
+
+const commitWatchers = new Set<(e: CommitEvent) => void>();
+let commitCount = 0;
+
+export function commitSeq(): number {
+  return commitCount;
+}
+
+export function onCommit(fn: (e: CommitEvent) => void): () => void {
+  commitWatchers.add(fn);
+  return () => commitWatchers.delete(fn);
+}
+
+async function emitCommit(): Promise<void> {
+  commitCount++;
+  const e: CommitEvent = { seq: commitCount, sha: '', at: 0, subject: '' };
+  try {
+    const line = (await gitOut(['log', '-1', '--format=%H%x09%at%x09%s'])).trim();
+    const [sha = '', at = '', ...rest] = line.split('\t');
+    e.sha = sha;
+    e.at = Number(at) || 0;
+    e.subject = rest.join('\t');
+  } catch {
+    // coordinates unreadable: the seq alone still marks the boundary
+  }
+  for (const fn of commitWatchers) {
+    try {
+      fn(e);
+    } catch {
+      // a broken subscriber never blocks the others
+    }
+  }
+}
+
 async function attempt(msg: string): Promise<boolean> {
   try {
-    return await runCommit(msg);
+    const ok = await runCommit(msg);
+    if (ok) await emitCommit(); // awaited: stays inside this queue slot
+    return ok;
   } catch {
     // one retry: a transient failure (EBUSY on a mounted volume, an external
     // git process holding the lock) usually clears in a blink
     await new Promise((r) => setTimeout(r, 250));
     try {
-      return await runCommit(msg);
+      const ok = await runCommit(msg);
+      if (ok) await emitCommit();
+      return ok;
     } catch (err) {
       console.warn('[iauthor] git commit failed:', err);
       return false;

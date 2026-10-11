@@ -1,8 +1,8 @@
 // POST /api/git/make-master {sha} — the history view's whole-tree restore:
-// master jumps to the chosen commit, forward (an undo-* tip — the redo
+// master jumps to the chosen commit, forward (a branch tip — the redo
 // direction) or back (an older spine commit). The current HEAD is branched
-// first as undo-<ts> when moving away from it, so nothing is ever destroyed
-// — the same model as undo, aimed at any commit in the DAG.
+// first under a timestamp name when moving away from it, so nothing is ever
+// destroyed — the same model as undo, aimed at any commit in the DAG.
 import type { APIRoute } from 'astro';
 import { flushAll, stamp } from '../../../lib/autosave.ts';
 import {
@@ -10,24 +10,12 @@ import {
   isSha,
   nextUndoBranch,
   parseNameStatus,
+  remapPath,
   transaction,
   type GitChange,
 } from '../../../lib/git.ts';
 import { readChapter } from '../../../lib/works.ts';
 import { json } from '../../../lib/http.ts';
-
-// longest-prefix lookup — the same rule the client's remapPaths applies
-function remapPath(map: Record<string, string>, p: string): string {
-  let best = '';
-  let to = '';
-  for (const [from, dest] of Object.entries(map)) {
-    if ((p === from || p.startsWith(from + '/')) && from.length > best.length) {
-      best = from;
-      to = dest;
-    }
-  }
-  return to ? to + p.slice(best.length) : p;
-}
 
 export const POST: APIRoute = async (ctx) => {
   const body = (await ctx.request.json().catch(() => null)) as

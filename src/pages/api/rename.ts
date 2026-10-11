@@ -16,8 +16,7 @@ export const POST: APIRoute = async (ctx) => {
     // mutation stays ONE commit
     await flushAll();
     const { path, renumbered } = renameEntry(body.path, body.name);
-    const n = Object.keys(renumbered).length;
-    await commit(`${body.path} -> ${path}${n ? ` (+${n} renumbered)` : ''}`);
+    await commit(`${body.path} -> ${path}`);
     return json(ctx, { path, renumbered });
   } catch (e) {
     return json(ctx, { error: (e as Error).message }, 400);

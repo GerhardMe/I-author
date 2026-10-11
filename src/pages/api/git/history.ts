@@ -1,11 +1,12 @@
 // GET /api/git/history — the whole DAG for the history view: commits with
-// parents and changed paths, the branch tips (the undo-* refs the undos
-// created), and the current HEAD so the view can mark "you are here".
-// Capped: the latest 200 commits across all refs. Read-only — no queue, a
-// concurrent commit cannot corrupt a log read.
+// parents and changed paths, and the current HEAD so the view can mark
+// "you are here". Branch names are not displayed (owner decision
+// 2026-10-11) — the graph needs none. Capped: the latest 200 commits across
+// all refs. Read-only — no queue, a concurrent commit cannot corrupt a log
+// read.
 import type { APIRoute } from 'astro';
 import { flushAll } from '../../../lib/autosave.ts';
-import { gitOut } from '../../../lib/git.ts';
+import { gitOut, onMain } from '../../../lib/git.ts';
 import { json } from '../../../lib/http.ts';
 
 const MAX_COMMITS = 200;
@@ -28,7 +29,7 @@ export const GET: APIRoute = async (ctx) => {
       ]);
     } catch {
       // a repo with no commits yet: an empty DAG
-      return json(ctx, { head: null, branches: [], commits: [] });
+      return json(ctx, { head: null, onMain: true, commits: [], root: null });
     }
     const commits: {
       sha: string;
@@ -59,23 +60,15 @@ export const GET: APIRoute = async (ctx) => {
       if (status![0] === 'R' || status![0] === 'C') cur.changed.push(rest[0]!, rest[1]!);
       else cur.changed.push(rest[0]!);
     }
-    const branches: { name: string; sha: string }[] = [];
-    const refs = await gitOut([
-      'for-each-ref',
-      'refs/heads',
-      '--format=%(refname:short)%09%(objectname)',
-    ]);
-    for (const line of refs.split('\n')) {
-      if (!line.trim()) continue;
-      const [name = '', sha = ''] = line.split('\t');
-      branches.push({ name, sha });
-    }
     let head: string | null = null;
     try {
       head = (await gitOut(['rev-parse', 'HEAD'])).trim();
     } catch {
       head = null; // no commits yet
     }
+    // is HEAD parked on main proper, or away on a temporary checkout? The
+    // view shows its "back to head" door only in the latter case
+    const onMainRef = await onMain();
     // the DAG's root rides along: the client pins it to the bottom of the
     // graph so the very first commit (INIT) stays reachable by scroll even
     // when the cap above cut the chain short of it
@@ -92,7 +85,7 @@ export const GET: APIRoute = async (ctx) => {
     } catch {
       root = null; // no commits yet
     }
-    return json(ctx, { head, branches, commits, root });
+    return json(ctx, { head, onMain: onMainRef, commits, root });
   } catch (e) {
     return json(ctx, { error: (e as Error).message }, 400);
   }

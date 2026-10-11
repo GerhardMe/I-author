@@ -19,7 +19,7 @@ export const POST: APIRoute = async (ctx) => {
     await flushAll();
     const content = await gitShow(body.sha, body.path);
     restoreChapter(body.path, content);
-    await commit(`${body.path} (restored ${body.sha.slice(0, 7)})`);
+    await commit(body.path);
     return json(ctx, { ok: true, changed: [body.path], map: {} });
   } catch (e) {
     return json(ctx, { error: (e as Error).message }, 400);

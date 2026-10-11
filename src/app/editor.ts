@@ -1,16 +1,17 @@
-// The editor session: CodeMirror lifecycle, the draft flush, the commit
-// boundary that keeps the native undo stack uncommitted-only, and the
-// leaving/opening handoffs every other view goes through.
+// The editor session: CodeMirror lifecycle, the draft flush, and the
+// leaving/opening handoffs every other view goes through. Undo/redo are
+// pure native CodeMirror — no commit boundaries, no git escalation (owner
+// decision 2026-10-11): an undo is an ordinary edit and commits like one.
 
 import { countWords } from '../lib/words.ts';
 import { EditorState } from '@codemirror/state';
+import { undoDepth, redoDepth } from '@codemirror/commands';
 import { EditorView } from '@codemirror/view';
 import { loadDraft, saveDraft, dropDraft } from '../lib/sync.ts';
 import { editorExtensions } from '../lib/editor.ts';
-import { byPath, currentFile, setCurrentFile, setCurrentGroup, setSelected } from './state.ts';
-import { docWords, editorHost } from './dom.ts';
+import { byPath, currentFile, setCurrentFile, setCurrentGroup, setSelected, showCounter } from './state.ts';
+import { editorHost, undoBtn, redoBtn } from './dom.ts';
 import {
-  pushEndState,
   refreshRowStatus,
   renderTree,
   setSync,
@@ -19,7 +20,6 @@ import {
 } from './tree.ts';
 import { sync } from './sync.ts';
 import { openFile } from './toc.ts';
-import { gitUndo, redoExhausted } from './history.ts';
 
 let editor: EditorView | null = null;
 
@@ -44,74 +44,21 @@ export function flushDraft(): void {
   }
 }
 
-// ---------- commit boundary: native undo stays uncommitted-only ----------
-// Native Ctrl+Z/Ctrl+Shift+Z covers only work since the last commit; the
-// native stack is reset at every commit boundary by rebuilding the editor
-// with the same doc. Two triggers approximate the server coalescer
-// (5s idle / >=1000 chars): the PUT response's `committed` flag (the char
-// trigger fired during that write) and a 5s idle timer armed after each
-// confirmed push (the idle trigger). When typing is in flight the boundary
-// waits for the next clean push confirm — a reset never kills native undo
-// of unsynced text.
-let boundaryTimer: ReturnType<typeof setTimeout> | null = null;
-let boundaryPending = false;
-
-export function markBoundaryPending(): void {
-  boundaryPending = true;
+// the mobile buttons mirror the native stack: gray = nothing to undo/redo
+// (no popup on an exhausted press — a disabled button just doesn't fire)
+function syncUndoButtons(): void {
+  undoBtn.disabled = !editor || undoDepth(editor.state) === 0;
+  redoBtn.disabled = !editor || redoDepth(editor.state) === 0;
 }
 
-function resetStack(): void {
-  if (!editor || !currentFile) return;
-  const content = editor.state.doc.toString();
-  if (sync.ahead(content)) return; // only at a clean boundary
-  const sel = editor.state.selection;
-  const top = editor.scrollDOM.scrollTop;
-  destroyEditor();
-  const view = makeEditor(content);
-  view.dispatch({ selection: sel });
-  view.scrollDOM.scrollTop = top;
-}
-
-function boundary(): void {
-  if (boundaryTimer) {
-    clearTimeout(boundaryTimer);
-    boundaryTimer = null;
-  }
-  if (!editor || dirty()) return; // typing in flight: the next clean confirm fires it
-  resetStack();
-  boundaryPending = false;
-}
-
-function armBoundary(): void {
-  if (boundaryTimer) clearTimeout(boundaryTimer);
-  boundaryTimer = setTimeout(() => {
-    boundaryTimer = null;
-    boundary();
-  }, 5000);
-}
-
-// after a confirmed push: a pending committed-flag boundary fires at the
-// next clean confirm, otherwise the idle boundary arms
-export function afterPush(ok: boolean): void {
-  if (!ok) return;
-  if (pushEndState() !== 'idle') return;
-  if (boundaryPending) boundary();
-  else armBoundary();
-}
-
-function onEditorUpdate(u: { docChanged: boolean; state: { doc: { toString(): string } } }): void {
+function onEditorUpdate(u: { docChanged: boolean; state: EditorState }): void {
+  syncUndoButtons();
   if (!u.docChanged) return;
-  docWords.textContent = `${countWords(u.state.doc.toString())} words`;
+  const text = u.state.doc.toString();
+  showCounter({ words: countWords(text), chars: text.length });
   // while a reply is awaited (or a push has failed) the spinner/! own the
   // row; the dot comes back when a push confirms (pushEndState recomputes)
-  if (syncState !== 'pushing' && syncState !== 'error')
-    setSync(syncStateFromDoc(u.state.doc.toString()));
-  // typing postpones the idle boundary (the flag from a committed push
-  // survives: it fires at the next clean confirm instead)
-  if (boundaryTimer) {
-    clearTimeout(boundaryTimer);
-    boundaryTimer = null;
-  }
+  if (syncState !== 'pushing' && syncState !== 'error') setSync(syncStateFromDoc(text));
   scheduleDraft();
   sync.schedule();
 }
@@ -128,10 +75,6 @@ export function makeEditor(content: string): EditorView {
     onOpenLink: openLink,
     onUpdate: onEditorUpdate,
     getView: () => editor,
-    onGitUndo: () => {
-      void gitUndo();
-    },
-    onRedoExhausted: redoExhausted,
   };
   const view = new EditorView({
     state: EditorState.create({
@@ -141,6 +84,7 @@ export function makeEditor(content: string): EditorView {
     parent: editorHost,
   });
   editor = view;
+  syncUndoButtons(); // fresh session: an empty stack is all gray
   return view;
 }
 
@@ -150,6 +94,7 @@ export function destroyEditor(): void {
     editor = null;
   }
   editorHost.replaceChildren();
+  syncUndoButtons(); // no editor: both buttons gray
 }
 
 export function dirty(): boolean {

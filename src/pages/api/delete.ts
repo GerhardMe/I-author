@@ -11,8 +11,7 @@ export const POST: APIRoute = async (ctx) => {
     // the pending burst commits first, so the mutation stays ONE commit
     await flushAll();
     const renumbered = deleteEntry(body.path);
-    const n = Object.keys(renumbered).length;
-    await commit(`delete ${body.path}${n ? ` (+${n} renumbered)` : ''}`);
+    await commit(`- ${body.path}`);
     return json(ctx, { ok: true, renumbered });
   } catch (e) {
     return json(ctx, { error: (e as Error).message }, 400);

@@ -24,6 +24,7 @@ export const emptyBody = document.getElementById('empty-body')!;
 export const welcomeNotes = document.getElementById('welcome-notes') as HTMLTemplateElement;
 export const histEl = document.getElementById('history')!;
 export const histScroll = document.getElementById('hist-scroll')!;
+export const histMain = document.getElementById('hist-main') as HTMLButtonElement;
 export const gitBtn = document.getElementById('git-history') as HTMLButtonElement;
 export const undoBtn = document.getElementById('undo-btn') as HTMLButtonElement;
 export const redoBtn = document.getElementById('redo-btn') as HTMLButtonElement;

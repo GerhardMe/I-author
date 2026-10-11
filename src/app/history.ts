@@ -1,10 +1,14 @@
-// The undo ladder's git rung, and the history graph in the sidebar:
-// a minimal DAG — hollow dots on lines, HEAD the filled blue dot, master
-// spine on the leftmost lane, branch lanes to the right in fork order, the
-// root commit pinned to the bottom. Hover names a node — its commit
-// message with the timestamp underneath (owner decision 2026-10-11: no
-// branch names in the UI). Nothing acts on click yet. The git button swaps
-// the panel with the file tree.
+// The history graph in the sidebar: a minimal DAG — hollow dots on lines,
+// HEAD the filled blue dot, master spine on the leftmost lane, branch lanes
+// to the right in fork order, the root commit pinned to the bottom. Hover
+// names a node — its commit message with the timestamp underneath (owner
+// decision 2026-10-11: no branch names in the UI). Nothing acts on click
+// yet. The git button swaps the panel with the file tree.
+//
+// Undo/redo are NOT here (owner decision 2026-10-11): Ctrl+Z is pure
+// CodeMirror, never escalates to git, never moves a commit back. Going back
+// in time lives in this view alone — one day via node actions (make master,
+// fetch file — the server routes exist, the client wiring does not).
 
 import { undo, redo } from '@codemirror/commands';
 import { dropDraft } from '../lib/sync.ts';
@@ -29,138 +33,38 @@ import {
   empty,
   gitBtn,
   histEl,
+  histMain,
   histScroll,
   pdfBtn,
   redoBtn,
   treeEl,
   undoBtn,
 } from './dom.ts';
-import { loadTree, refreshRowStatus, renderTree, setSync } from './tree.ts';
 import { dirty, destroyEditor, flushDraft, getEditor } from './editor.ts';
 import { sync } from './sync.ts';
+import { loadTree, refreshRowStatus, renderTree, setSync } from './tree.ts';
 import { openFile, renderWelcomeIndex } from './toc.ts';
 
-// ---------- git undo: the ladder's second rung ----------
-// Native stack exhausted = the commit boundary is crossed. Server-side
-// (/api/undo): flush the pending burst (it becomes the last commit on the
-// soon-stale branch), branch at HEAD under a timestamp name, reset --hard
-// HEAD~1.
-// Client-side: detach the editor WITHOUT pushing — the doc still holds the
-// undone-away text, and a push or a saved draft would resurrect it — drop
-// the drafts of changed paths (the reverted "future" must not resurrect
-// from sessionStorage), remap all path-keyed state through the inverted
-// map, then reopen the file — or home when the undo deleted it.
-let undoInFlight = false;
-
-export async function gitUndo(): Promise<void> {
-  if (undoInFlight) return; // debounced while in flight
-  undoInFlight = true;
-  try {
-    flushDraft();
-    // ε-window guard: never undo text the server has not seen
-    if (dirty()) await sync.pushNow();
-    setSync('pushing'); // the roundtrip surfaces on the file's own tree row
-    const res = await api<{
-      changed: string[];
-      map: Record<string, string>;
-      content: string | null;
-      head: string;
-    }>('/api/undo', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ path: currentFile }),
-    });
-    await applyUndo(res);
-  } catch (err) {
-    setSync('idle'); // the doc never moved: the marker goes back to rest
-    alert((err as Error).message); // "nothing to undo" lands here too
-  } finally {
-    undoInFlight = false;
-  }
-}
-
-async function applyUndo(res: {
-  changed: string[];
-  map: Record<string, string>;
-  content: string | null;
-  head: string;
-}): Promise<void> {
-  const was = currentFile;
-  for (const p of res.changed) dropDraft(p); // by current (pre-undo) paths
-  remapPaths(res.map); // expanded, selection, remaining drafts, last-opened
-  // detach without pushing or saving a draft (see above)
-  sync.cancel();
-  destroyEditor();
-  setCurrentFile(null);
-  setCurrentGroup(null);
-  setSync('idle');
-  refreshRowStatus(was);
-  await loadTree();
-  const next = was ? pathMapper(res.map)(was) : null;
-  if (next && byPath.has(next)) {
-    await openFile(next); // fresh content, fresh baseline, fresh native stack
-  } else {
-    // the undo deleted the open file (or nothing was open): home
-    setSelected(null);
-    doc.hidden = true;
-    editorHost.hidden = true;
-    docBody.hidden = true;
-    docTitle.hidden = true;
-    docWords.hidden = true;
-    docDraft.hidden = true;
-    docTitle.classList.remove('draft');
-    pdfBtn.hidden = true;
-    empty.hidden = false;
-    renderWelcomeIndex();
-    if (was) {
-      try { localStorage.removeItem(LAST_KEY); } catch {}
-    }
-    renderTree();
-  }
-}
-
-// no editor open (welcome screen, folder index): Ctrl/Cmd+Z goes straight
-// to git undo — the ladder's native rung only exists inside the editor.
-// Text fields keep their own native undo; the guard leaves them alone.
-document.addEventListener('keydown', (e) => {
-  if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z') {
-    if (getEditor()) return; // the editor's keymap owns the ladder
-    const t = e.target as HTMLElement | null;
-    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
-    e.preventDefault();
-    void gitUndo();
-  }
-});
-
-// the mobile undo/redo buttons: the same ladders as Ctrl+Z / Ctrl+Shift+Z —
-// native first, git undo / the history view on exhaustion (gitUndo's
-// in-flight guard debounces); no confirmation, the roundtrip surfaces
-// through the sync markers
-export function redoExhausted(): void {
-  // native redo gone = the commit boundary crossed forward: the history
-  // graph owns the forward jumps (no /api/redo)
-  if (!historyOpen) void openHistory();
-}
-
+// the mobile undo/redo buttons: native-only (the same stack as Ctrl+Z /
+// Ctrl+Shift+Z), no git rung — an exhausted press does nothing
 undoBtn.addEventListener('click', () => {
   redoBtn.hidden = false; // redo only exists once something was undone
   const editor = getEditor();
-  if (editor && undo(editor)) return;
-  void gitUndo();
+  if (editor) undo(editor);
 });
 
 redoBtn.addEventListener('click', () => {
   const editor = getEditor();
-  if (editor && redo(editor)) return;
-  redoExhausted();
+  if (editor) redo(editor);
 });
 
 // ---------- history graph (sidebar) ----------
-// Pure display: the DAG as dots on lines. Main spine (reachable from HEAD)
-// is lane 0, leftmost; every branch tip opens its own lane to the right, in
-// fork order — the topo order its tip first appears in. Rows are the topo
-// index, so the graph reads newest-first and HEAD sits at the top. Nothing
-// acts on click in this milestone; hover names a node.
+// Display + the jump machine (owner decision 2026-10-11). Clicking a node
+// checks the WHOLE works tree out at that commit — temporarily: main never
+// moves, the checkout lands on a fresh timestamp branch, edits made there
+// commit onto that branch, and a page reload (boot) or the "back to head"
+// button returns to main proper. The DAG stays open, so you can hop on.
+// Hover names a node.
 type HistCommit = {
   sha: string;
   parents: string[];
@@ -170,6 +74,7 @@ type HistCommit = {
 };
 type HistData = {
   head: string | null;
+  onMain: boolean;
   commits: HistCommit[];
   root: { sha: string; at: number; subject: string } | null;
 };
@@ -226,6 +131,7 @@ async function refetchHistory(): Promise<void> {
     histScroll.replaceChildren(histNote((err as Error).message, 'error'));
     return;
   }
+  histMain.hidden = histData.onMain; // the back-to-head door exists only when away
   // the 200-commit cap can cut the chain short of the root: pin the INIT
   // commit to the bottom of the graph, so the very first commit is always
   // reachable by scrolling (a lone dot below the truncated chain)
@@ -271,6 +177,92 @@ const histNote = (text: string, cls: string): HTMLElement => {
   p.textContent = text;
   return p;
 };
+
+// ---------- the jump machine ----------
+// One handoff for both moves (node checkout, back to head): flush + push
+// what is unsynced FIRST (it commits onto the branch we LEAVE — nothing is
+// ever left uncommitted across a switch), then the server answers with the
+// diff between the two trees; drafts of changed paths are dropped (their
+// base is gone), the editor detaches WITHOUT pushing, the tree reloads and
+// the open file reopens at its new-tree path — or homes when the jump
+// deleted it. The DAG refetches and stays open: hop on.
+let jumping = false;
+
+async function jumpSwitch(
+  fetcher: () => Promise<{ changed: string[]; map: Record<string, string>; head: string }>,
+): Promise<void> {
+  if (jumping) return; // one jump at a time
+  jumping = true;
+  const was = currentFile;
+  try {
+    flushDraft();
+    if (dirty()) await sync.pushNow();
+    const res = await fetcher();
+    for (const p of res.changed) dropDraft(p); // by the paths they had
+    remapPaths(res.map); // selection, expanded, remaining drafts, last-opened
+    sync.cancel();
+    destroyEditor();
+    setCurrentFile(null);
+    setCurrentGroup(null);
+    setSync('idle');
+    refreshRowStatus(was);
+    await loadTree();
+    const next = was ? pathMapper(res.map)(was) : null;
+    if (next && byPath.has(next)) {
+      await openFile(next); // fresh content from the checked-out tree
+    } else {
+      goHome(was); // the jump deleted the open file (or nothing was open)
+    }
+    histData = null;
+    await refetchHistory();
+  } catch (err) {
+    setSync('idle'); // the doc never moved: the marker goes back to rest
+    alert((err as Error).message);
+  } finally {
+    jumping = false;
+  }
+}
+
+// home: the welcome screen (the welcome pseudo-file, not a real one)
+function goHome(was: string | null): void {
+  setSelected(null);
+  doc.hidden = true;
+  editorHost.hidden = true;
+  docBody.hidden = true;
+  docTitle.hidden = true;
+  docWords.hidden = true;
+  docDraft.hidden = true;
+  docTitle.classList.remove('draft');
+  pdfBtn.hidden = true;
+  empty.hidden = false;
+  renderWelcomeIndex();
+  if (was) {
+    try { localStorage.removeItem(LAST_KEY); } catch {}
+  }
+  renderTree();
+}
+
+const jumpTo = (sha: string): Promise<void> =>
+  jumpSwitch(() =>
+    api('/api/git/checkout', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ sha }),
+    }),
+  );
+
+const backToMain = (): Promise<void> =>
+  jumpSwitch(() =>
+    api('/api/git/main', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{}',
+    }),
+  );
+
+histMain.addEventListener('click', () => {
+  void backToMain();
+});
 
 // the lanes: master spine (everything reachable from HEAD) at lane 0; each
 // remaining commit starts a new lane in topo order (fork order) and claims
@@ -368,8 +360,8 @@ function renderGraph(): void {
     if (c.sha === data.head) dot.classList.add('here');
     svg.append(dot);
     // nothing is written into the graph itself — the hover tooltip names
-    // the node. The fat hit area hover speaks through (touch gets
-    // nothing yet — hover does not exist and no node acts on tap here)
+    // the node, a click jumps there (the temporary checkout). The fat hit
+    // area carries both (touch taps = clicks — no hover, but the jump works)
     const hit = svgEl('circle');
     hit.setAttribute('cx', String(nx));
     hit.setAttribute('cy', String(ny));
@@ -378,6 +370,10 @@ function renderGraph(): void {
     hit.addEventListener('mouseenter', () => showHistTip(c));
     hit.addEventListener('mousemove', (e) => placeHistTip(e.clientX, e.clientY));
     hit.addEventListener('mouseleave', hideHistTip);
+    hit.addEventListener('click', () => {
+      hideHistTip();
+      void jumpTo(c.sha);
+    });
     svg.append(hit);
   }
   histScroll.replaceChildren(svg);

@@ -69,7 +69,7 @@ export type SyncHooks = {
   getPath: () => string | null;
   getContent: () => string | null;
   getEditor: () => EditorView | null;
-  onSaved: (content: string, committed: boolean) => void;
+  onSaved: (content: string) => void;
   onPushStart: () => void; // request sent → awaiting the reply
   onPushEnd: (ok: boolean) => void; // reply in; recompute the status
   onAuthLost: () => void; // 401 → hand off to page (flush + redirect)
@@ -139,15 +139,9 @@ export function createSync(hooks: SyncHooks): SyncState {
         return;
       }
       if (!res.ok) throw new Error('save failed');
-      // `committed` = the write crossed the coalescer's char trigger: a
-      // commit boundary for the client's native undo stack
-      let committed = false;
-      try {
-        committed = ((await res.json()) as { committed?: boolean }).committed === true;
-      } catch {}
       setBaseline(content, content.length);
       dropDraft(path);
-      hooks.onSaved(content, committed);
+      hooks.onSaved(content);
       ok = true;
     } catch {
       // keep the draft; the status falls back to "dirty"

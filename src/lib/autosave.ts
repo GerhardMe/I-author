@@ -1,27 +1,29 @@
 // Commit cadence for the git-backed undo (owner decisions 2026-10-11).
 // Saves stop committing every push: PUT /api/file writes and calls
-// markDirty(path, charDelta); a single coalescer commits when 5s idle or
-// >=1000 chars accumulated, whichever first. flushAll() force-commits a
-// pending burst before rename/delete/reorder/new (so each mutation stays
-// ONE commit), lock/log-out, pdf compile, and on SIGTERM; at boot a dirty
-// worktree commits as `recovered : <time>` (a crash can only lose the
+// markDirty(path, charDelta); ONE 30s ticker commits the pending burst when
+// >=200 chars accumulated — under the minimum it does nothing, the next
+// tick re-checks (no idle trigger, no mid-burst trigger). flushAll()
+// force-commits a pending burst before rename/delete/reorder/new (so each
+// mutation stays ONE commit), lock/log-out, pdf compile, and on SIGTERM; at
+// boot a dirty worktree commits as `recovered` (a crash can only lose the
 // commit, never the text — writes are atomic and already on disk), and a
-// fresh repo gets its first commit as `INIT : <time>`. Message grammar:
-// `path : 2026-10-11 14:03:22` (local server time, exactly this format),
-// one line per path when several files are pending. All commits ride the
-// serialized queue in git.ts. Commit failures stay server-log only — the
-// text itself is already on disk, and the next commit sweeps it in.
+// fresh repo gets its first commit as `INIT`. Message grammar (owner
+// decision 2026-10-11, no timestamps — git stores them): `path` for a
+// content update, one line per path when several files are pending. All
+// commits ride the serialized queue in git.ts, which announces them to the
+// SSE clients. Commit failures stay server-log only — the text itself is
+// already on disk, and the next commit sweeps it in.
 import { commit, ensureRepo, gitOut } from './git.ts';
 
-const IDLE_MS = 5000;
-const CHARS_TRIGGER = 1000;
+const TICK_MS = 30_000;
+const MIN_CHARS = 200;
 
 // path -> accumulated |charDelta| since the last commit. An entry with 0
-// chars is still a real change (a same-length rewrite) and commits at idle.
+// chars is still a real change (a same-length rewrite) and counts toward
+// the minimum.
 const pending = new Map<string, number>();
-let timer: ReturnType<typeof setTimeout> | null = null;
 
-// local server time, exactly the message grammar's format
+// local server time — the branch names' clock (no longer in commit messages)
 export function stamp(): string {
   const d = new Date();
   const p = (n: number): string => String(n).padStart(2, '0');
@@ -31,30 +33,10 @@ export function stamp(): string {
   );
 }
 
-// 5s idle: a true idle debounce — the timer restarts on every markDirty, so
-// only a pause in typing commits (the >=1000-char trigger covers bursts)
-function arm(): void {
-  if (timer) clearTimeout(timer);
-  timer = setTimeout(() => {
-    timer = null;
-    void flushAll();
-  }, IDLE_MS);
-}
-
-// Returns whether THIS call crossed the char trigger and started a commit:
-// the client resets its native undo stack at every commit boundary, and the
-// flag rides the PUT response for exactly that. The commit itself is not
-// awaited — typing must never wait for git.
-export function markDirty(path: string, charDelta: number): boolean {
+// The client never learns boundaries from this write — the SSE channel
+// (git.ts's commit events) announces every commit. Void on purpose.
+export function markDirty(path: string, charDelta: number): void {
   pending.set(path, (pending.get(path) ?? 0) + Math.abs(charDelta));
-  let total = 0;
-  for (const n of pending.values()) total += n;
-  if (total >= CHARS_TRIGGER) {
-    void flushAll();
-    return true;
-  }
-  arm();
-  return false;
 }
 
 // commit everything pending now. Take-and-clear is synchronous, so
@@ -62,13 +44,9 @@ export function markDirty(path: string, charDelta: number): boolean {
 // an empty map. Empty pending: no commit (the mutation routes' own commit
 // still fires after them).
 export async function flushAll(): Promise<boolean> {
-  if (timer) {
-    clearTimeout(timer);
-    timer = null;
-  }
   if (!pending.size) return false;
   const lines: string[] = [];
-  for (const path of pending.keys()) lines.push(`${path} : ${stamp()}`);
+  for (const path of pending.keys()) lines.push(path);
   pending.clear();
   return commit(lines.join('\n'));
 }
@@ -86,17 +64,25 @@ async function boot(): Promise<void> {
     }
     const status = await gitOut(['status', '--porcelain']);
     if (!status.trim()) return;
-    await commit(hasCommits ? `recovered : ${stamp()}` : `INIT : ${stamp()}`);
+    await commit(hasCommits ? 'recovered' : 'INIT');
   } catch (err) {
     console.warn('[iauthor] autosave boot check failed:', err);
   }
 }
 
-// dev HMR re-imports this module: register boot + SIGTERM once per process
+// dev HMR re-imports this module: register boot + ticker + SIGTERM once per
+// process
 const g = globalThis as Record<string, unknown>;
 if (!g.__iauthorAutosaveBoot) {
   g.__iauthorAutosaveBoot = true;
   void boot();
+  // the cadence: one wall-clock tick, not a per-keystroke timer — a tick
+  // under the minimum is simply a no-op (the next tick re-checks)
+  setInterval(() => {
+    let total = 0;
+    for (const n of pending.values()) total += n;
+    if (total >= MIN_CHARS) void flushAll();
+  }, TICK_MS);
   process.once('SIGTERM', () => {
     void flushAll().finally(() => process.exit(0));
   });

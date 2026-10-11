@@ -359,7 +359,7 @@ let renaming: Node | null = null;
 
 docHead.addEventListener('click', (e) => {
   if (renaming || !selected) return;
-  if ((e.target as HTMLElement).closest('button')) return;
+  if ((e.target as HTMLElement).closest('button, #doc-words')) return; // buttons and the counter chip own their clicks
   const node = byPath.get(selected);
   if (!node) return;
   renaming = node;

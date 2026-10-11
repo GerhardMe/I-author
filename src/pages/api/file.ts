@@ -21,17 +21,17 @@ export const PUT: APIRoute = async (ctx) => {
     if (!body || typeof body.path !== 'string' || typeof body.content !== 'string') {
       throw new Error('bad request');
     }
-    // the burst the write adds to the coalescer, for the char trigger
+    // the burst the write adds to the coalescer's pending map
     let oldLen = 0;
     try {
       oldLen = readChapter(body.path).length;
     } catch {}
     writeChapter(body.path, body.content);
-    // no commit here — the autosave coalescer owns the cadence. `committed`
-    // tells the client a commit boundary was crossed (its native undo stack
-    // resets there).
-    const committed = markDirty(body.path, body.content.length - oldLen);
-    return json(ctx, { ok: true, committed });
+    // no commit here — the autosave coalescer owns the cadence, and the SSE
+    // channel (/api/events) announces every commit it makes. The response
+    // carries nothing about commits.
+    markDirty(body.path, body.content.length - oldLen);
+    return json(ctx, { ok: true });
   } catch (e) {
     return json(ctx, { error: (e as Error).message }, 400);
   }

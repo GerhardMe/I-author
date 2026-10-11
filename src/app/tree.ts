@@ -21,7 +21,7 @@ import {
 import { treeEl } from './dom.ts';
 import { dragCard, dragPreview, lineEl } from './gestures.ts';
 import { showInsertLine } from './files.ts';
-import { afterPush, getEditor } from './editor.ts';
+import { getEditor } from './editor.ts';
 import { sync } from './sync.ts';
 
 // hide drafts and notes, plus empty directories; folders whose children
@@ -134,7 +134,6 @@ export function pushStart(): void {
 }
 
 export function pushEnd(ok: boolean): void {
-  afterPush(ok); // the commit boundary rides the confirmed push
   if (spinnerDelay) {
     clearTimeout(spinnerDelay); // the reply beat the delay: never shown
     spinnerDelay = null;

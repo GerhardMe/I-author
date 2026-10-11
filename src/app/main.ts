@@ -4,7 +4,8 @@
 // click-to-dismiss menus must keep their order too). Everything else
 // lives in its feature module.
 
-import { EXP_KEY, byPath, expanded, LAST_KEY, narrow, navOpen, saveExpanded, tree } from './state.ts';
+import { EXP_KEY, api, byPath, expanded, LAST_KEY, narrow, navOpen, saveExpanded, tree } from './state.ts';
+import { dropDraft } from '../lib/sync.ts';
 import { loadTree, renderTree } from './tree.ts';
 import { pdfMenu } from './dom.ts';
 import { openFile, renderWelcomeIndex } from './toc.ts';
@@ -13,6 +14,7 @@ import { hidePdfMenu, loadPdfStyles } from './pdf.ts';
 import { setNav, syncHideBtn } from './nav.ts';
 import { dismissHistory, historyOpen } from './history.ts';
 import { lastLongPressAt } from './gestures.ts';
+import { openCommits } from './commits.ts';
 
 // a click elsewhere closes the tree context menu — and while it is open,
 // that click ONLY closes: nothing behind the menu acts (a tree row must not
@@ -71,6 +73,7 @@ document.addEventListener('keydown', (e) => {
 
 export async function boot(): Promise<void> {
   void loadPdfStyles(); // the pdf menu fills in whenever the server answers
+  openCommits(); // the commit stream: undo boundaries + live history view
   syncHideBtn();
   // nav state: the tree is ALWAYS open on desktop at boot (a reload undoes
   // a close); mobile starts hidden — the pre-paint inline script already
@@ -85,6 +88,18 @@ export async function boot(): Promise<void> {
     if (raw !== null) stored = JSON.parse(raw) as string[];
   } catch {}
   if (stored) for (const p of stored) expanded.add(p);
+  // a page reload returns to head (owner decision 2026-10-11): a temporary
+  // checkout lives only in this page session. The server commits whatever
+  // it still holds ONTO the branch we leave; drafts of changed paths drop —
+  // their base is gone. No-op (and cheap) when already on main.
+  try {
+    const r = await api<{ changed: string[] }>('/api/git/main', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{}',
+    });
+    for (const p of r.changed) dropDraft(p);
+  } catch {}
   await loadTree();
   if (stored) {
     for (const p of [...expanded]) if (!byPath.has(p)) expanded.delete(p);

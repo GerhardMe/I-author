@@ -5,7 +5,7 @@
 // friends are `export let` (live reads) plus a setter for the writers.
 
 import { remapDrafts } from '../lib/sync.ts';
-import { appEl } from './dom.ts';
+import { appEl, docWords } from './dom.ts';
 
 export type Node = {
   name: string;
@@ -141,3 +141,28 @@ export const parentOf = (path: string): string => {
   const i = path.lastIndexOf('/');
   return i === -1 ? '' : path.slice(0, i);
 };
+
+// the doc-head counter chip: click toggles words <-> chars (session-only, no
+// persistence). The last figures are remembered so a toggle re-renders in
+// place; a folder index has no char figure, so it only carries words.
+let charMode = false;
+let lastWords: number | null = null;
+let lastChars: number | null = null;
+
+export function showCounter(v: { words: number; chars?: number }): void {
+  lastWords = v.words;
+  lastChars = v.chars ?? null; // a folder index has no char figure — don't keep a stale one
+  renderCounter();
+}
+
+function renderCounter(): void {
+  const words = lastWords ?? 0;
+  docWords.textContent =
+    charMode && lastChars !== null ? `${lastChars} chars` : `${words} words`;
+}
+
+docWords.addEventListener('click', () => {
+  if (docWords.hidden || lastWords === null) return;
+  charMode = !charMode;
+  renderCounter();
+});
