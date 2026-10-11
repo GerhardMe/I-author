@@ -1102,53 +1102,45 @@ a.btn-tiny:hover {
   font-style: italic;
 }
 
-/* ---------- sync status indicator (bottom-right corner) ----------
-   idle: hidden — the page matches the server; dirty: dot — the doc is ahead
-   of the server; pushing: spinner — an update is awaiting the server's reply;
-   error: red ! — a push failed or is stuck, unsynced text at risk (the ! is
-   static text, revealed only here) */
-#sync-indicator {
-  position: fixed;
-  right: 1.25rem;
-  bottom: 1rem;
-  width: 0.5rem;
-  height: 0.5rem;
+/* ---------- sync status markers (tree rows) ----------
+   A status marker sits at the row's right edge, after the filename (VS Code
+   style). idle: none — the file matches the server; dirty: dot — unsynced
+   text (an open doc ahead of the server, or a draft in storage); pushing:
+   spinner — an update is awaiting the server's reply; error: red ! — a push
+   failed or is stuck, unsynced text at risk (the ! is static text, revealed
+   only here). With the tree hidden the markers are invisible: tree chrome. */
+.tree-row .ts {
+  flex: none;
+  align-self: center;
+  width: 0.45rem;
+  height: 0.45rem;
   border-radius: 50%;
   background: var(--muted);
-  color: transparent;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.3s;
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1;
+  text-align: center;
 }
 
-#sync-indicator[data-state='dirty'] {
-  opacity: 1;
-}
-
-#sync-indicator[data-state='error'] {
+.tree-row .ts[data-state='error'] {
   width: auto;
   height: auto;
   background: transparent;
   border-radius: 0;
   color: var(--danger);
-  font-weight: 700;
-  font-size: 0.75rem;
-  line-height: 1;
-  opacity: 1;
 }
 
-#sync-indicator[data-state='pushing'] {
-  width: 0.75rem;
-  height: 0.75rem;
+.tree-row .ts[data-state='pushing'] {
+  width: 0.6rem;
+  height: 0.6rem;
   background: transparent;
-  border: 2px solid var(--muted);
+  border: 1.5px solid var(--muted);
   border-top-color: var(--accent);
-  opacity: 1;
   animation: pdf-spin 0.8s linear infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  #sync-indicator[data-state='pushing'] {
+  .tree-row .ts[data-state='pushing'] {
     animation: sync-pulse 0.8s ease-in-out infinite alternate;
     background: var(--accent);
     border-color: var(--accent);

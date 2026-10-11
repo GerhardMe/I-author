@@ -56,7 +56,6 @@ const authReady = loadSecrets() !== null;
           <div id="editor-host" hidden></div>
         </div>
       </article>
-      <div id="sync-indicator" data-state="idle">!</div>
     </main>
   </div>
   <script is:inline>
@@ -109,7 +108,6 @@ const authReady = loadSecrets() !== null;
   const docBody = document.getElementById('doc-body')!;
   const docWords = document.getElementById('doc-words')!;
   const docDraft = document.getElementById('doc-draft')!;
-  const syncIndicator = document.getElementById('sync-indicator')!;
   const renameInput = document.getElementById('doc-rename') as HTMLInputElement;
   const hideBtn = document.getElementById('hide-drafts') as HTMLButtonElement;
   const hideEye = document.getElementById('hide-drafts-eye')!;
@@ -197,20 +195,56 @@ const authReady = loadSecrets() !== null;
     });
   }
 
-  // ---------- sync status indicator ----------
-  // idle = hidden (server up to date), dirty = dot (doc ahead of the server),
-  // pushing = spinner (update awaiting the reply), error = red ! (a push has
-  // failed or is stuck — unsynced text at risk; stays until a push confirms).
-  // The spinner waits half a second before appearing (no flash on quick
-  // replies) and, once shown, stays up at least a tenth of a second.
+  // ---------- sync status markers (tree rows) ----------
+  // The status of the open file lives on ITS tree row, at the right edge
+  // after the filename (VS Code style); files that are not open show a dot
+  // when a sessionStorage draft exists — drafts are dropped exactly when a
+  // push confirms, so a dot always means "unsynced text". States:
+  // dirty = dot (doc ahead of the server), pushing = spinner (update
+  // awaiting the reply), error = red ! (a push has failed or is stuck —
+  // unsynced text at risk; stays until a push confirms). The spinner waits
+  // half a second before appearing (no flash on quick replies) and, once
+  // shown, stays up at least a tenth of a second. With the tree hidden the
+  // markers are invisible — they are tree chrome.
   const SPINNER_DELAY_MS = 500;
   const SPINNER_MIN_MS = 100;
   let spinnerDelay: ReturnType<typeof setTimeout> | null = null; // before showing
   let spinnerHold: ReturnType<typeof setTimeout> | null = null; // min display
   let spinnerShownAt = 0;
+  let syncState: 'idle' | 'dirty' | 'pushing' | 'error' = 'idle';
+
+  function rowStatus(path: string): 'dirty' | 'pushing' | 'error' | null {
+    if (path === currentFile) return syncState === 'idle' ? null : syncState;
+    return loadDraft(path) ? 'dirty' : null;
+  }
+
+  // targeted row update — never a full renderTree(): a push timer can fire
+  // mid-drag, and a tree rebuild would detach the dragged source row
+  function refreshRowStatus(path: string | null): void {
+    if (!path) return;
+    const row = treeEl.querySelector(
+      `.tree-row[data-path="${CSS.escape(path)}"]`,
+    ) as HTMLElement | null;
+    if (!row || row.dataset.folder) return;
+    const st = rowStatus(path);
+    const ts = row.querySelector<HTMLElement>('.ts');
+    if (!st) {
+      ts?.remove();
+    } else if (ts) {
+      ts.dataset.state = st;
+      ts.textContent = st === 'error' ? '!' : '';
+    } else {
+      const el = document.createElement('span');
+      el.className = 'ts';
+      el.dataset.state = st;
+      el.textContent = st === 'error' ? '!' : '';
+      row.append(el);
+    }
+  }
 
   function setSync(state: 'idle' | 'dirty' | 'pushing' | 'error'): void {
-    syncIndicator.dataset.state = state;
+    syncState = state;
+    refreshRowStatus(currentFile);
   }
 
   function syncStateFromDoc(content: string): 'idle' | 'dirty' {
@@ -235,7 +269,7 @@ const authReady = loadSecrets() !== null;
         clearTimeout(spinnerHold); // a new push supersedes the old hold
         spinnerHold = null;
       }
-      if (syncIndicator.dataset.state === 'pushing') return; // already shown
+      if (syncState === 'pushing') return; // already shown
       spinnerDelay = setTimeout(() => {
         spinnerDelay = null;
         setSync('pushing');
@@ -249,7 +283,7 @@ const authReady = loadSecrets() !== null;
         setSync(ok ? pushEndState() : 'error');
         return;
       }
-      if (syncIndicator.dataset.state !== 'pushing') {
+      if (syncState !== 'pushing') {
         if (!ok) setSync('error'); // retry failed while the ! was up: keep it
         return;
       }
@@ -276,7 +310,7 @@ const authReady = loadSecrets() !== null;
     if (editor && currentFile && sync.ahead(editor.state.doc.toString())) setSync('error');
   });
   document.addEventListener('online', () => {
-    if (syncIndicator.dataset.state === 'error') setSync(pushEndState());
+    if (syncState === 'error') setSync(pushEndState());
     sync.schedule();
   });
 
@@ -284,8 +318,8 @@ const authReady = loadSecrets() !== null;
     if (!u.docChanged) return;
     docWords.textContent = `${countWords(u.state.doc.toString())} words`;
     // while a reply is awaited (or a push has failed) the spinner/! own the
-    // corner; the dot comes back when a push confirms (pushEndState recomputes)
-    if (syncIndicator.dataset.state !== 'pushing' && syncIndicator.dataset.state !== 'error')
+    // row; the dot comes back when a push confirms (pushEndState recomputes)
+    if (syncState !== 'pushing' && syncState !== 'error')
       setSync(syncStateFromDoc(u.state.doc.toString()));
     scheduleDraft();
     sync.schedule();
@@ -333,9 +367,11 @@ const authReady = loadSecrets() !== null;
     if (editor && currentFile && dirty()) await sync.pushNow();
     sync.cancel();
     destroyEditor();
+    const was = currentFile;
     currentFile = null;
     currentGroup = null;
-    setSync('idle'); // the indicator speaks about the open file only
+    setSync('idle'); // the markers speak about the open file only
+    refreshRowStatus(was); // recompute the row we just left (draft may be gone)
   }
 
   // Ctrl/Cmd+S: send the current state to the server right now
@@ -419,6 +455,16 @@ const authReady = loadSecrets() !== null;
       }>${isFolder ? (expanded.has(n.path) ? '▾' : '▸') : '·'}</span><span class="tn">${esc(
         n.raw,
       )}</span>`;
+      if (!isFolder) {
+        const st = rowStatus(n.path);
+        if (st) {
+          const ts = document.createElement('span');
+          ts.className = 'ts';
+          ts.dataset.state = st;
+          ts.textContent = st === 'error' ? '!' : '';
+          row.append(ts);
+        }
+      }
       li.append(row);
       if (isFolder && expanded.has(n.path) && n.children!.length) li.append(buildList(n.children!));
       ul.append(li);

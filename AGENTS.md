@@ -188,7 +188,12 @@ openFile(p)    revealPath(p) first — expand ancestors + select the row (the op
 showGroup(n)   folder index TOC (never an editor); awaits leavingFile() + loadTree()
                first so word totals (Node.words) reflect saves since the last load
 leavingFile()  flushDraft + sync.pushNow if dirty — ALWAYS before switching files
-sync hooks     onSaved/onDirtyChange update the doc-words chip (header)
+sync hooks     onSaved/onDirtyChange update the doc-words chip (header); the sync
+               status markers (dot/spinner/red !) render on the file's own tree
+               row, right edge after the filename — the open file shows the live
+               state (setSync → refreshRowStatus, targeted DOM update, never a
+               renderTree mid-drag), unopened files show a dot when a
+               sessionStorage draft exists (rowStatus at buildList time)
 context menu   right-click: ctxTarget + hover previews (insert-line, delete flash);
                pendingParent/pendingAnchorPath feed the create dialog
 rename         header click (except buttons) → raw-name editor → commitRename()
