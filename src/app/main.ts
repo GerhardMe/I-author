@@ -59,7 +59,7 @@ document.addEventListener('keydown', (e) => {
   e.stopImmediatePropagation();
 });
 
-async function boot(): Promise<void> {
+export async function boot(): Promise<void> {
   void loadPdfStyles(); // the pdf menu fills in whenever the server answers
   syncHideBtn();
   // nav state: the tree is ALWAYS open on desktop at boot (a reload undoes
