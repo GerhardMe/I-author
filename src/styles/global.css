@@ -1124,12 +1124,9 @@ a.btn-tiny:hover {
 }
 
 /* the counter chip: mode (words/chars) is picked by right-click or touch
-   long-press — no pointer cursor, nothing on a plain click */
+   long-press — nothing on a plain click; the text stays selectable */
 #doc-words {
-  cursor: context-menu;
-  user-select: none;
-  -webkit-user-select: none;
-  -webkit-touch-callout: none; /* iOS: no selection callout on long-press */
+  -webkit-touch-callout: none; /* no callout popup on long-press */
 }
 
 .empty {
