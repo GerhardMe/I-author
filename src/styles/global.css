@@ -1164,12 +1164,12 @@ a.btn-tiny:hover {
 }
 
 /* ---------- history graph (sidebar; JS-created SVG) ----------
-   A minimal DAG: hollow dots connected by lines, HEAD a filled square,
-   branch tips labelled with a small ref chip. Master spine on the leftmost
+   A minimal DAG: hollow dots connected by lines, HEAD the filled blue dot,
+   branch names riding the hover tooltip. Master spine on the leftmost
    lane, branch lanes to the right in fork order; rows are the topo index
-   (newest first), so HEAD tops the graph. Hover names a node — nothing
-   acts on click. Styles live here because Astro scoping would never match
-   the dynamically created SVG. */
+   (newest first), so HEAD tops the graph and the pinned root sits at the
+   bottom. Styles live here because Astro scoping would never match the
+   dynamically created SVG. */
 .hist {
   flex: 1;
   overflow: auto;

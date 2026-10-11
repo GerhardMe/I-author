@@ -1,8 +1,9 @@
 // The undo ladder's git rung, and the history graph in the sidebar:
-// a minimal DAG — hollow dots on lines, HEAD a filled square, master spine
-// on the leftmost lane, branch lanes to the right in fork order. Hover
-// names a node; nothing acts on click yet. The git button swaps the panel
-// with the file tree and relabels itself "files".
+// a minimal DAG — hollow dots on lines, HEAD the filled blue dot, master
+// spine on the leftmost lane, branch lanes to the right in fork order, the
+// root commit pinned to the bottom. Hover names a node; nothing acts on
+// click yet. The git button swaps the panel with the file tree and
+// relabels itself "files".
 
 import { undo, redo } from '@codemirror/commands';
 import { dropDraft } from '../lib/sync.ts';
@@ -168,6 +169,7 @@ type HistData = {
   head: string | null;
   branches: { name: string; sha: string }[];
   commits: HistCommit[];
+  root: { sha: string; at: number; subject: string } | null;
 };
 export let historyOpen = false;
 let histData: HistData | null = null;
@@ -219,6 +221,19 @@ async function openHistory(): Promise<void> {
     histData = null;
     histScroll.replaceChildren(histNote((err as Error).message, 'error'));
     return;
+  }
+  // the 200-commit cap can cut the chain short of the root: pin the INIT
+  // commit to the bottom of the graph, so the very first commit is always
+  // reachable by scrolling (a lone dot below the truncated chain)
+  const d = histData;
+  if (d.root && !d.commits.some((c) => c.sha === d.root!.sha)) {
+    d.commits.push({
+      sha: d.root.sha,
+      parents: [],
+      at: d.root.at,
+      subject: d.root.subject,
+      changed: [],
+    });
   }
   renderGraph();
 }
@@ -322,22 +337,15 @@ function renderGraph(): void {
     const p = pos.get(c.sha)!;
     const nx = x(p.lane);
     const ny = y(p.row);
-    if (c.sha === data.head) {
-      const sq = svgEl('rect');
-      sq.setAttribute('x', String(nx - NODE_R));
-      sq.setAttribute('y', String(ny - NODE_R));
-      sq.setAttribute('width', String(NODE_R * 2));
-      sq.setAttribute('height', String(NODE_R * 2));
-      sq.classList.add('hist-node', 'here');
-      svg.append(sq);
-    } else {
-      const dot = svgEl('circle');
-      dot.setAttribute('cx', String(nx));
-      dot.setAttribute('cy', String(ny));
-      dot.setAttribute('r', String(NODE_R));
-      dot.classList.add('hist-node');
-      svg.append(dot);
-    }
+    // every node is a dot; HEAD (you are here) is the filled blue one,
+    // a step larger so the fill reads at a glance
+    const dot = svgEl('circle');
+    dot.setAttribute('cx', String(nx));
+    dot.setAttribute('cy', String(ny));
+    dot.setAttribute('r', String(c.sha === data.head ? NODE_R + 1 : NODE_R));
+    dot.classList.add('hist-node');
+    if (c.sha === data.head) dot.classList.add('here');
+    svg.append(dot);
     // nothing is written into the graph itself — branch names live in the
     // hover tooltip. The fat hit area hover speaks through (touch gets
     // nothing yet — hover does not exist and no node acts on tap here)

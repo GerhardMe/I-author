@@ -76,7 +76,23 @@ export const GET: APIRoute = async (ctx) => {
     } catch {
       head = null; // no commits yet
     }
-    return json(ctx, { head, branches, commits });
+    // the DAG's root rides along: the client pins it to the bottom of the
+    // graph so the very first commit (INIT) stays reachable by scroll even
+    // when the cap above cut the chain short of it
+    let root: { sha: string; at: number; subject: string } | null = null;
+    try {
+      const rootSha = (await gitOut(['rev-list', '--max-parents=0', '--all']))
+        .split('\n')[0]
+        ?.trim();
+      if (rootSha) {
+        const line = (await gitOut(['show', '-s', '--format=%at%x09%s', rootSha])).trim();
+        const [at = '', ...rest] = line.split('\t');
+        root = { sha: rootSha, at: Number(at) || 0, subject: rest.join('\t') };
+      }
+    } catch {
+      root = null; // no commits yet
+    }
+    return json(ctx, { head, branches, commits, root });
   } catch (e) {
     return json(ctx, { error: (e as Error).message }, 400);
   }
