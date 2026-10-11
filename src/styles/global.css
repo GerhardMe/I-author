@@ -1211,12 +1211,6 @@ a.btn-tiny:hover {
   stroke: var(--accent);
 }
 
-.hist-ref {
-  fill: var(--accent);
-  font-size: 10px;
-  letter-spacing: 0.02em;
-}
-
 .hist-hit {
   fill: transparent; /* the fat hover target over each node */
 }

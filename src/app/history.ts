@@ -171,6 +171,7 @@ type HistData = {
 };
 export let historyOpen = false;
 let histData: HistData | null = null;
+let histTips = new Map<string, string>(); // branch tip sha -> branch name
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const LANE_W = 22;
@@ -200,6 +201,7 @@ export function dismissHistory(): void {
   gitBtn.title = 'git history';
   gitBtn.setAttribute('aria-pressed', 'false');
   histData = null;
+  histTips = new Map();
   hideHistTip();
 }
 
@@ -315,7 +317,7 @@ function renderGraph(): void {
     }
   }
 
-  const tips = new Map(data.branches.map((b) => [b.sha, b.name]));
+  histTips = new Map(data.branches.map((b) => [b.sha, b.name]));
   for (const c of data.commits) {
     const p = pos.get(c.sha)!;
     const nx = x(p.lane);
@@ -336,17 +338,9 @@ function renderGraph(): void {
       dot.classList.add('hist-node');
       svg.append(dot);
     }
-    const name = tips.get(c.sha);
-    if (name) {
-      const chip = svgEl('text');
-      chip.setAttribute('x', String(nx + NODE_R + 6));
-      chip.setAttribute('y', String(ny + 3.5));
-      chip.classList.add('hist-ref');
-      chip.textContent = name;
-      svg.append(chip);
-    }
-    // the fat hit area hover speaks through (touch gets nothing yet —
-    // hover does not exist and no node acts on tap in this milestone)
+    // nothing is written into the graph itself — branch names live in the
+    // hover tooltip. The fat hit area hover speaks through (touch gets
+    // nothing yet — hover does not exist and no node acts on tap here)
     const hit = svgEl('circle');
     hit.setAttribute('cx', String(nx));
     hit.setAttribute('cy', String(ny));
@@ -374,7 +368,11 @@ const tipLine = (cls: string, text: string): HTMLElement => {
 };
 
 function showHistTip(c: HistCommit): void {
-  histTipCard.replaceChildren(tipLine('t-subj', c.subject), tipLine('t-when', histWhen(c.at)));
+  histTipCard.replaceChildren(
+    tipLine('t-subj', c.subject),
+    tipLine('t-when', histWhen(c.at)),
+    ...(histTips.get(c.sha) ? [tipLine('t-ref', histTips.get(c.sha)!)] : []),
+  );
   histTipCard.hidden = false;
 }
 
