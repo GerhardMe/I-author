@@ -25,8 +25,11 @@ the roadmap below. If a change adds complexity, it needs a good reason.
   order. No frontmatter ordering, no status fields. Display names (Work/Book/Part/
   Chapter labels with Roman/Arabic numbering) are computed from the tree in `works.ts`
   (`title` on tree nodes; top-level entries shown bare) — the disk schema stays raw.
-- **Local git in the works dir**: auto-commits on every save/create/delete. Server-only
-  history, never pushed. The user never manages git.
+- **Local git in the works dir**: commits via the autosave coalescer
+  (`src/lib/autosave.ts`) — a save burst commits at 5s idle or ≥1000 chars, whichever
+  first; create/delete/rename/reorder flush the burst first so each mutation stays ONE
+  commit (`path : 2026-10-11 14:03:22` message grammar). Server-only history, never
+  pushed. The user never manages git.
 - **Backup = the owner's external microservice** (owner decision 2026-10-11,
   revises the old encrypted-GitHub plan): the works-dir git repo IS the backup
   artifact. A separate tiny app (its own repo) reads it read-only on a timer
@@ -449,9 +452,10 @@ WORKS_DIR (server: /home/server/writing/works)
   forever; `scripts/migrate-names.mjs` renamed pre-existing hyphenated entries.
 - `safePath` rejects `..`, empty/hidden segments, and anything whose realpath escapes
   `WORKS_DIR`. Only `.md`/`.markdown` files are readable/writable; 512 KB cap; atomic writes.
-- Every mutation (`new`, `file PUT`, `delete`, `rename`) ends with `git.commit(...)`
-  in the works dir. Empty folder creations produce no commit (git doesn't track
-  dirs) — expected.
+- Every mutation (`new`, `file PUT`, `delete`, `rename`, `reorder`) ends with a commit
+  in the works dir — saves through the autosave coalescer (`flushAll()` before the
+  mutation), the mutation itself as one commit after. Empty folder creations produce no
+  commit (git doesn't track dirs) — expected.
 - Client `fetch`es of `/api/tree` use `cache: 'no-store'` — stale HTTP-cache reads
   once made the sidebar look frozen after renames.
 

@@ -1,6 +1,7 @@
 import type { APIRoute } from 'astro';
 import { createEntry } from '../../lib/works.ts';
 import { commit } from '../../lib/git.ts';
+import { flushAll } from '../../lib/autosave.ts';
 import { json } from '../../lib/http.ts';
 
 export const POST: APIRoute = async (ctx) => {
@@ -12,6 +13,8 @@ export const POST: APIRoute = async (ctx) => {
     if ((kind !== 'folder' && kind !== 'file') || typeof body?.name !== 'string') {
       throw new Error('bad request');
     }
+    // the pending burst commits first, so the mutation stays ONE commit
+    await flushAll();
     const { path, renumbered } = createEntry(kind, body?.parent ?? '', body.name);
     const n = Object.keys(renumbered).length;
     await commit(`create ${path}${n ? ` (+${n} renumbered)` : ''}`);

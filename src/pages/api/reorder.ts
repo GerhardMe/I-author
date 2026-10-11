@@ -6,6 +6,7 @@
 import type { APIRoute } from 'astro';
 import { moveEntry } from '../../lib/works.ts';
 import { commit } from '../../lib/git.ts';
+import { flushAll } from '../../lib/autosave.ts';
 import { json } from '../../lib/http.ts';
 
 export const POST: APIRoute = async (ctx) => {
@@ -17,6 +18,8 @@ export const POST: APIRoute = async (ctx) => {
       throw new Error('bad request');
     }
     const before = typeof body.before === 'string' ? body.before : null;
+    // the pending burst commits first, so the mutation stays ONE commit
+    await flushAll();
     const { moved, renumbered } = moveEntry(body.path, body.parent, before);
     const n = Object.keys(renumbered).length;
     await commit(`reorder ${moved.from} -> ${moved.to}${n ? ` (+${n} renumbered)` : ''}`);

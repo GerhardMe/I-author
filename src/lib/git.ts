@@ -6,6 +6,14 @@ import { WORKS_DIR } from './config.ts';
 
 const run = promisify(execFile);
 
+// raw git access for the layers around committing (autosave boot check,
+// undo's rev-parse/branch/reset, the history view's log) — same cwd rules
+// as the commit path
+export async function gitOut(args: string[]): Promise<string> {
+  const { stdout } = await run('git', args, { cwd: WORKS_DIR });
+  return stdout;
+}
+
 export async function ensureRepo(): Promise<void> {
   fs.mkdirSync(WORKS_DIR, { recursive: true });
   if (!fs.existsSync(path.join(WORKS_DIR, '.git'))) {

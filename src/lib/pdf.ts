@@ -21,6 +21,7 @@ import { parseName, slugify } from './naming.ts';
 import { type Node, listWorks, readChapter, safePath } from './works.ts';
 import { visibleNodes } from './visibility.ts';
 import { ensureRepo } from './git.ts';
+import { flushAll } from './autosave.ts';
 
 const run = promisify(execFile);
 const LUALATEX = process.env.IAUTHOR_LUALATEX ?? 'lualatex';
@@ -404,6 +405,9 @@ export async function ensurePdf(
   force = false,
   includeDrafts = false,
 ): Promise<EnsureResult> {
+  // the pending burst commits first, so what reaches paper is committed
+  // state — the history stays coherent with the printed artifact
+  await flushAll();
   const isFile = MD.test(rel);
   const abs = safePath(rel);
   if (!abs) throw new NotFoundError('not found');

@@ -1,6 +1,6 @@
 import type { APIRoute } from 'astro';
 import { readChapter, writeChapter } from '../../lib/works.ts';
-import { commit } from '../../lib/git.ts';
+import { markDirty } from '../../lib/autosave.ts';
 import { json } from '../../lib/http.ts';
 
 export const GET: APIRoute = async (ctx) => {
@@ -21,9 +21,17 @@ export const PUT: APIRoute = async (ctx) => {
     if (!body || typeof body.path !== 'string' || typeof body.content !== 'string') {
       throw new Error('bad request');
     }
+    // the burst the write adds to the coalescer, for the char trigger
+    let oldLen = 0;
+    try {
+      oldLen = readChapter(body.path).length;
+    } catch {}
     writeChapter(body.path, body.content);
-    await commit(`save ${body.path}`);
-    return json(ctx, { ok: true });
+    // no commit here — the autosave coalescer owns the cadence. `committed`
+    // tells the client a commit boundary was crossed (its native undo stack
+    // resets there).
+    const committed = markDirty(body.path, body.content.length - oldLen);
+    return json(ctx, { ok: true, committed });
   } catch (e) {
     return json(ctx, { error: (e as Error).message }, 400);
   }
