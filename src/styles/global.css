@@ -772,9 +772,12 @@ a.btn-tiny:hover {
 /* ---------- in-app confirm dialog (src/lib/confirm.ts) ----------
    The general replacement for window.confirm — created by JS, so global
    styles. It does not block the event loop: page animations keep running
-   while it asks. Backdrop tap = cancel; Escape = cancel (capture handler,
-   so the app's own Escape paths stand down); Enter = the focused button
-   (cancel owns focus — the safe default). */
+   while it asks. The backdrop is touch-transparent (pointer-events none) —
+   the tree stays scrollable behind it, so the author can double-check which
+   file blinks red before answering; the card is the only target. There is
+   deliberately NO tap-outside-to-cancel: a tap outside interacts with the
+   app. Escape = cancel (capture handler, so the app's own Escape paths stand
+   down); Enter = the focused button (cancel owns focus — the safe default). */
 .confirm-backdrop {
   position: fixed;
   inset: 0;
@@ -784,10 +787,12 @@ a.btn-tiny:hover {
   justify-content: center;
   padding: 1rem;
   background: color-mix(in srgb, var(--fg) 18%, transparent);
+  pointer-events: none; /* the page stays live behind the dim */
   animation: confirm-in 0.15s ease;
 }
 
 .confirm-card {
+  pointer-events: auto;
   background: var(--card);
   border: 1px solid var(--line);
   border-radius: 2px;

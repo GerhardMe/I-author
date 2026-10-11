@@ -1,8 +1,11 @@
 // In-app confirm dialog — the general replacement for window.confirm.
 // Unlike the native dialog it does not block the event loop: page animations
 // (the deletion preview's pulse) keep running while it asks, and the answer
-// arrives as a promise. The markup is created on demand; the styles live in
-// global.css — Astro scoping would never match JS-created DOM.
+// arrives as a promise. The backdrop does not swallow touches (pointer-events
+// none), so the tree stays scrollable behind it — the author double-checks
+// which file blinks red before answering; the card is the only touch target.
+// The markup is created on demand; the styles live in global.css — Astro
+// scoping would never match JS-created DOM.
 let open = false;
 
 export function appConfirm(
@@ -53,10 +56,6 @@ export function appConfirm(
     }
     okBtn.addEventListener('click', () => done(true));
     cancelBtn.addEventListener('click', () => done(false));
-    // a tap on the dimmed area is a cancel; taps on the card are not
-    backdrop.addEventListener('click', (e) => {
-      if (e.target === backdrop) done(false);
-    });
     document.addEventListener('keydown', onKey, true);
     cancelBtn.focus(); // the safe default owns Enter
   });

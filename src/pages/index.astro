@@ -1954,8 +1954,18 @@ newRow.hidden = true;
 
   // back to the welcome pseudo-file: a deliberate "home" — the open file is
   // flushed and pushed first, the last-opened pointer is cleared so boot does
-  // not drag the old file back over the choice
+  // not drag the old file back over the choice. Going home also leaves every
+  // transient surface behind: all menus close.
   async function showWelcome(): Promise<void> {
+    closeMenu();
+    pdfMenu.hidden = true;
+    if (newOpen) {
+      newRow.hidden = true;
+      newName.value = '';
+      newOpen = false;
+      pendingAnchorPath = '';
+      lineEl.hidden = true;
+    }
     await leavingFile();
     selected = null;
     currentGroup = null;

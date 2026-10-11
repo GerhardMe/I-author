@@ -115,7 +115,10 @@ src/lib/editor.ts    CodeMirror extension set (editor_extensions assembled once)
 src/lib/pdf-wait.ts  client-side loader polling /api/pdfstatus
 src/lib/confirm.ts   in-app confirm dialog (appConfirm) — promise-based,
                      non-blocking replacement for window.confirm; general
-                     (ok/cancel labels, danger styling), styles in global.css
+                     (ok/cancel labels, danger styling), styles in global.css;
+                     touch-transparent backdrop — the tree stays scrollable
+                     behind it, the card is the only target (no tap-outside
+                     cancel; Escape/cancel button do that)
 src/lib/*.test.ts    node:test suites (test-auth runs the src/lib/*.test.ts glob)
 ```
 
@@ -260,7 +263,8 @@ setNav(open)   the ONLY nav mutator (4.7): toggles .app.nav-off, aria-expanded
                the last file row scrolled the page behind the overlay) and
 clearing .bar-away (the scroll-away topbar state). The brand
                click toggles; double-click or long-press on it goes home
-               (showWelcome: flush+push first, welcome screen, `iauthor.last`
+               (showWelcome: all menus close first, then flush+push,
+               welcome screen, `iauthor.last`
                cleared so boot does not drag the old file back; on touch a
                700ms window suppresses the trailing tap's toggle, like the
                tree's long-press); Escape closes (unless the create dialog or a
