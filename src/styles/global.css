@@ -426,8 +426,16 @@ body.nav-anim .redo-btn {
   }
 }
 
-.undo-btn:hover,
-.redo-btn:hover {
+/* exhausted stack (synced from CM's undo/redo depth in editor.ts): dimmed,
+   click does nothing — no popup */
+.undo-btn:disabled,
+.redo-btn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.undo-btn:not(:disabled):hover,
+.redo-btn:not(:disabled):hover {
   color: var(--fg);
 }
 
